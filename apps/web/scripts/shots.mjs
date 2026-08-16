@@ -203,16 +203,34 @@ async function pumpLive(page) {
       env: { ...process.env, SEED_LIVE_COUNT: String(count), SEED_LIVE_SPREAD_MS: String(spread) },
     });
 
+  // The feed's empty state. Its absence is the only reliable signal that rows
+  // have actually arrived — polling for that beats sleeping for a guessed
+  // interval, because the delay is a race between a 3s server poll, the seed
+  // process's own startup, and how long ClickHouse takes to make the rows
+  // visible.
+  const empty = page.locator("text=Waiting for events");
+
   try {
-    // A wide burst fills the trailing window the "on site now" tiles read...
-    await seed(80, 240_000);
-    await page.waitForTimeout(4_000);
-    // ...and two tight bursts land after the stream's cursor, so the feed
-    // itself has rows rather than its empty state.
-    await seed(14, 1_200);
+    // A wide burst fills the trailing window the "on site now" tiles read.
+    await seed(90, 240_000);
+    await page.waitForTimeout(3_000);
+
+    // Then tight bursts, timestamped after the stream's cursor, until the feed
+    // has rows. Each burst is small: this is meant to look like live traffic,
+    // not like a stampede.
+    for (let attempt = 0; attempt < 6; attempt++) {
+      await seed(18, 1_200);
+      await page.waitForTimeout(4_000);
+      if ((await empty.count()) === 0) break;
+    }
+
+    // One more, so the feed has depth rather than a single row.
+    await seed(18, 1_200);
     await page.waitForTimeout(4_500);
-    await seed(10, 1_200);
-    await page.waitForTimeout(4_500);
+
+    if ((await empty.count()) > 0) {
+      console.warn("  ! live feed still empty after pumping");
+    }
   } catch (error) {
     console.warn(`  ! live pump: ${error.message.split("\n")[0]}`);
   }

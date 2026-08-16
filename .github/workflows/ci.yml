@@ -37,6 +37,15 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r typecheck
       - run: pnpm -r test
+
+      - name: No known-vulnerable dependencies
+        # The same reasoning as the tracker size budget below: a threshold only
+        # holds if crossing it breaks the build. Six high-severity advisories
+        # accumulated here unnoticed, including a SQL-injection fix that had
+        # been deliberately declined while it was only a peer-range annoyance.
+        # Failing on `high` keeps the gate actionable — moderate advisories in
+        # build-time tooling are reported by `pnpm audit` without blocking.
+        run: pnpm audit --audit-level=high
       - name: Build tracker
         run: pnpm --filter @falorb/tracker build
       - name: Enforce tracker size budget
@@ -102,6 +111,12 @@ jobs:
 
       - name: Every worker job runs
         run: npx tsx apps/worker/src/verify-jobs.ts
+
+      - name: Workspace resolution keeps tenants apart
+        # Which workspace resolves decides what every dashboard query is scoped
+        # to, so a regression here is a cross-tenant read rather than a cosmetic
+        # bug. Needs a real database, hence this job rather than the unit tests.
+        run: pnpm --filter @falorb/db verify:workspace
 
       - name: Build tracker for the collector to serve
         run: pnpm --filter @falorb/tracker build

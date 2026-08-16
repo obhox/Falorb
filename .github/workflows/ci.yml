@@ -110,7 +110,11 @@ jobs:
         run: pnpm --filter @falorb/queries smoke
 
       - name: Every worker job runs
-        run: npx tsx apps/worker/src/verify-jobs.ts
+        # Through pnpm, not `npx`. tsx is a devDependency of apps/worker and
+        # pnpm does not hoist it to the root bin, so `npx tsx` from the repo
+        # root cannot find it — every other step here already goes through
+        # `pnpm --filter` for the same reason.
+        run: pnpm --filter @falorb/worker verify:jobs
 
       - name: Workspace resolution keeps tenants apart
         # Which workspace resolves decides what every dashboard query is scoped

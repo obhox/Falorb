@@ -134,7 +134,7 @@ Verified end to end: one person, two devices, two products, both stores agreeing
 
 ## 7. Workers — `apps/worker`
 
-**All 11 verified running** (`npx tsx apps/worker/src/verify-jobs.ts`).
+**All 11 verified running** (`pnpm --filter @falorb/worker verify:jobs`).
 
 | | Job | Every | Notes |
 |---|---|---|---|
@@ -197,7 +197,7 @@ Verified end to end: one person, two devices, two products, both stores agreeing
 | ✅ | Job verifier | Runs all 11 jobs once |
 | ✅ | Tracker size gate | |
 | ✅ | Load test | `scripts/loadtest.mjs` — asserts every acknowledged event reached ClickHouse |
-| ⬜ | Playwright end-to-end | Browser → dashboard funnel assertion |
+| ✅ | Playwright end-to-end | 41 tests over every dashboard route, signed in against real Postgres and ClickHouse. `pnpm --filter @falorb/web e2e` |
 | ✅ | CI pipeline | Typecheck, tests, size gate, then migrations + queries + jobs + load test + MCP against real services |
 
 ## 11. MCP server — `apps/mcp`
@@ -444,7 +444,13 @@ and correctly have no UI.
 2. **`BETTER_AUTH_SECRET` is a low-entropy placeholder.** better-auth warns on
    every boot. It signs session cookies, so rotating it signs everyone out —
    change it before the first real account. `openssl rand -base64 32`.
-3. **`Tooltip` has the clipping bug `Select` just had.** It positions absolutely
+3. **The e2e suite needs `FALORB_AUTH_RATE_LIMIT=off`.** Set by
+   `playwright.config.ts` for its own server. A run legitimately spends more
+   sign-in attempts than the production limit allows (5 sign-ups an hour, 5
+   sign-ins per five minutes, per IP), so without it consecutive runs throttle
+   themselves and fail on auth — which looks like a broken dashboard. The limits
+   themselves are correct and unchanged for real deployments.
+4. **`Tooltip` has the clipping bug `Select` just had.** It positions absolutely
    inside its trigger, so inside a `Card` (`overflow: hidden`) it is cut off. Not
    currently used by the dashboard, so it is latent rather than visible; the fix
    is the same portal treatment.

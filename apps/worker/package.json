@@ -7,7 +7,9 @@
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "verify:jobs": "tsx src/verify-jobs.ts",
+    "backfill": "tsx src/backfill.ts"
   },
   "dependencies": {
     "@clickhouse/client": "^1.23.1",

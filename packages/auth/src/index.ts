@@ -55,11 +55,16 @@ function requireVerification(): boolean {
  * app supplies only its own `baseURL`.
  *
  * better-auth gets its own `pg` pool rather than sharing the application's
- * Drizzle connection. Its Drizzle adapter requires drizzle-orm ^0.45 while the
- * rest of this workspace is on 0.38, and upgrading the ORM across six verified
- * packages to satisfy one library's peer range is a poor trade. A second pool
- * on the same database costs a handful of connections and keeps the versions
- * independent.
+ * Drizzle connection. It costs a handful of connections and keeps better-auth's
+ * schema expectations from coupling to the application's ORM version.
+ *
+ * This used to be justified by the workspace sitting on drizzle-orm 0.38 while
+ * better-auth's adapter wanted ^0.45, with the upgrade judged not worth the
+ * churn. That trade stopped being defensible once 0.38 carried a published SQL
+ * injection advisory (patched in 0.45.2): a version pin held for convenience
+ * becomes a liability the moment it has a CVE attached, and the workspace is
+ * now on 0.45.2 throughout. The separate pool stays because the isolation is
+ * worth having on its own merits, not because the versions have to differ.
  *
  * Field mapping is explicit because this schema uses snake_case columns while
  * better-auth's models are camelCase. Without it, every insert would fail on a
@@ -137,7 +142,17 @@ export function createAuth(options: AuthOptions) {
      * by the replica count.
      */
     rateLimit: {
-      enabled: true,
+      /**
+       * Disabled only when explicitly asked, for the end-to-end suite.
+       *
+       * The limits below are per IP: 5 sign-ups an hour, 5 sign-ins per five
+       * minutes. A test run legitimately spends several of both — it registers
+       * a fixture account and deliberately fails sign-ins to assert the error
+       * path — so consecutive runs throttle themselves and fail on auth,
+       * looking exactly like a broken dashboard. Opt out by origin, never by
+       * NODE_ENV, so a misconfigured production cannot silently unlimit itself.
+       */
+      enabled: process.env.FALORB_AUTH_RATE_LIMIT !== "off",
       window: 60,
       max: 100,
       customRules: {

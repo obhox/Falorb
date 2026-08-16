@@ -3,6 +3,7 @@ import { liveCounts } from "@/server/analytics";
 import { NavRail, type NavSection } from "@/components/shell/NavRail";
 import { AccountFooter } from "@/components/shell/AccountFooter";
 import { Wordmark } from "@/components/shell/Wordmark";
+import { WorkspaceSwitcher } from "@/components/shell/WorkspaceSwitcher";
 import { num } from "@/lib/format";
 import { getTheme } from "@/server/theme";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -87,6 +88,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         }}
       >
         <Wordmark />
+        <WorkspaceSwitcher
+          current={session.workspace.organizationId}
+          workspaces={session.workspaces}
+        />
         <NavRail sections={sections} />
         <div
           style={{

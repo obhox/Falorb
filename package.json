@@ -21,7 +21,13 @@
     "infra:logs": "docker compose -f infra/docker-compose.yml logs -f",
     "db:seed": "pnpm --filter @falorb/db seed",
     "db:seed:events": "pnpm --filter @falorb/db seed:events",
-    "e2e": "pnpm --filter @falorb/web e2e"
+    "e2e": "pnpm --filter @falorb/web e2e",
+    "audit": "pnpm audit --audit-level=high"
+  },
+  "pnpm": {
+    "overrides": {
+      "esbuild": "^0.25.12"
+    }
   },
   "devDependencies": {
     "@types/node": "^22.10.5",

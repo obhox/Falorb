@@ -67,6 +67,10 @@ export default defineConfig({
       // reads as the app being broken rather than the test being misconfigured.
       FALORB_TRUSTED_ORIGINS: baseURL,
       FALORB_APP_URL: baseURL,
+      // See the note in @falorb/auth: the suite spends more sign-in attempts
+      // than the production limit allows, so consecutive runs would throttle
+      // themselves and fail on auth rather than on the app.
+      FALORB_AUTH_RATE_LIMIT: "off",
     },
   },
 });

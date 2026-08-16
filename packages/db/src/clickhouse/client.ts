@@ -33,6 +33,15 @@ export function clickhouseConfigFromEnv(
  * few milliseconds per batch and, critically, lets the writer only ACK the
  * Redis stream entry once the rows are genuinely durable. A crash then replays
  * the batch instead of losing it.
+ *
+ * `output_format_json_quote_64bit_integers: 0` is what makes counts arrive as
+ * numbers. ClickHouse quotes 64-bit integers in JSON by default, because they
+ * can exceed what an IEEE double represents exactly — so `uniqExact`, `count`
+ * and every `sum` over an integer column come back as `"1234"`, not `1234`.
+ * The dashboard's formatters guard with `Number.isFinite`, so a quoted count
+ * renders as an em dash: every visitor and session figure silently reads as
+ * "no data" while the float metrics beside it are fine. Analytics counters do
+ * not approach 2^53, so unquoting them is safe and the numbers are real again.
  */
 export function createClickHouse(
   config: ClickHouseConfig = clickhouseConfigFromEnv(),
@@ -49,6 +58,7 @@ export function createClickHouse(
       async_insert_max_data_size: "10485760",
       async_insert_busy_timeout_ms: 1000,
       date_time_input_format: "best_effort",
+      output_format_json_quote_64bit_integers: 0,
       ...overrides,
     },
     compression: { response: true, request: false },

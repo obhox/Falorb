@@ -9,9 +9,37 @@ function mailer(): Mailer {
   return sharedMailer;
 }
 
+/**
+ * Whether a new account must confirm its address before it counts as real.
+ *
+ * This used to be `mailer().isConfigured` — verification switched itself off
+ * whenever no mail provider was set. That is a fail-open default: a production
+ * install that simply had not configured `RESEND_API_KEY` accepted unverified
+ * addresses forever, and because invitation acceptance binds a seat to an
+ * email address, an unverified account was enough to claim someone else's
+ * invitation. (Both accept paths now check `emailVerified` independently, so
+ * that specific escalation is closed twice over.)
+ *
+ * The default is now inverted: production requires verification unless
+ * explicitly told otherwise, and refuses to start if that would lock everyone
+ * out. Outside production it follows the mailer, so local development stays
+ * frictionless.
+ */
 function requireVerification(): boolean {
   const override = process.env.FALORB_REQUIRE_EMAIL_VERIFICATION;
   if (override) return override === "true";
+
+  if (process.env.NODE_ENV === "production") {
+    if (!mailer().isConfigured) {
+      throw new Error(
+        "Email verification is required in production but no mail provider is configured. " +
+          "Set RESEND_API_KEY (or SMTP_*), or set FALORB_REQUIRE_EMAIL_VERIFICATION=false to " +
+          "accept unverified addresses deliberately.",
+      );
+    }
+    return true;
+  }
+
   return mailer().isConfigured;
 }
 
@@ -92,11 +120,65 @@ export function createAuth(options: AuthOptions) {
       },
     },
 
+    /**
+     * Brute-force protection.
+     *
+     * Left unconfigured, better-auth applies a generic 100-requests-per-minute
+     * default and only in production, which is no obstacle at all to a
+     * credential-stuffing run against `/sign-in/email`. The rules below are
+     * per-path because the useful limits differ by two orders of magnitude:
+     * a dashboard makes many session reads and a human makes very few sign-in
+     * attempts.
+     *
+     * Storage is in-memory, which is correct for the single-replica topology
+     * in `infra/docker-compose.production.yml` but does not survive a restart
+     * and is not shared between instances. Scaling the API horizontally means
+     * moving this to shared storage first, or the effective limit multiplies
+     * by the replica count.
+     */
+    rateLimit: {
+      enabled: true,
+      window: 60,
+      max: 100,
+      customRules: {
+        "/sign-in/email": { window: 300, max: 5 },
+        "/sign-up/email": { window: 3600, max: 5 },
+        "/forget-password": { window: 3600, max: 5 },
+        "/reset-password": { window: 3600, max: 5 },
+        "/send-verification-email": { window: 3600, max: 5 },
+      },
+    },
+
+    advanced: {
+      /**
+       * Without this, every rate-limit bucket keys on the reverse proxy's
+       * address — one shared bucket for all users, which is simultaneously a
+       * brute-force hole and a self-inflicted denial of service. Both proxies
+       * in front of this (Caddy in `infra/Caddyfile`, Coolify's in the
+       * production stack) overwrite `X-Forwarded-For` with the real peer, so
+       * the header is trustworthy *here* and must not be forwarded from
+       * anywhere else.
+       */
+      ipAddress: { ipAddressHeaders: ["x-forwarded-for"] },
+      useSecureCookies: process.env.NODE_ENV === "production",
+    },
+
     session: {
       modelName: "session",
-      expiresIn: 60 * 60 * 24 * 30,
+      /**
+       * Seven days rather than thirty, refreshed daily. This console holds
+       * behavioural data about a customer's visitors, so a stolen session
+       * cookie is worth having; a month of validity makes that theft
+       * effectively permanent.
+       */
+      expiresIn: 60 * 60 * 24 * 7,
       updateAge: 60 * 60 * 24,
-      cookieCache: { enabled: true, maxAge: 5 * 60 },
+      /**
+       * One minute, not five. The cached cookie is what the dashboard's role
+       * checks read, so this window is exactly how long a revoked session, a
+       * removed member or a demoted admin keeps their old privileges.
+       */
+      cookieCache: { enabled: true, maxAge: 60 },
       fields: {
         expiresAt: "expires_at",
         userId: "user_id",

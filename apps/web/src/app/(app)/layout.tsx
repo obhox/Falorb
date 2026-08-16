@@ -4,6 +4,8 @@ import { NavRail, type NavSection } from "@/components/shell/NavRail";
 import { AccountFooter } from "@/components/shell/AccountFooter";
 import { Wordmark } from "@/components/shell/Wordmark";
 import { num } from "@/lib/format";
+import { getTheme } from "@/server/theme";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 /**
  * The signed-in shell: a fixed 224px rail and a flexible main panel, both
@@ -17,6 +19,7 @@ import { num } from "@/lib/format";
  */
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await requireSession();
+  const theme = await getTheme();
   const projectIds = session.projects.map((p) => p.id);
 
   // A brand-new account has no projects yet; skip the query entirely rather
@@ -85,6 +88,15 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       >
         <Wordmark />
         <NavRail sections={sections} />
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "center",
+            padding: "0 0 10px",
+          }}
+        >
+          <ThemeToggle current={theme} />
+        </div>
         <AccountFooter
           name={session.user.name}
           email={session.user.email}

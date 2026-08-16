@@ -3,6 +3,7 @@ import { Mailer, alertMail } from "@falorb/mailer";
 import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { totals, type DateRange } from "@falorb/queries";
 import { schema, type WorkerContext } from "../context";
+import { postWebhook } from "../net";
 
 /**
  * Alert evaluation and delivery.
@@ -311,7 +312,10 @@ async function deliver(
           .digest("hex");
       }
 
-      const response = await fetch(url, { method: "POST", headers, body });
+      // Not a bare `fetch`. The destination is user-supplied and this call is
+      // made from inside the compose network, so every hop is resolved and
+      // screened against the private ranges first — see `../net`.
+      const response = await postWebhook(url, { headers, body });
       await markDelivered(context, rule.id, response.ok);
     } else if (channel.kind === "email") {
       const to = config.to;

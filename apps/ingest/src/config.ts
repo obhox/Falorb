@@ -6,6 +6,11 @@ export interface IngestConfig {
   maxmindPath: string;
   /** Events per minute allowed from one ip_hash before requests are shed. */
   rateLimitPerIp: number;
+  /**
+   * Events per minute allowed for one project across all senders. Bounds a
+   * distributed flood, which the per-IP limit cannot see.
+   */
+  rateLimitPerProject: number;
   /** Serve the tracker bundle from this path on disk. */
   trackerPath: string;
 }
@@ -28,6 +33,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): IngestConfig {
     saltSecret,
     maxmindPath: env.MAXMIND_DB_PATH ?? "",
     rateLimitPerIp: Number(env.FALORB_RATE_LIMIT ?? 600),
+    rateLimitPerProject: Number(env.FALORB_RATE_LIMIT_PROJECT ?? 60_000),
     trackerPath:
       env.FALORB_TRACKER_PATH ?? new URL("../../../packages/tracker/dist/t.js", import.meta.url).pathname,
   };

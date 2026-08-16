@@ -109,9 +109,25 @@ export async function resolveScope(
     );
   }
 
-  // stdio fallback: the local operator, scoped to the first organization.
-  const [org] = await db.select().from(schema.organizations).limit(1);
-  if (!org) throw new AuthError("No organization exists yet. Run the seed first.");
+  /**
+   * stdio fallback: the local operator, scoped to the only organization.
+   *
+   * "The first organization" was fine while an install meant one tenant. On a
+   * multi-tenant install it silently bound the assistant to whichever row came
+   * back first — an arbitrary customer's data, with read *and write* scope,
+   * and no indication that a choice had been made. Ambiguity is refused
+   * instead: with more than one organization the operator must say which, by
+   * setting a key.
+   */
+  const orgs = await db.select().from(schema.organizations).limit(2);
+  if (!orgs.length) throw new AuthError("No organization exists yet. Run the seed first.");
+  if (orgs.length > 1) {
+    throw new AuthError(
+      "This install has more than one organization, so the target is ambiguous. " +
+        "Set FALORB_API_KEY to the key of the workspace you mean.",
+    );
+  }
+  const org = orgs[0]!;
 
   const projects = await loadProjects(db, org.id);
   return {

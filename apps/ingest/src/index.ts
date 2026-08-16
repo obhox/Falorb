@@ -110,9 +110,17 @@ app.post("/e", async (c) => {
   const receivedAt = Date.now();
 
   // Rate limit on the same daily hash that is stored, so the limiter never
-  // needs the raw address either.
+  // needs the raw address either. An unattributable request (no usable client
+  // address) is refused rather than exempted — see `EventStream.allow`.
   const rlKey = ip ? hashIp(ip, project.id, config.saltSecret, new Date(receivedAt)) : "";
   if (!(await stream.allow(rlKey, config.rateLimitPerIp))) return c.body(null, 429);
+
+  // A per-IP limit does nothing against a flood spread across many addresses,
+  // and the public key that authorises this write is in the customer's page
+  // source. The project ceiling bounds that.
+  if (!(await stream.allowProject(project.id, config.rateLimitPerProject))) {
+    return c.body(null, 429);
+  }
 
   const events = decodeBatch(batch, {
     project,

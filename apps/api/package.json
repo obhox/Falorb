@@ -14,11 +14,11 @@
     "@falorb/auth": "workspace:*",
     "@falorb/core": "workspace:*",
     "@falorb/db": "workspace:*",
+    "@falorb/mailer": "workspace:*",
     "@falorb/queries": "workspace:*",
-    "drizzle-orm": "^0.38.4",
+    "drizzle-orm": "^0.45.2",
     "hono": "^4.6.16",
-    "zod": "^3.24.1",
-    "@falorb/mailer": "workspace:*"
+    "zod": "^3.24.1"
   },
   "devDependencies": {
     "@types/bun": "^1.1.16",

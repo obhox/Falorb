@@ -53,6 +53,13 @@ Thumbs.db
 *.swp
 *~
 
+# --- vendored design source ---------------------------------------------------
+# The upstream design system this repo's `packages/ui` was copied from. It is
+# maintained elsewhere and re-copied by hand, so tracking it here would mean
+# carrying a second copy that silently diverges from both the source and
+# packages/ui.
+Design System/
+
 # --- local data ---------------------------------------------------------------
 # MaxMind databases: ~70MB, licence forbids redistribution, stale within weeks.
 # Fetch with `pnpm --filter @falorb/ingest geoip:download`.

@@ -22,7 +22,8 @@ export function LineChart({
   const min = 0;
   const span = max - min || 1;
   const n = Math.max(...series.map((s) => s.data.length), 1);
-  // Stable across server and client render — see the note in Sparkline.
+  // Stable across server and client render: a random id differs between
+  // the two passes and breaks hydration on the url(#…) reference.
   const uid = "lc" + React.useId().replace(/:/g, "");
   const ticks = Array.from({ length: yTicks + 1 }, (_, i) => max - (span / yTicks) * i);
 
@@ -91,7 +92,7 @@ export function LineChart({
                     top: `${100 - ((s.data[idx] - min) / span) * 100}%`,
                     width: 7, height: 7, marginLeft: -3.5, marginTop: -3.5,
                     borderRadius: 999, background: s.color || "var(--series-1)",
-                    boxShadow: "0 0 0 3px rgba(9,9,9,.8)"
+                    boxShadow: "0 0 0 3px var(--dot-halo)"
                   }}
                 />
               ))}

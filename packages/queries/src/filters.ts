@@ -99,6 +99,11 @@ const FIELDS = new Map<string, FieldSpec>(Object.entries({
   distinct_id: { sql: "distinct_id", type: "String" },
   session_id: { sql: "toString(session_id)", type: "String" },
 
+  /* Crawler identity. Stored on every event but excluded from visitor metrics
+     by default — a breakdown by bot_name is the only way to see which agents,
+     AI or otherwise, are reading the site. */
+  bot_name: { sql: "bot_name", type: "String" },
+
   revenue: { sql: "ifNull(toFloat64(revenue), 0)", type: "Number" },
   currency: { sql: "currency", type: "String" },
   duration_ms: { sql: "duration_ms", type: "Number" },

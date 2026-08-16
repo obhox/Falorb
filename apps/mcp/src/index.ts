@@ -79,9 +79,30 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
     return;
   }
 
-  // CORS so browser-based MCP clients can connect. `mcp-session-id` must be
-  // exposed or the client cannot read it back off the response.
-  res.setHeader("Access-Control-Allow-Origin", req.headers.origin ?? "*");
+  /**
+   * CORS for browser-based MCP clients, against an allow-list.
+   *
+   * Reflecting `req.headers.origin` unchanged is not exploitable for CSRF here
+   * — authentication is a bearer token, not a cookie, so a hostile page cannot
+   * make the browser attach credentials. It is still wrong: the MCP
+   * specification requires servers to validate `Origin` specifically to defeat
+   * DNS rebinding, where a name the victim's browser trusts is repointed at
+   * this server and a local page is used to reach it.
+   *
+   * `FALORB_MCP_ALLOWED_ORIGINS` is the list. Unset means no browser origin is
+   * allowed, which is the right default: the ordinary client here is an
+   * assistant making a server-side request, and those send no `Origin` at all.
+   */
+  const origin = req.headers.origin;
+  if (origin) {
+    if (!mcpAllowedOrigins().includes(origin)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "origin not allowed" }));
+      return;
+    }
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+  }
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, mcp-session-id, mcp-protocol-version");
   res.setHeader("Access-Control-Expose-Headers", "mcp-session-id");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
@@ -127,6 +148,14 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise
 
   await server.connect(transport);
   await transport.handleRequest(req, res);
+}
+
+/** Browser origins permitted to reach the MCP endpoint. Empty by default. */
+function mcpAllowedOrigins(): string[] {
+  return (process.env.FALORB_MCP_ALLOWED_ORIGINS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
 
 function bearerToken(req: IncomingMessage): string | undefined {

@@ -1,5 +1,7 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/server/session";
+import { getTheme } from "@/server/theme";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 /**
  * The signed-out shell: one centred card on the flat near-black canvas.
@@ -9,6 +11,8 @@ import { getSession } from "@/server/session";
  */
 export default async function AuthLayout({ children }: { children: React.ReactNode }) {
   if (await getSession()) redirect("/");
+
+  const theme = await getTheme();
 
   return (
     <main
@@ -38,6 +42,10 @@ export default async function AuthLayout({ children }: { children: React.ReactNo
           </span>
         </div>
         {children}
+
+        <div style={{ display: "flex", justifyContent: "center" }}>
+          <ThemeToggle current={theme} />
+        </div>
       </div>
     </main>
   );

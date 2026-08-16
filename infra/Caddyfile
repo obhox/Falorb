@@ -53,16 +53,33 @@ a.{$FALORB_DOMAIN} {
 dashboard.{$FALORB_DOMAIN} {
 	encode zstd gzip
 
+	# Only what Caddy uniquely owns. The security headers are set by the app
+	# itself now (apps/web/next.config.mjs and src/middleware.ts) so that they
+	# survive a deployment that does not use this file — which the production
+	# stack does not. Setting them here too would silently override the app's,
+	# including the per-request CSP nonce.
 	header {
 		-Server
-		X-Content-Type-Options nosniff
-		X-Frame-Options DENY
-		Referrer-Policy strict-origin-when-cross-origin
-		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 	}
 
-	# The account API and the dashboard share an origin so the session cookie
-	# is first-party and needs no cross-site exemption.
+	# The dashboard serves its own auth handler and its own live stream, and
+	# both must reach it rather than the account API. A blanket
+	# `handle /api/*  ->  api:3003` swallowed them: `/api/live/<project>` (the
+	# server-sent event stream) 404'd, and `/api/auth/*` was answered by the
+	# other better-auth instance. Same origin either way, so the session cookie
+	# stays first-party and needs no cross-site exemption.
+	handle /api/auth/* {
+		reverse_proxy web:3000
+	}
+
+	handle /api/live/* {
+		reverse_proxy web:3000 {
+			# Server-sent events: buffering turns a live stream into a batch
+			# delivered on close.
+			flush_interval -1
+		}
+	}
+
 	handle /api/* {
 		reverse_proxy api:3003
 	}

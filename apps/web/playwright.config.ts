@@ -59,5 +59,14 @@ export default defineConfig({
     timeout: 240_000,
     stdout: "pipe",
     stderr: "pipe",
+    env: {
+      // better-auth rejects any request whose Origin is not trusted, and the
+      // suite runs on 127.0.0.1:3100 while the default trusts only
+      // localhost:3000. Without this every sign-in fails with "Invalid origin"
+      // and each test times out on a page that never authenticates — which
+      // reads as the app being broken rather than the test being misconfigured.
+      FALORB_TRUSTED_ORIGINS: baseURL,
+      FALORB_APP_URL: baseURL,
+    },
   },
 });

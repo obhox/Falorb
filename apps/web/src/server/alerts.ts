@@ -52,18 +52,37 @@ export interface AnomalyCondition {
 export interface AlertWithHistory {
   alert: AlertRow;
   projectName: string | null;
+  channelName: string | null;
+  channelKind: string | null;
   recent: AlertEventRow[];
+}
+
+export type AlertChannelRow = typeof schema.alertChannels.$inferSelect;
+
+export async function listChannels(organizationId: string): Promise<AlertChannelRow[]> {
+  return db()
+    .select()
+    .from(schema.alertChannels)
+    .where(eq(schema.alertChannels.organizationId, organizationId))
+    .orderBy(schema.alertChannels.createdAt);
 }
 
 export async function listAlerts(organizationId: string): Promise<AlertWithHistory[]> {
   const database = db();
 
   const rows = await database
-    .select({ alert: schema.alerts, projectName: schema.projects.name })
+    .select({
+      alert: schema.alerts,
+      projectName: schema.projects.name,
+      channelName: schema.alertChannels.name,
+      channelKind: schema.alertChannels.kind,
+    })
     .from(schema.alerts)
-    // Left join: an alert with a null projectId watches the whole portfolio,
-    // and an inner join would hide exactly those.
+    // Left joins throughout: an alert with a null projectId watches the whole
+    // portfolio, and one with a null channelId delivers nowhere. Inner joins
+    // would hide exactly the rows worth seeing.
     .leftJoin(schema.projects, eq(schema.projects.id, schema.alerts.projectId))
+    .leftJoin(schema.alertChannels, eq(schema.alertChannels.id, schema.alerts.channelId))
     .where(eq(schema.alerts.organizationId, organizationId))
     .orderBy(desc(schema.alerts.createdAt));
 
@@ -87,6 +106,8 @@ export async function listAlerts(organizationId: string): Promise<AlertWithHisto
   return rows.map((row) => ({
     alert: row.alert,
     projectName: row.projectName,
+    channelName: row.channelName,
+    channelKind: row.channelKind,
     recent: byAlert.get(row.alert.id) ?? [],
   }));
 }

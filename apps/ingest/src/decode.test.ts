@@ -15,6 +15,10 @@ const project: CachedProject = {
   timezone: "UTC",
   archived: false,
   settings: {},
+  // Recent: `originAllowed` only waives the domain check inside a 24h
+  // open-setup window measured from creation, so a fixed past date would put
+  // this fixture outside it and fail the two setup-window cases below.
+  createdAt: new Date(),
 };
 
 const NOW = 1_800_000_000_000;
@@ -150,8 +154,14 @@ describe("originAllowed", () => {
     expect(originAllowed(project, "https://evil.example")).toBe(false);
   });
 
-  it("accepts requests with no Origin, for server-side SDK use", () => {
-    expect(originAllowed(project, null)).toBe(true);
+  it("rejects a request with no Origin unless the project opted in", () => {
+    // curl sends no Origin either, so accepting origin-less requests
+    // unconditionally exempted exactly the clients an attacker would use.
+    expect(originAllowed(project, null)).toBe(false);
+  });
+
+  it("accepts a request with no Origin when the project opted in", () => {
+    expect(originAllowed({ ...project, settings: { serverSide: true } }, null)).toBe(true);
   });
 
   it("accepts any origin when no domains are configured yet", () => {

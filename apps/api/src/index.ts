@@ -15,6 +15,7 @@ import { generateDisclosure, resolveMaskingRules } from "@falorb/core";
 import { Mailer } from "@falorb/mailer";
 import { auth } from "./auth";
 import { HttpError } from "./http";
+import { requireAuth, requireHumanSession, requireScope } from "./guards";
 import { teamRoutes } from "./routes/team";
 import { peopleRoutes } from "./routes/people";
 import { createProject, ensureWorkspace, normalizeDomain, type Workspace } from "./onboarding";
@@ -104,19 +105,6 @@ app.use("/api/*", async (c, next) => {
   }
   return next();
 });
-
-function requireAuth(c: { get: (k: "workspace") => Workspace | null }): Workspace {
-  const workspace = c.get("workspace");
-  if (!workspace) throw new HttpError(401, "Sign in, or send an API key as `Authorization: Bearer`.");
-  return workspace;
-}
-
-function requireScope(c: { get: (k: "scopes") => string[] }, scope: string): void {
-  const scopes = c.get("scopes");
-  if (!scopes.includes("*") && !scopes.includes(scope)) {
-    throw new HttpError(403, `This credential lacks the "${scope}" scope.`);
-  }
-}
 
 
 /** Current user, workspace and projects — the dashboard's bootstrap call. */
@@ -265,8 +253,11 @@ const createKeySchema = z.object({
  * MCP, so the response explains that as well as returning the value.
  */
 app.post("/api/keys", async (c) => {
-  const workspace = requireAuth(c);
-  requireScope(c, "write");
+  // Deliberately not `requireAuth` + `write` scope. A write-scoped key could
+  // otherwise mint further keys indefinitely, so revoking a leaked credential
+  // would not revoke the ones it created — and nothing records the lineage.
+  // Issuing a credential is a human act.
+  const workspace = requireHumanSession(c, "issue API keys");
 
   const parsed = createKeySchema.safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) throw new HttpError(422, "A key needs a name.");
@@ -357,8 +348,9 @@ app.get("/api/keys", async (c) => {
 });
 
 app.delete("/api/keys/:id", async (c) => {
-  const workspace = requireAuth(c);
-  requireScope(c, "write");
+  // Same reasoning as issuance: a key that can revoke keys can revoke the ones
+  // an incident responder is relying on.
+  const workspace = requireHumanSession(c, "revoke API keys");
 
   // Revoked, not deleted — the row is the audit trail of what existed and when
   // it was last used.
@@ -393,25 +385,48 @@ app.delete("/api/keys/:id", async (c) => {
  * Public on purpose — it contains no secrets, and a site's privacy page may
  * want to fetch it directly rather than paste a copy that then goes stale when
  * the project's settings change.
+ *
+ * Addressed by **public key, not slug**. Slugs are unique per organization
+ * rather than globally (`projects_org_slug_uq`), so looking one up unscoped
+ * matched an arbitrary tenant's project: an anonymous caller guessing "blog"
+ * or "www" was handed someone else's property name, domain list, retention and
+ * masking rules. The public key is 128 bits of randomness and already ships in
+ * the page source of the site being described, so requiring it authorises the
+ * read against the one audience entitled to it — that site's own visitors —
+ * without making anything secret.
  */
-app.get("/api/projects/:slug/disclosure", async (c) => {
+app.get("/api/projects/:publicKey/disclosure", async (c) => {
   const [project] = await db
     .select()
     .from(schema.projects)
-    .where(eq(schema.projects.slug, c.req.param("slug")))
+    .where(eq(schema.projects.publicKey, c.req.param("publicKey")))
     .limit(1);
 
   if (!project) throw new HttpError(404, "No such project.");
 
-  const siblings = await db
-    .select({ domains: schema.projects.domains })
-    .from(schema.projects)
-    .where(
-      and(
-        eq(schema.projects.organizationId, project.organizationId),
-        eq(schema.projects.identityScope, "org"),
-      ),
+  /**
+   * Sibling domains are disclosed only when this project actually resolves
+   * identity across the organization. Under org-wide scope a visitor is being
+   * tracked across those domains and has to be told which; under project scope
+   * there is no cross-domain tracking to disclose, and listing the
+   * organization's other properties would be a portfolio leak with no
+   * transparency purpose to justify it.
+   */
+  let siblingDomains: string[] = [];
+  if (project.identityScope === "org") {
+    const siblings = await db
+      .select({ domains: schema.projects.domains })
+      .from(schema.projects)
+      .where(
+        and(
+          eq(schema.projects.organizationId, project.organizationId),
+          eq(schema.projects.identityScope, "org"),
+        ),
+      );
+    siblingDomains = [...new Set(siblings.flatMap((s) => s.domains))].filter(
+      (d) => !project.domains.includes(d),
     );
+  }
 
   const markdown = generateDisclosure({
     projectName: project.name,
@@ -421,9 +436,7 @@ app.get("/api/projects/:slug/disclosure", async (c) => {
     identityScope: project.identityScope,
     retentionDays: project.retentionDays,
     masking: resolveMaskingRules(project.settings),
-    siblingDomains: [...new Set(siblings.flatMap((s) => s.domains))].filter(
-      (d) => !project.domains.includes(d),
-    ),
+    siblingDomains,
     companyEnrichment: Boolean(process.env.IPINFO_TOKEN),
   });
 

@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { generatePublicKey } from "./api-keys";
 import * as schema from "./schema/index";
 import type { Database } from "./index";
@@ -33,6 +33,25 @@ export async function ensureWorkspace(
     .from(schema.memberships)
     .innerJoin(schema.organizations, eq(schema.organizations.id, schema.memberships.organizationId))
     .where(eq(schema.memberships.userId, user.id))
+    /**
+     * Ordered, because `limit(1)` without one is not a choice — it is whatever
+     * Postgres happens to return, and that can change between requests after a
+     * vacuum or a plan change. A user who belongs to two organizations (which
+     * is exactly what accepting an invitation creates) was being resolved into
+     * an arbitrary one, and the role came from the same arbitrary row: someone
+     * who is a viewer in one workspace and an owner in another could be
+     * evaluated as either.
+     *
+     * Oldest membership wins, which is stable and means the workspace someone
+     * created for themselves stays their default after they are invited
+     * elsewhere. `id` breaks ties so the order is total even if two
+     * memberships share a timestamp.
+     *
+     * This makes tenancy deterministic; it does not make it selectable. Until
+     * there is an explicit active-workspace preference and a switcher in the
+     * UI, a member of several workspaces can only reach their oldest one.
+     */
+    .orderBy(asc(schema.memberships.createdAt), asc(schema.memberships.id))
     .limit(1);
 
   if (existing) {

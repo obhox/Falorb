@@ -1,0 +1,205 @@
+/* Light theme.
+
+   Falorb was authored dark-first, and the dark values stay exactly as they are
+   in colors.css and semantic.css. This file re-points the *semantic* layer for
+   light, which is the only layer components read — no component knows which
+   theme it is in.
+
+   Three things could not simply be inverted:
+
+   1. The alpha-white tokens (--w-*). A white wash lightens a dark surface; on a
+      white surface it is invisible. Every border, hover tint and control fill
+      therefore becomes alpha-black here, not a lighter white.
+
+   2. Elevation. Dark encodes "raised" as lighter. On a white canvas there is no
+      lighter, so raised means whiter plus a real shadow, and the canvas steps
+      down to grey instead.
+
+   3. Accent and signal colours. Glacier at #7DD3FC and signal-up at #5FD08A are
+      tuned for contrast against black; on white they fail it badly. Both ramps
+      shift several steps darker so text and thin chart strokes stay legible.
+
+   `[data-theme]` wins over the media query so an explicit choice always beats
+   the system preference. */
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    color-scheme: light;
+
+    /* Surfaces — canvas is the extreme, panels step toward white. */
+    --bg-app: #f4f4f4;
+    --bg-shell: #efefef;
+    --surface-panel: #ffffff;
+    --surface-card: #ffffff;
+    --surface-raised: #fafafa;
+    --surface-inset: rgba(0, 0, 0, 0.035);
+    --surface-hover: rgba(0, 0, 0, 0.04);
+    --surface-active: rgba(0, 0, 0, 0.08);
+    --surface-selected: rgba(14, 116, 144, 0.09);
+    --surface-glass: rgba(255, 255, 255, 0.72);
+
+    /* Text */
+    --text-primary: #0a0a0a;
+    --text-body: #262626;
+    --text-secondary: #525252;
+    --text-muted: #737373;
+    --text-inverse: #ffffff;
+    --text-accent: #0e7490;
+    --text-link: #0e7490;
+    --text-link-hover: #155e75;
+
+    /* Hairlines — alpha black, never alpha white. */
+    --border-subtle: rgba(0, 0, 0, 0.08);
+    --border-default: rgba(0, 0, 0, 0.12);
+    --border-strong: rgba(0, 0, 0, 0.2);
+    --border-accent: #0e7490;
+    --grid-line: rgba(0, 0, 0, 0.07);
+
+    /* Controls */
+    --control-bg: rgba(0, 0, 0, 0.04);
+    --control-bg-hover: rgba(0, 0, 0, 0.07);
+    --control-bg-active: rgba(0, 0, 0, 0.1);
+    --control-border: rgba(0, 0, 0, 0.12);
+    --control-fg: #262626;
+
+    /* The primary button inverts with the theme: near-black on white. */
+    --btn-primary-bg: #111111;
+    --btn-primary-fg: #ffffff;
+    --btn-primary-bg-hover: #000000;
+
+    --metric-fg: #000000;
+    --focus-ring: 0 0 0 3px rgba(14, 116, 144, 0.28);
+
+    /* Signals — darker, so they pass contrast on white. The dim variants
+       become light tints rather than dark blocks. */
+    --signal-up: #15803d;
+    --signal-up-dim: #e3f5ea;
+    --signal-down: #be123c;
+    --signal-down-dim: #fce7eb;
+    --signal-warn: #a16207;
+    --signal-warn-dim: #fbf0de;
+    --delta-up: var(--signal-up);
+    --delta-down: var(--signal-down);
+
+    /* Chart series. Series 1 keeps carrying the accent; the rest darken so a
+       1.5px stroke is visible against white. */
+    --series-1: #0e7490;
+    --series-2: #525252;
+    --series-3: #737373;
+    --series-4: #a3a3a3;
+    --series-5: #c4c4c4;
+    --chart-track: rgba(0, 0, 0, 0.05);
+
+    /* Texture and protection */
+    --hatch: repeating-linear-gradient(
+      135deg,
+      rgba(0, 0, 0, 0.07) 0 1px,
+      transparent 1px 6px
+    );
+    --chart-hatch: var(--hatch);
+    --scrim-bottom: linear-gradient(to top, rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0));
+    --scrim-fade-right: linear-gradient(to left, rgba(255, 255, 255, 1), rgba(255, 255, 255, 0));
+    --dot-halo: rgba(255, 255, 255, 0.9);
+    --bar-divider: rgba(255, 255, 255, 0.7);
+
+    /* Glass over a light background is a white wash, not a white film on black. */
+    --glass-bg: rgba(255, 255, 255, 0.72);
+    --glass-border: 1px solid rgba(0, 0, 0, 0.08);
+
+    /* Shadows carry the elevation that "lighter" carried in dark, so they are
+       present but soft. The inset top highlight is dropped — a white edge on a
+       white card is invisible and only muddies the border. */
+    --edge-top: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+    --edge-ring: inset 0 0 0 1px rgba(0, 0, 0, 0.06);
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.06);
+    --shadow-2: 0 1px 3px rgba(0, 0, 0, 0.08);
+    --shadow-3: 0 6px 20px -6px rgba(0, 0, 0, 0.14);
+    --shadow-4: 0 20px 50px -12px rgba(0, 0, 0, 0.22);
+    --shadow-focus: 0 0 0 3px rgba(14, 116, 144, 0.28);
+  }
+}
+
+/* Explicit choice. Duplicated rather than shared with the media query because
+   `:root[data-theme="light"]` must apply even when the system prefers dark. */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --bg-app: #f4f4f4;
+  --bg-shell: #efefef;
+  --surface-panel: #ffffff;
+  --surface-card: #ffffff;
+  --surface-raised: #fafafa;
+  --surface-inset: rgba(0, 0, 0, 0.035);
+  --surface-hover: rgba(0, 0, 0, 0.04);
+  --surface-active: rgba(0, 0, 0, 0.08);
+  --surface-selected: rgba(14, 116, 144, 0.09);
+  --surface-glass: rgba(255, 255, 255, 0.72);
+
+  --text-primary: #0a0a0a;
+  --text-body: #262626;
+  --text-secondary: #525252;
+  --text-muted: #737373;
+  --text-inverse: #ffffff;
+  --text-accent: #0e7490;
+  --text-link: #0e7490;
+  --text-link-hover: #155e75;
+
+  --border-subtle: rgba(0, 0, 0, 0.08);
+  --border-default: rgba(0, 0, 0, 0.12);
+  --border-strong: rgba(0, 0, 0, 0.2);
+  --border-accent: #0e7490;
+  --grid-line: rgba(0, 0, 0, 0.07);
+
+  --control-bg: rgba(0, 0, 0, 0.04);
+  --control-bg-hover: rgba(0, 0, 0, 0.07);
+  --control-bg-active: rgba(0, 0, 0, 0.1);
+  --control-border: rgba(0, 0, 0, 0.12);
+  --control-fg: #262626;
+
+  --btn-primary-bg: #111111;
+  --btn-primary-fg: #ffffff;
+  --btn-primary-bg-hover: #000000;
+
+  --metric-fg: #000000;
+  --focus-ring: 0 0 0 3px rgba(14, 116, 144, 0.28);
+
+  --signal-up: #15803d;
+  --signal-up-dim: #e3f5ea;
+  --signal-down: #be123c;
+  --signal-down-dim: #fce7eb;
+  --signal-warn: #a16207;
+  --signal-warn-dim: #fbf0de;
+  --delta-up: var(--signal-up);
+  --delta-down: var(--signal-down);
+
+  --series-1: #0e7490;
+  --series-2: #525252;
+  --series-3: #737373;
+  --series-4: #a3a3a3;
+  --series-5: #c4c4c4;
+  --chart-track: rgba(0, 0, 0, 0.05);
+
+  --hatch: repeating-linear-gradient(135deg, rgba(0, 0, 0, 0.07) 0 1px, transparent 1px 6px);
+  --chart-hatch: var(--hatch);
+  --scrim-bottom: linear-gradient(to top, rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0));
+  --scrim-fade-right: linear-gradient(to left, rgba(255, 255, 255, 1), rgba(255, 255, 255, 0));
+  --dot-halo: rgba(255, 255, 255, 0.9);
+  --bar-divider: rgba(255, 255, 255, 0.7);
+
+  --glass-bg: rgba(255, 255, 255, 0.72);
+  --glass-border: 1px solid rgba(0, 0, 0, 0.08);
+
+  --edge-top: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  --edge-ring: inset 0 0 0 1px rgba(0, 0, 0, 0.06);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-2: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-3: 0 6px 20px -6px rgba(0, 0, 0, 0.14);
+  --shadow-4: 0 20px 50px -12px rgba(0, 0, 0, 0.22);
+  --shadow-focus: 0 0 0 3px rgba(14, 116, 144, 0.28);
+}
+
+/* Dark is the authored default, so it needs no overrides — only the explicit
+   marker, so choosing dark on a light-preferring system sticks. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+}

@@ -42,6 +42,7 @@ export default async function ProjectLayout({
     { href: `${base}/paths`, label: "Paths" },
     { href: `${base}/retention`, label: "Retention" },
     { href: `${base}/events`, label: "Events" },
+    { href: `${base}/crawlers`, label: "AI & crawlers" },
     { href: `${base}/goals`, label: "Goals" },
     { href: `${base}/settings`, label: "Settings" },
   ];

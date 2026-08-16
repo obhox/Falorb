@@ -171,6 +171,44 @@ services:
     depends_on:
       migrate: { condition: service_completed_successfully }
 
+  # --- dashboard ---------------------------------------------------------------
+  # This was missing entirely: the stack deployed the API, collector, worker and
+  # MCP server but never the dashboard, while `infra/Caddyfile` proxied to a
+  # `web:3000` that did not exist. The two files disagreed about what production
+  # was, which is also how the security headers configured in the Caddyfile came
+  # to be believed present and were in fact never served. They are now set by
+  # the app itself (`apps/web/next.config.mjs` and `src/middleware.ts`), so they
+  # hold whichever proxy is in front.
+  web:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.node
+      args:
+        APP: web
+    restart: unless-stopped
+    command: ["sh", "-c", "pnpm --filter @falorb/web start"]
+    environment:
+      SERVICE_FQDN_WEB_3000: /
+      PORT: 3000
+      NODE_ENV: production
+      DATABASE_URL: postgresql://falorb:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/falorb
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: falorb
+      CLICKHOUSE_PASSWORD: ${SERVICE_PASSWORD_CLICKHOUSE}
+      CLICKHOUSE_DATABASE: falorb
+      # Must be byte-identical to the API's, or a session minted by one is
+      # rejected by the other.
+      BETTER_AUTH_SECRET: ${SERVICE_BASE64_64_AUTH}
+      FALORB_APP_URL: https://dashboard.${FALORB_DOMAIN}
+      FALORB_API_URL: https://api.${FALORB_DOMAIN}
+      FALORB_INGEST_URL: https://a.${FALORB_DOMAIN}
+      FALORB_MCP_URL: https://mcp.${FALORB_DOMAIN}/mcp
+      FALORB_TRUSTED_ORIGINS: https://dashboard.${FALORB_DOMAIN},https://${FALORB_DOMAIN}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
   # --- MCP server --------------------------------------------------------------
   mcp:
     build:

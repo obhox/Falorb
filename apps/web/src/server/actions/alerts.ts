@@ -31,6 +31,28 @@ export async function createAlert(formData: FormData): Promise<ActionResult> {
   const windowMinutes = clamp(Number(formData.get("window_minutes")), 5, 10080, 60);
   const value = Number(formData.get("value"));
 
+  // A rule with no channel only reaches the worker's stdout. Refuse rather
+  // than create something that looks configured and notifies nobody.
+  const channelId = String(formData.get("channel") ?? "").trim();
+  if (!channelId) {
+    return {
+      ok: false,
+      message: "Choose where this alert should be delivered. Add a channel first if there is none.",
+    };
+  }
+
+  const [channel] = await db()
+    .select({ id: schema.alertChannels.id })
+    .from(schema.alertChannels)
+    .where(
+      and(
+        eq(schema.alertChannels.id, channelId),
+        eq(schema.alertChannels.organizationId, session.workspace.organizationId),
+      ),
+    )
+    .limit(1);
+  if (!channel) return { ok: false, message: "No such delivery channel." };
+
   const projectSlug = String(formData.get("project") ?? "");
   let projectId: number | null = null;
   if (projectSlug) {
@@ -79,6 +101,7 @@ export async function createAlert(formData: FormData): Promise<ActionResult> {
   await db().insert(schema.alerts).values({
     organizationId: session.workspace.organizationId,
     projectId,
+    channelId,
     name,
     kind,
     condition,

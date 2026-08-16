@@ -44,14 +44,34 @@ export class EventStream {
   }
 
   /**
-   * Fixed-window rate limit keyed on the daily IP hash.
+   * Fixed-window rate limit.
    *
-   * Deliberately coarse: this is a guard against a runaway script or a crude
-   * flood, not a security control. Returns true when the request is allowed.
+   * Fails **closed** on an empty key. It used to return true, which meant any
+   * request whose client address could not be determined was exempt from rate
+   * limiting entirely — and the key is derived from that address, so stripping
+   * the forwarding headers was enough to get unlimited writes into another
+   * customer's reports. An unattributable request is precisely the one that
+   * should not be trusted with an exemption.
    */
   async allow(key: string, limitPerMinute: number): Promise<boolean> {
-    if (!key) return true;
+    if (!key) return false;
     const bucket = `falorb:rl:${Math.floor(Date.now() / 60_000)}:${key}`;
+    const count = await this.redis.incr(bucket);
+    if (count === 1) await this.redis.expire(bucket, 120);
+    return count <= limitPerMinute;
+  }
+
+  /**
+   * Per-project ceiling, independent of who is sending.
+   *
+   * The per-IP limit does nothing against a flood spread across many
+   * addresses, which is the shape of the attack that matters here: the public
+   * key is in the customer's page source, so anyone can write to their
+   * reports. This bounds the damage to one project's minute rather than the
+   * cluster's.
+   */
+  async allowProject(projectId: number, limitPerMinute: number): Promise<boolean> {
+    const bucket = `falorb:rlp:${Math.floor(Date.now() / 60_000)}:${projectId}`;
     const count = await this.redis.incr(bucket);
     if (count === 1) await this.redis.expire(bucket, 120);
     return count <= limitPerMinute;

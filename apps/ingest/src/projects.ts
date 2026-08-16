@@ -10,7 +10,9 @@ export interface CachedProject {
   identityScope: "project" | "org";
   timezone: string;
   archived: boolean;
-  /** Per-project config: PII masking rules, excluded paths. */
+  /** Bounds the setup window during which an empty domain list accepts any origin. */
+  createdAt: Date;
+  /** Per-project config: PII masking rules, excluded paths, `serverSide`. */
   settings: unknown;
 }
 
@@ -82,6 +84,7 @@ export class ProjectCache {
         identityScope: row.identityScope,
         timezone: row.timezone,
         archived: row.archivedAt !== null,
+        createdAt: row.createdAt,
         settings: row.settings,
       });
     }
@@ -95,16 +98,47 @@ export class ProjectCache {
 }
 
 /**
+ * How long a project with no configured domains keeps accepting any origin.
+ *
+ * Setup needs a window where events arrive before the domain list is filled
+ * in, or the first-run experience is "nothing works and nothing says why". It
+ * does not need that window to last forever, which is what an unconditional
+ * `return true` amounted to.
+ */
+const OPEN_SETUP_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/**
  * Verify the request's Origin against the project's allowed domains.
  *
- * The public key is embedded in the page source and therefore not a secret;
- * this check is what stops a leaked key being used to inject junk into someone
- * else's reports. A project with no domains configured accepts any origin,
- * which is the pragmatic default during initial setup.
+ * The public key ships in the customer's page source and is not a secret, so
+ * this check is the only thing standing between a passer-by and write access
+ * to someone else's reports. For an analytics product the integrity of those
+ * reports *is* the product, so the two escape hatches that used to be here are
+ * now bounded:
+ *
+ *   A project with no domains configured accepted anything, permanently, and
+ *   that is the default state of every newly created project. It is now a
+ *   24-hour setup window measured from project creation.
+ *
+ *   A request with no `Origin` header was accepted unconditionally, for
+ *   server-side SDKs. But `curl` sends no Origin either, so this exempted
+ *   exactly the clients an attacker would use. Origin-less collection is now
+ *   opt-in per project via `settings.serverSide`.
  */
-export function originAllowed(project: CachedProject, origin: string | null): boolean {
-  if (!project.domains.length) return true;
-  if (!origin) return true; // non-browser clients (server-side SDK) send no Origin
+export function originAllowed(
+  project: CachedProject,
+  origin: string | null,
+  now: number = Date.now(),
+): boolean {
+  if (!project.domains.length) {
+    return now - project.createdAt.getTime() < OPEN_SETUP_WINDOW_MS;
+  }
+
+  if (!origin) {
+    const settings = (project.settings ?? {}) as { serverSide?: unknown };
+    return settings.serverSide === true;
+  }
+
   let host: string;
   try {
     host = new URL(origin).hostname.toLowerCase().replace(/^www\./, "");

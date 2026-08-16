@@ -6,3 +6,4 @@ export * from "./referrer";
 export * from "./ua";
 export * from "./privacy";
 export * from "./disclosure";
+export * from "./net";

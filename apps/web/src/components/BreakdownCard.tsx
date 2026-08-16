@@ -35,7 +35,7 @@ export function BreakdownCard({
   const top = Math.max(...items.map((item) => item.count), 1);
 
   return (
-    <Card title={title} subtitle={subtitle} action={action} padding="var(--space-5)">
+    <Card title={title} subtitle={subtitle} action={action}>
       {items.length === 0 ? (
         <Empty dense icon="inbox" title="Nothing recorded" body={emptyBody} />
       ) : (

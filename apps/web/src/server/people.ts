@@ -1,5 +1,16 @@
 import "server-only";
-import { and, arrayOverlaps, desc, eq, ilike, isNotNull, isNull, or, sql } from "drizzle-orm";
+import {
+  and,
+  arrayOverlaps,
+  desc,
+  eq,
+  ilike,
+  inArray,
+  isNotNull,
+  isNull,
+  or,
+  sql,
+} from "drizzle-orm";
 import { db, schema } from "@falorb/db";
 
 /**
@@ -171,4 +182,53 @@ export async function getPerson(
 
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
+export interface PersonIdentity {
+  email: string | null;
+  name: string | null;
+  identifiedId: string | null;
+}
+
+/**
+ * Resolve a batch of person ids to whatever this workspace knows them as.
+ *
+ * ClickHouse-derived lists — cross-project people, live visitors — carry a
+ * person id and nothing else, because identity lives in Postgres. Rendering
+ * that id raw turns the one screen that proves person-level tracking into a
+ * column of truncated UUIDs, when the workspace has the person's email sitting
+ * in another table.
+ *
+ * Scoped by organization, and by id: a person belonging to another tenant does
+ * not resolve, so a leaked id reveals no name.
+ */
+export async function peopleIdentities(
+  organizationId: string,
+  ids: string[],
+): Promise<Map<string, PersonIdentity>> {
+  const unique = [...new Set(ids.filter(isUuid))];
+  if (unique.length === 0) return new Map();
+
+  const rows = await db()
+    .select({
+      id: schema.persons.id,
+      email: schema.persons.email,
+      name: schema.persons.name,
+      identifiedId: schema.persons.identifiedId,
+    })
+    .from(schema.persons)
+    .where(
+      and(
+        eq(schema.persons.organizationId, organizationId),
+        inArray(schema.persons.id, unique),
+        isNull(schema.persons.deletedAt),
+      ),
+    );
+
+  return new Map(
+    rows.map((row) => [
+      row.id,
+      { email: row.email, name: row.name, identifiedId: row.identifiedId },
+    ]),
+  );
 }

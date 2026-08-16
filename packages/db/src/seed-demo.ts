@@ -241,13 +241,12 @@ const PROJECTS: ProjectSpec[] = [
       { path: "/", keep: 1, title: "Obhox — product engineering studio" },
       { path: "/work", keep: 0.55, title: "Work" },
       { path: "/contact", keep: 0.21, title: "Contact", event: "contact_started" },
-      {
-        path: "/contact/sent",
-        keep: 0.11,
-        title: "Message sent",
-        event: "contact_submitted",
-        revenue: [2500, 4000, 6500],
-      },
+      // No `revenue` here on purpose. A submitted enquiry is not money
+      // received, and booking it as revenue made the studio out-earn every
+      // SaaS property in the portfolio combined. The goal carries an assumed
+      // per-conversion value instead, which is what the "assumed" badge on the
+      // goals screen exists to disclose.
+      { path: "/contact/sent", keep: 0.11, title: "Message sent", event: "contact_submitted" },
     ],
     browse: [
       { path: "/work/spendtab", title: "Case study — Spendtab", tag: "case-study" },

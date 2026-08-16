@@ -22,7 +22,8 @@
     "db:seed": "pnpm --filter @falorb/db seed",
     "db:seed:events": "pnpm --filter @falorb/db seed:events",
     "e2e": "pnpm --filter @falorb/web e2e",
-    "audit": "pnpm audit --audit-level=high"
+    "audit": "pnpm audit --audit-level=high",
+    "loadtest": "node scripts/loadtest.mjs"
   },
   "pnpm": {
     "overrides": {
@@ -33,6 +34,7 @@
     "@types/node": "^22.10.5",
     "turbo": "^2.3.3",
     "typescript": "^5.7.3",
-    "vitest": "^3.0.5"
+    "vitest": "^3.0.5",
+    "postgres": "^3.4.5"
   }
 }

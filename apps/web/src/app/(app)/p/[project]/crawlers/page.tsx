@@ -61,8 +61,14 @@ export default async function CrawlersPage({
   };
 
   const [agents, previousAgents, agentTrend, pages, referrerSources, humans] = await Promise.all([
-    breakdown({ ...agentScope, field: "bot_name", limit: 50 }),
-    breakdown({ ...agentScope, range: resolved.previous, field: "bot_name", limit: 50 }),
+    breakdown({ ...agentScope, field: "bot_name", limit: 50, orderBy: "events" }),
+    breakdown({
+      ...agentScope,
+      range: resolved.previous,
+      field: "bot_name",
+      limit: 50,
+      orderBy: "events",
+    }),
     trend({
       ...agentScope,
       metric: "events",
@@ -70,7 +76,7 @@ export default async function CrawlersPage({
       breakdown: "bot_name",
       limit: 3,
     }),
-    breakdown({ ...agentScope, field: "path", limit: 12 }),
+    breakdown({ ...agentScope, field: "path", limit: 12, orderBy: "events" }),
     // Referrals are human traffic, so this one deliberately excludes bots.
     breakdown({ projectIds: [project.id], range: resolved.range, field: "source", limit: 60 }),
     totals({ projectIds: [project.id], range: resolved.range }),

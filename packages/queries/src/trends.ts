@@ -145,6 +145,25 @@ export interface BreakdownRow {
 }
 
 /**
+ * Which of a breakdown's metrics decides the ranking.
+ *
+ * A panel draws its bars from one metric and takes its order from this, so the
+ * two have to be the caller's single choice. Ranking by visitors while
+ * labelling the rows with event counts produces a list whose bars get longer
+ * and shorter as the reader's eye travels down it — the panel looks broken,
+ * and every number in it is nonetheless correct.
+ */
+export const BREAKDOWN_METRICS = [
+  "visitors",
+  "sessions",
+  "pageviews",
+  "events",
+  "revenue",
+] as const;
+
+export type BreakdownMetric = (typeof BREAKDOWN_METRICS)[number];
+
+/**
  * Dimensions that describe how a session *began*, not what happened during it.
  *
  * These are written onto every event by the ingest classifier, from that
@@ -182,11 +201,18 @@ const ACQUISITION_FIELDS = new Set([
  * genuine per-event properties and are grouped directly, with no extra pass.
  */
 export function buildBreakdown(
-  options: QueryScope & { field: string; limit?: number },
+  options: QueryScope & { field: string; limit?: number; orderBy?: BreakdownMetric },
 ): BuiltQuery {
   const scope = scopeClause(options);
   const bd = resolveBreakdown(options.field);
   const limit = clampLimit(options.limit, 20, 500);
+
+  // Resolved against a fixed list, never interpolated from caller input — this
+  // lands in an ORDER BY, where a column name cannot be a bound parameter.
+  const rank: BreakdownMetric = BREAKDOWN_METRICS.includes(options.orderBy as BreakdownMetric)
+    ? (options.orderBy as BreakdownMetric)
+    : "visitors";
+  const order = `${rank} DESC, events DESC`;
 
   const metrics = `
           uniqCombined64(person_id)          AS visitors,
@@ -204,7 +230,7 @@ export function buildBreakdown(
         FROM ${EVENTS}
         WHERE ${scope.sql}
         GROUP BY value
-        ORDER BY visitors DESC, events DESC
+        ORDER BY ${order}
         LIMIT {limit:UInt32}
       `,
       params: { ...scope.params, ...bd.params, limit },
@@ -233,7 +259,7 @@ export function buildBreakdown(
               ON acquisition.session_id = event.session_id
       WHERE ${scope.sql}
       GROUP BY value
-      ORDER BY visitors DESC, events DESC
+      ORDER BY ${order}
       LIMIT {limit:UInt32}
     `,
     params: { ...scope.params, ...bd.params, limit },
@@ -242,7 +268,7 @@ export function buildBreakdown(
 
 export function breakdown(
   client: ClickHouseClient,
-  options: QueryScope & { field: string; limit?: number },
+  options: QueryScope & { field: string; limit?: number; orderBy?: BreakdownMetric },
 ): Promise<BreakdownRow[]> {
   return runQuery<BreakdownRow>(client, buildBreakdown(options));
 }

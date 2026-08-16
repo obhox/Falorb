@@ -92,6 +92,10 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      # The collector runs on Bun, and Bun is not preinstalled on the runner.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
       - run: pnpm install --frozen-lockfile
 
       - name: Apply migrations
@@ -125,8 +129,28 @@ jobs:
       - name: Build tracker for the collector to serve
         run: pnpm --filter @falorb/tracker build
 
+      # The load test posts to a live collector and asserts the events reach
+      # ClickHouse, so both halves of the pipeline have to be running. Nothing
+      # started them before, which is why the step failed with every request
+      # rejected rather than with a real result.
+      - name: Start the collector and worker
+        run: |
+          bun apps/ingest/src/index.ts > /tmp/ingest.log 2>&1 &
+          pnpm --filter @falorb/worker start > /tmp/worker.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:3001/health >/dev/null && break
+            sleep 2
+          done
+          curl -sf http://localhost:3001/health || { echo "collector never became healthy"; cat /tmp/ingest.log; exit 1; }
+
       - name: End-to-end event delivery, with zero loss
         run: node scripts/loadtest.mjs --events 2000 --concurrency 20
+
+      - name: Collector and worker logs
+        if: always()
+        run: |
+          echo "--- ingest ---"; tail -40 /tmp/ingest.log || true
+          echo "--- worker ---"; tail -40 /tmp/worker.log || true
 
       - name: MCP server answers a real client
         run: pnpm --filter @falorb/mcp smoke

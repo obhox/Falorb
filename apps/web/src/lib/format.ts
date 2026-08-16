@@ -105,7 +105,24 @@ export function relative(when: Date | string | number, now: number = Date.now())
   if (!then) return "—";
   const diff = now - then.getTime();
 
-  if (diff < 0) return "Just now";
+  /**
+   * Future timestamps count forward, not to "Just now".
+   *
+   * Not every caller is looking backwards: an invitation's expiry is always in
+   * the future, and collapsing it to "Just now" told the reader that a link
+   * with six days left on it had just lapsed. Clock skew between the server
+   * and a client is the other source of small negative diffs, which is why the
+   * sub-minute case stays vague rather than claiming "in 0s".
+   */
+  if (diff < 0) {
+    const ahead = -diff;
+    if (ahead < 60_000) return "in a moment";
+    if (ahead < 3_600_000) return `in ${Math.floor(ahead / 60_000)}m`;
+    if (ahead < 86_400_000) return `in ${Math.floor(ahead / 3_600_000)}h`;
+    if (ahead < 604_800_000) return `in ${Math.floor(ahead / 86_400_000)}d`;
+    return shortDate(then, now);
+  }
+
   if (diff < 60_000) return `${Math.max(1, Math.floor(diff / 1000))}s ago`;
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;

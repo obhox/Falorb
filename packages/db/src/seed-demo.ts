@@ -1591,6 +1591,15 @@ async function seedAnalysis(
     ])
     .returning();
 
+  /**
+   * Two dashboards, and only one of them carries the public token.
+   *
+   * A share link resolves through `dashboards -> projects`, so a dashboard
+   * with a null `projectId` — the portfolio view — has nothing to join to and
+   * its token can never resolve. That is the intended boundary: a public link
+   * exposes exactly one property, never the whole portfolio. The shared one is
+   * therefore scoped to Linkbry.
+   */
   const [dashboard] = await db
     .insert(schema.dashboards)
     .values({
@@ -1602,10 +1611,17 @@ async function seedAnalysis(
         [insightRows[1]!.id]: { x: 6, y: 0, w: 6, h: 4 },
         [insightRows[3]!.id]: { x: 0, y: 4, w: 12, h: 4 },
       },
-      publicToken: SHARE_TOKEN,
       isDefault: true,
     })
     .returning();
+
+  await db.insert(schema.dashboards).values({
+    organizationId,
+    projectId: linkbry.id,
+    name: "Linkbry — public summary",
+    layout: {},
+    publicToken: SHARE_TOKEN,
+  });
 
   await db.insert(schema.dashboardWidgets).values(
     insightRows.slice(0, 4).map((insight, position) => ({
@@ -1821,15 +1837,20 @@ async function attachOwner(
   // Teammates. These are accounts, not visitors — the people who use the
   // dashboard, which is a different population from the people it reports on.
   const TEAM = [
-    { name: "Daniel Whitfield", email: "daniel@obhox.com", role: "admin" as const },
-    { name: "Amara Okafor", email: "amara@obhox.com", role: "member" as const },
-    { name: "Priya Iyer", email: "priya@obhox.com", role: "member" as const },
-    { name: "Jonas Bergmann", email: "jonas@obhox.com", role: "viewer" as const },
+    { name: "Daniel Whitfield", email: "daniel@obhox.com", role: "admin" as const, joinedDaysAgo: 318 },
+    { name: "Amara Okafor", email: "amara@obhox.com", role: "member" as const, joinedDaysAgo: 204 },
+    { name: "Priya Iyer", email: "priya@obhox.com", role: "member" as const, joinedDaysAgo: 96 },
+    { name: "Jonas Bergmann", email: "jonas@obhox.com", role: "viewer" as const, joinedDaysAgo: 34 },
   ];
 
   const memberIds: string[] = [];
   for (const member of TEAM) {
     const id = sha256(`demo-user:${member.email}`).slice(0, 32);
+    // Joined dates spread across the past year. The membership row carries the
+    // date the team screen shows, not the user row — leaving it to default
+    // stamps the whole team as having joined this morning.
+    const joined = new Date(Date.now() - member.joinedDaysAgo * 86_400_000);
+
     await db
       .insert(schema.user)
       .values({
@@ -1837,14 +1858,14 @@ async function attachOwner(
         name: member.name,
         email: member.email,
         emailVerified: true,
-        createdAt: new Date(Date.now() - int(40, 300) * 86_400_000),
-        updatedAt: new Date(),
+        createdAt: joined,
+        updatedAt: joined,
       })
       .onConflictDoNothing();
 
     await db
       .insert(schema.memberships)
-      .values({ organizationId, userId: id, role: member.role })
+      .values({ organizationId, userId: id, role: member.role, createdAt: joined })
       .onConflictDoNothing();
 
     memberIds.push(id);
@@ -1897,9 +1918,15 @@ async function attachOwner(
     return;
   }
 
+  // Predates every teammate: the owner is the person who created the workspace.
   await db
     .insert(schema.memberships)
-    .values({ organizationId, userId: user.id, role: "owner" })
+    .values({
+      organizationId,
+      userId: user.id,
+      role: "owner",
+      createdAt: new Date(Date.now() - 412 * 86_400_000),
+    })
     .onConflictDoNothing();
 
   console.log(`\n  ${email} owns the demo workspace.`);

@@ -11,6 +11,7 @@
     "lint": "next lint",
     "test": "vitest run --passWithNoTests",
     "e2e": "playwright test",
+    "shots": "node scripts/shots.mjs",
     "e2e:ui": "playwright test --ui"
   },
   "dependencies": {

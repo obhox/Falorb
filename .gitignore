@@ -69,6 +69,11 @@ infra/geoip/*.mmdb
 infra/data/
 infra/backups/
 
+# Screenshot output from `pnpm --filter @falorb/web shots`. Regenerated on
+# demand and tens of megabytes of PNGs — the script is worth tracking, its
+# output is not.
+shots/
+
 # Scratch files
 *.tmp
 .cache/

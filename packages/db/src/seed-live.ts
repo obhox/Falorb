@@ -22,8 +22,16 @@ loadRootEnv();
  * workspace: clicking through from the feed lands on a populated person, not a
  * ghost with one event.
  *
+ * `SEED_LIVE_SPREAD_MS` controls how far back the burst reaches. The default
+ * fills the trailing window the "on site now" counters read. A *small* value
+ * is what the event feed needs: that feed is a stream which only forwards
+ * events newer than the cursor taken when the page opened, so a burst spread
+ * over the previous four minutes is entirely in its past and it goes on
+ * reading "Waiting for events".
+ *
  *   pnpm --filter @falorb/db seed:live
  *   SEED_LIVE_COUNT=90 pnpm --filter @falorb/db seed:live
+ *   SEED_LIVE_SPREAD_MS=1500 pnpm --filter @falorb/db seed:live   # for the feed
  */
 
 const ORG_SLUG = process.env.SEED_LIVE_ORG ?? "obhox-demo";
@@ -89,6 +97,7 @@ function int(min: number, max: number): number {
 
 async function main(): Promise<void> {
   const count = Number(process.env.SEED_LIVE_COUNT ?? 70);
+  const spreadMs = Math.max(500, Number(process.env.SEED_LIVE_SPREAD_MS ?? 240_000));
   const db = createDatabase();
   const ch = createClickHouse();
   const now = Date.now();
@@ -135,9 +144,9 @@ async function main(): Promise<void> {
     const person = pick(people);
     const [channel, source, referrer] = pick(SOURCES);
 
-    // Spread across the last four minutes so the feed has a sense of pace,
-    // and so "on site now" counts more than a single instant.
-    const timestamp = now - int(2_000, 240_000);
+    // Spread backwards from now, so the burst has a sense of pace rather than
+    // landing on one instant.
+    const timestamp = now - int(0, spreadMs);
 
     events.push({
       projectId: project.id,
@@ -199,7 +208,7 @@ async function main(): Promise<void> {
   });
 
   await ch.close();
-  console.log(`inserted ${events.length} events across the last 4 minutes`);
+  console.log(`inserted ${events.length} events across the last ${Math.round(spreadMs / 1000)}s`);
   process.exit(0);
 }
 

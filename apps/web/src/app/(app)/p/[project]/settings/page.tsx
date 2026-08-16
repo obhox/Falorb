@@ -1,4 +1,5 @@
 import { Card } from "@falorb/ui";
+import { can } from "@falorb/db";
 import { requireProject } from "@/server/session";
 import { getShare } from "@/server/sharing";
 import { PageBody } from "@/components/shell/PageHeader";
@@ -44,12 +45,14 @@ export default async function ProjectSettingsPage({
         </div>
       </Card>
 
+      {can.share(session.workspace.role) && (
       <ShareControl
         slug={project.slug}
         initialUrl={
           share?.publicToken ? `${origin.replace(/\/$/, "")}/share/${share.publicToken}` : null
         }
       />
+      )}
 
       <SettingsForm
         project={{
@@ -62,6 +65,7 @@ export default async function ProjectSettingsPage({
           cookieless: project.cookieless === 1,
           retentionDays: project.retentionDays,
         }}
+        canEdit={can.manageProject(session.workspace.role)}
       />
     </PageBody>
   );

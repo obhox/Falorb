@@ -1,4 +1,0 @@
-/* Falorb webfonts. Both families are served from Google Fonts — no licensed binaries
-   were supplied with the brief, so these are CDN-linked rather than self-hosted.
-   Replace with @font-face + local files in assets/fonts/ when the real binaries exist. */
-@import url("https://fonts.googleapis.com/css2?family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=JetBrains+Mono:wght@400;500;600&display=swap");

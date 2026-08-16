@@ -195,14 +195,22 @@ export function teamRoutes(db: Database, mailer: Mailer): Hono<{ Variables: Vars
     if (!invitation) throw new HttpError(404, "That invitation is invalid, expired, or already used.");
 
     const [account] = await db
-      .select({ email: schema.user.email })
+      .select({ email: schema.user.email, emailVerified: schema.user.emailVerified })
       .from(schema.user)
       .where(eq(schema.user.id, userId))
       .limit(1);
 
+    // An unconfirmed address is a claim, not proof of control. Email
+    // verification is off on installs with no mail provider, so without this
+    // an attacker who learned an invited address could register it and take
+    // the seat — see the matching comment in the dashboard's accept action.
+    if (!account?.emailVerified) {
+      throw new HttpError(403, "Confirm your email address before joining a workspace.");
+    }
+
     // The token alone is not authority. Binding acceptance to the invited
     // address means a forwarded link cannot hand a stranger a seat.
-    if (account?.email.toLowerCase() !== invitation.email.toLowerCase()) {
+    if (account.email.toLowerCase() !== invitation.email.toLowerCase()) {
       throw new HttpError(
         403,
         `This invitation was sent to ${invitation.email}. Sign in with that address to accept it.`,

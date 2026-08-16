@@ -18,6 +18,8 @@
 /* Hatch fill: the inspo's texture for "inactive / total" chart volume. */
 --hatch:repeating-linear-gradient(135deg,rgba(255,255,255,.05) 0 1px,transparent 1px 6px); /* @kind other */
 /* Protection gradient under text sitting on imagery or chart area. */
+--dot-halo:rgba(9,9,9,.8); /* @kind color */
+--bar-divider:rgba(9,9,9,.5); /* @kind color */
 --scrim-bottom:linear-gradient(to top,rgba(9,9,9,.92),rgba(9,9,9,0)); /* @kind other */
 --scrim-fade-right:linear-gradient(to left,rgba(14,14,14,1),rgba(14,14,14,0)); /* @kind other */
 }

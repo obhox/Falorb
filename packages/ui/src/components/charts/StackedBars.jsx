@@ -40,7 +40,7 @@ export function StackedBars({ data = [], series = [], height = 200, showAxis = t
                   style={{
                     height: `${(v / (totals[i] || 1)) * 100}%`,
                     background: series[si]?.color || `var(--series-${(si % 5) + 1})`,
-                    borderTop: si ? "1px solid rgba(9,9,9,.5)" : "none"
+                    borderTop: si ? "1px solid var(--bar-divider)" : "none"
                   }}
                 />
               ))}

@@ -18,8 +18,8 @@
 
 /* Composition rules baked into tokens. */
 --gutter-panel:12px;      /* gap between floating panels */
---pad-panel:20px;         /* panel interior */
---pad-card:16px;
+--pad-panel:24px;         /* panel interior */
+--pad-card:20px;
 --pad-control-x:12px;
 --pad-control-y:7px;
 --row-height:38px;        /* data table row */

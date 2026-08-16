@@ -25,7 +25,7 @@ export function Card({ children, title, subtitle, action, padding, tone = "card"
         <header
           style={{
             display: "flex", alignItems: "flex-start", justifyContent: "space-between",
-            gap: 12, padding: `14px ${typeof pad === "number" ? pad + "px" : pad} 0`
+            gap: 12, padding: `${typeof pad === "number" ? pad + "px" : pad} ${typeof pad === "number" ? pad + "px" : pad} 0`
           }}
         >
           <div style={{ display: "grid", gap: 2 }}>

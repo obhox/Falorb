@@ -145,29 +145,121 @@ export interface BreakdownRow {
 }
 
 /**
+ * Which of a breakdown's metrics decides the ranking.
+ *
+ * A panel draws its bars from one metric and takes its order from this, so the
+ * two have to be the caller's single choice. Ranking by visitors while
+ * labelling the rows with event counts produces a list whose bars get longer
+ * and shorter as the reader's eye travels down it — the panel looks broken,
+ * and every number in it is nonetheless correct.
+ */
+export const BREAKDOWN_METRICS = [
+  "visitors",
+  "sessions",
+  "pageviews",
+  "events",
+  "revenue",
+] as const;
+
+export type BreakdownMetric = (typeof BREAKDOWN_METRICS)[number];
+
+/**
+ * Dimensions that describe how a session *began*, not what happened during it.
+ *
+ * These are written onto every event by the ingest classifier, from that
+ * event's own referrer — so the second pageview of a visit carries
+ * `channel = 'internal'`, and so does the `$revenue` event at the end of it.
+ * That is correct at the event level and wrong at every level a reader cares
+ * about: grouping events by `channel` answers "which link produced this
+ * pageview", when the question on screen is always "where did this person come
+ * from" and "which channel produced this money".
+ *
+ * Aggregated raw, the result is a "how people arrived" panel whose largest row
+ * is `internal`, and a revenue-by-channel panel that files every sale under
+ * internal navigation. Both are the same bug wearing different labels.
+ */
+const ACQUISITION_FIELDS = new Set([
+  "channel",
+  "source",
+  "referrer",
+  "referrer_host",
+  "utm_source",
+  "utm_medium",
+  "utm_campaign",
+  "utm_term",
+  "utm_content",
+]);
+
+/**
  * Top values for a dimension — the shape behind every "top pages", "top
  * sources", "top countries" panel.
+ *
+ * Acquisition dimensions are resolved per session from the session's first
+ * event and then joined back, so every event in a visit — including the
+ * revenue it produced — is credited to the channel that actually brought the
+ * person. Non-acquisition dimensions (path, country, device, bot_name) are
+ * genuine per-event properties and are grouped directly, with no extra pass.
  */
 export function buildBreakdown(
-  options: QueryScope & { field: string; limit?: number },
+  options: QueryScope & { field: string; limit?: number; orderBy?: BreakdownMetric },
 ): BuiltQuery {
   const scope = scopeClause(options);
   const bd = resolveBreakdown(options.field);
   const limit = clampLimit(options.limit, 20, 500);
 
-  return {
-    sql: `
-      SELECT
-          ${bd.expr} AS value,
+  // Resolved against a fixed list, never interpolated from caller input — this
+  // lands in an ORDER BY, where a column name cannot be a bound parameter.
+  const rank: BreakdownMetric = BREAKDOWN_METRICS.includes(options.orderBy as BreakdownMetric)
+    ? (options.orderBy as BreakdownMetric)
+    : "visitors";
+  const order = `${rank} DESC, events DESC`;
+
+  const metrics = `
           uniqCombined64(person_id)          AS visitors,
           uniqCombined64(session_id)         AS sessions,
           countIf(name = '$pageview')        AS pageviews,
           count()                            AS events,
-          sum(ifNull(toFloat64(revenue), 0)) AS revenue
-      FROM ${EVENTS}
+          sum(ifNull(toFloat64(revenue), 0)) AS revenue`;
+
+  if (!ACQUISITION_FIELDS.has(options.field)) {
+    return {
+      sql: `
+        SELECT
+            ${bd.expr} AS value,
+            ${metrics}
+        FROM ${EVENTS}
+        WHERE ${scope.sql}
+        GROUP BY value
+        ORDER BY ${order}
+        LIMIT {limit:UInt32}
+      `,
+      params: { ...scope.params, ...bd.params, limit },
+    };
+  }
+
+  return {
+    sql: `
+      WITH session_acquisition AS (
+          SELECT
+              session_id,
+              argMin(${bd.expr}, timestamp) AS value
+          FROM ${EVENTS}
+          WHERE ${scope.sql}
+          GROUP BY session_id
+      )
+      SELECT
+          acquisition.value AS value,
+          uniqCombined64(event.person_id)          AS visitors,
+          uniqCombined64(event.session_id)         AS sessions,
+          countIf(event.name = '$pageview')        AS pageviews,
+          count()                                  AS events,
+          sum(ifNull(toFloat64(event.revenue), 0)) AS revenue
+      FROM ${EVENTS} AS event
+      INNER JOIN session_acquisition AS acquisition
+              ON acquisition.session_id = event.session_id
       WHERE ${scope.sql}
       GROUP BY value
-      ORDER BY visitors DESC, events DESC
+      ORDER BY ${order}
       LIMIT {limit:UInt32}
     `,
     params: { ...scope.params, ...bd.params, limit },
@@ -176,7 +268,7 @@ export function buildBreakdown(
 
 export function breakdown(
   client: ClickHouseClient,
-  options: QueryScope & { field: string; limit?: number },
+  options: QueryScope & { field: string; limit?: number; orderBy?: BreakdownMetric },
 ): Promise<BreakdownRow[]> {
   return runQuery<BreakdownRow>(client, buildBreakdown(options));
 }

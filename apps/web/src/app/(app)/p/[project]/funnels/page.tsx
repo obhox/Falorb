@@ -3,9 +3,11 @@ import { requireProject } from "@/server/session";
 import { funnel, FilterError } from "@/server/analytics";
 import { PageBody } from "@/components/shell/PageHeader";
 import { FunnelBuilder } from "@/components/FunnelBuilder";
+import { SavedFunnels } from "./SavedFunnels";
 import { Empty } from "@/components/Empty";
+import { listFunnels } from "@/server/funnels";
 import { num, pct } from "@/lib/format";
-import { parseFunnelSpec } from "@/lib/funnel-spec";
+import { parseFunnelSpec, serializeSteps } from "@/lib/funnel-spec";
 import { one, resolveRange, type SearchParams } from "@/lib/range";
 
 export const dynamic = "force-dynamic";
@@ -32,10 +34,20 @@ export default async function FunnelsPage({
     to: one(search, "to"),
   });
 
+  const saved = await listFunnels(project.id);
+
+  /**
+   * With nothing in the URL, open the property's first saved funnel rather
+   * than the generic placeholder. The placeholder names events (`signup`,
+   * `$revenue`) that a given site may simply not send, so the default view of
+   * this screen was frequently a funnel nobody had ever entered — which reads
+   * as "the product is broken", not as "you have not built a funnel yet".
+   */
+  const requestedSteps = one(search, "steps");
   const spec = parseFunnelSpec({
-    steps: one(search, "steps"),
+    steps: requestedSteps ?? (saved[0] ? serializeSteps(saved[0].steps) : undefined),
     mode: one(search, "mode"),
-    window: one(search, "window"),
+    window: one(search, "window") ?? (requestedSteps ? undefined : saved[0]?.windowHours.toString()),
   });
 
   // A hand-edited URL can name a field that is not filterable. The query layer
@@ -62,6 +74,12 @@ export default async function FunnelsPage({
 
   return (
     <PageBody>
+      <SavedFunnels
+        slug={project.slug}
+        funnels={saved}
+        activeSteps={serializeSteps(spec.steps)}
+      />
+
       <FunnelBuilder spec={spec} />
 
       {error ? (

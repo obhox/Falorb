@@ -69,7 +69,7 @@ bun apps/ingest/src/index.ts
 ```
 
 ```bash
-npx tsx apps/worker/src/index.ts
+pnpm --filter @falorb/worker start
 ```
 
 Install on a site:
@@ -106,7 +106,7 @@ throughput without duplicating sweeps.
 Run them all once, against live data:
 
 ```bash
-npx tsx apps/worker/src/verify-jobs.ts
+pnpm --filter @falorb/worker verify:jobs
 node scripts/loadtest.mjs --events 3000    # asserts zero event loss
 ```
 
@@ -114,7 +114,7 @@ Backfill profiles from history (watermarks only move forward, so this is
 needed after an import or a first deploy onto existing traffic):
 
 ```bash
-npx tsx apps/worker/src/backfill.ts --days 90
+pnpm --filter @falorb/worker backfill --days 90
 ```
 
 ## Privacy
@@ -139,7 +139,7 @@ pnpm -r typecheck              # 6 packages
 pnpm -r test                   # 101 unit tests
 pnpm --filter @falorb/tracker size    # fails the build over 3 KB gzip
 pnpm --filter @falorb/queries smoke   # 32 queries against live ClickHouse
-npx tsx apps/worker/src/verify-jobs.ts
+pnpm --filter @falorb/worker verify:jobs
 node scripts/loadtest.mjs --events 3000    # asserts zero event loss
 ```
 
@@ -147,7 +147,7 @@ Backfill profiles from history (watermarks only move forward, so this is
 needed after an import or a first deploy onto existing traffic):
 
 ```bash
-npx tsx apps/worker/src/backfill.ts --days 90
+pnpm --filter @falorb/worker backfill --days 90
 ```
 
 `packages/db/src/seed-events.ts` generates a deterministic multi-day,

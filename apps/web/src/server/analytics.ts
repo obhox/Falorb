@@ -46,8 +46,9 @@ export const FilterError = q.FilterError;
 
 export const totals = (o: q.QueryScope) => q.totals(ch(), o);
 export const trend = (o: q.TrendOptions) => q.trend(ch(), o);
-export const breakdown = (o: q.QueryScope & { field: string; limit?: number }) =>
-  q.breakdown(ch(), o);
+export const breakdown = (
+  o: q.QueryScope & { field: string; limit?: number; orderBy?: q.BreakdownMetric },
+) => q.breakdown(ch(), o);
 
 // ---- Funnels ---------------------------------------------------------------
 

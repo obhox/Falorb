@@ -15,7 +15,9 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "sync": "node scripts/sync.mjs",
+    "sync:check": "node scripts/sync.mjs --check"
   },
   "dependencies": {
     "lucide-react": "^0.454.0"

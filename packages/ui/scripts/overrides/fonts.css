@@ -1,0 +1,11 @@
+/* Falorb webfonts.
+
+   The design system linked Instrument Sans and JetBrains Mono from the Google
+   Fonts CDN. In the app they are self-hosted by `next/font/google`, which
+   inlines the @font-face rules, serves the files from our own origin and
+   removes a render-blocking third-party request. The app layout points
+   --font-sans and --font-mono at the generated families.
+
+   Still substitutes: no licensed Falorb binaries were supplied. If real faces
+   arrive, drop them in and swap the next/font call for local files — nothing
+   else in the system needs to change. */

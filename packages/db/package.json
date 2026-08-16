@@ -19,17 +19,20 @@
     "typecheck": "tsc --noEmit",
     "seed": "tsx src/seed.ts",
     "seed:events": "tsx src/seed-events.ts",
+    "seed:demo": "tsx src/seed-demo.ts",
+    "seed:live": "tsx src/seed-live.ts",
     "seed:owner": "tsx src/seed.ts",
+    "verify:workspace": "tsx src/verify-workspace.ts",
     "migrate:all": "tsx src/migrate-all.ts"
   },
   "dependencies": {
     "@clickhouse/client": "^1.10.1",
     "@falorb/core": "workspace:*",
-    "drizzle-orm": "^0.38.4",
+    "drizzle-orm": "^0.45.2",
     "postgres": "^3.4.5"
   },
   "devDependencies": {
-    "drizzle-kit": "^0.30.2",
+    "drizzle-kit": "^0.31.10",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3"
   }

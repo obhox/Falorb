@@ -4,6 +4,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { AUDIT_ACTIONS, audit, createClickHouse, schema, type Database } from "@falorb/db";
 import type { Workspace } from "../onboarding";
 import { HttpError } from "../http";
+import { requireHumanSession, requireScope } from "../guards";
 
 /**
  * Manual identity corrections and GDPR requests.
@@ -54,6 +55,7 @@ export function peopleRoutes(db: Database): Hono<{ Variables: Vars }> {
 
   app.post("/merge", async (c) => {
     const workspace = requireWorkspace(c);
+    requireScope(c, "write");
     const parsed = mergeSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) throw new HttpError(422, "survivorId and mergedId must both be UUIDs.");
 
@@ -148,6 +150,7 @@ export function peopleRoutes(db: Database): Hono<{ Variables: Vars }> {
    */
   app.post("/unmerge/:mergeId", async (c) => {
     const workspace = requireWorkspace(c);
+    requireScope(c, "write");
 
     const [record] = await db
       .select()
@@ -214,8 +217,19 @@ export function peopleRoutes(db: Database): Hono<{ Variables: Vars }> {
    */
   app.post("/requests", async (c) => {
     const workspace = requireWorkspace(c);
+    requireScope(c, "write");
+
     const parsed = requestSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) throw new HttpError(422, "personId (UUID) and kind are required.");
+
+    // Erasure removes the profile and the entire event history across both
+    // stores and is explicitly not reversible. No scope expresses "may destroy
+    // data irrecoverably", so it is refused to bearer credentials outright —
+    // including the read-only keys users hand to AI assistants, which is
+    // exactly how this became reachable without any check at all.
+    if (parsed.data.kind === "delete") {
+      requireHumanSession(c, "erase a person");
+    }
 
     await owned(workspace, parsed.data.personId);
 
@@ -254,6 +268,7 @@ export function peopleRoutes(db: Database): Hono<{ Variables: Vars }> {
 
   app.get("/requests", async (c) => {
     const workspace = requireWorkspace(c);
+    requireScope(c, "read");
     const rows = await db
       .select()
       .from(schema.dataRequests)

@@ -31,9 +31,28 @@ export interface UaResult {
 const BOT_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
   [/googlebot|google-inspectiontool|storebot-google/i, "Googlebot"],
   [/bingbot|bingpreview|adidxbot/i, "Bingbot"],
-  [/gptbot|oai-searchbot|chatgpt-user/i, "GPTBot"],
-  [/claudebot|claude-web|anthropic-ai/i, "ClaudeBot"],
-  [/perplexitybot|perplexity-user/i, "PerplexityBot"],
+  /* AI agents, split by *why* they are here — the two behaviours are wholly
+     different events and collapsing them loses the more valuable one.
+
+     A "(user)" agent means a person asked an assistant about this page and it
+     fetched the page to answer them: a real reader, arriving through a
+     different door. The bare crawler is bulk ingestion for training or an
+     index, with no person attached and no visit to follow.
+
+     Ordered specific-before-general, since the bare names are substrings of
+     nothing but the generic catch-all still waits at the end. */
+  [/chatgpt-user/i, "ChatGPT (user)"],
+  [/oai-searchbot/i, "OpenAI SearchBot"],
+  [/gptbot/i, "GPTBot"],
+  [/claude-user|claude-web/i, "Claude (user)"],
+  [/claudebot|anthropic-ai/i, "ClaudeBot"],
+  [/perplexity-user/i, "Perplexity (user)"],
+  [/perplexitybot/i, "PerplexityBot"],
+  [/google-extended/i, "Google-Extended"],
+  [/bytespider/i, "Bytespider"],
+  [/meta-externalagent/i, "Meta AI"],
+  [/amazonbot/i, "Amazonbot"],
+  [/ccbot/i, "CCBot"],
   [/applebot/i, "Applebot"],
   [/duckduckbot/i, "DuckDuckBot"],
   [/yandexbot|yandeximages/i, "YandexBot"],
@@ -41,7 +60,7 @@ const BOT_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
   [/ahrefsbot/i, "AhrefsBot"],
   [/semrushbot/i, "SemrushBot"],
   [/mj12bot|dotbot|blexbot|petalbot|dataforseo/i, "SEO crawler"],
-  [/facebookexternalhit|facebookcatalog|meta-externalagent/i, "Facebook"],
+  [/facebookexternalhit|facebookcatalog/i, "Facebook"],
   [/twitterbot/i, "Twitterbot"],
   [/linkedinbot/i, "LinkedInBot"],
   [/slackbot|slack-imgproxy/i, "Slackbot"],

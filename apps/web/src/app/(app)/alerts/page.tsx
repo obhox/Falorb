@@ -1,9 +1,17 @@
 import type { Metadata } from "next";
 import { Card } from "@falorb/ui";
 import { requireSession } from "@/server/session";
-import { ALERT_KIND_LABELS, describeCondition, listAlerts, type AlertKind } from "@/server/alerts";
+import {
+  ALERT_KIND_LABELS,
+  describeCondition,
+  listAlerts,
+  listChannels,
+  type AlertKind,
+} from "@/server/alerts";
 import { PageBody, PageHeader } from "@/components/shell/PageHeader";
 import { AlertsPanel, type AlertView } from "./AlertsPanel";
+import { ChannelsPanel, type ChannelView } from "./ChannelsPanel";
+import { can } from "@falorb/db";
 import { Empty } from "@/components/Empty";
 import { dateTime, relative } from "@/lib/format";
 
@@ -13,23 +21,49 @@ export const dynamic = "force-dynamic";
 /**
  * Alert rules and recent firings.
  *
- * Delivery is worth being precise about: Slack and generic webhooks are wired
- * and verified, email is not. A rule whose only channel is email will evaluate
- * and record a firing, and nothing will arrive. That is stated on the page
- * rather than left to be discovered during an outage.
+ * Channels come first, then rules. A rule with no channel is not an alert: the
+ * worker evaluates it and writes the result to its own stdout, which nobody is
+ * watching. Creating one therefore requires picking a channel, and any existing
+ * rule without one is labelled "delivers nowhere" rather than looking healthy.
  */
 export default async function AlertsPage() {
   const session = await requireSession();
-  const alerts = await listAlerts(session.workspace.organizationId);
+  const [alerts, channels] = await Promise.all([
+    listAlerts(session.workspace.organizationId),
+    listChannels(session.workspace.organizationId),
+  ]);
   const now = Date.now();
 
-  const views: AlertView[] = alerts.map(({ alert, projectName, recent }) => ({
+  // Whether a mailer exists decides if an email channel actually delivers, so
+  // it is surfaced rather than discovered during an outage.
+  const emailConfigured = Boolean(process.env.RESEND_API_KEY || process.env.SMTP_URL);
+
+  const ruleCounts = new Map<string, number>();
+  for (const { alert } of alerts) {
+    if (alert.channelId) ruleCounts.set(alert.channelId, (ruleCounts.get(alert.channelId) ?? 0) + 1);
+  }
+
+  const channelViews: ChannelView[] = channels.map((channel) => {
+    const config = channel.config as Record<string, string>;
+    return {
+      id: channel.id,
+      name: channel.name,
+      kind: channel.kind,
+      // Never the signing secret — only where it points.
+      destination: channel.kind === "email" ? (config.to ?? "—") : (config.url ?? "—"),
+      active: channel.active,
+      ruleCount: ruleCounts.get(channel.id) ?? 0,
+    };
+  });
+
+  const views: AlertView[] = alerts.map(({ alert, projectName, channelName, recent }) => ({
     id: alert.id,
     name: alert.name,
     kind: alert.kind,
     kindLabel: ALERT_KIND_LABELS[alert.kind as AlertKind] ?? alert.kind,
     description: describeCondition(alert),
     scope: projectName ?? "All properties",
+    channelName: channelName ?? null,
     active: alert.active,
     cooldownMinutes: alert.cooldownMinutes,
     lastFiredAt: alert.lastFiredAt?.toISOString() ?? null,
@@ -55,9 +89,16 @@ export default async function AlertsPage() {
       />
 
       <PageBody>
+        <ChannelsPanel
+          channels={channelViews}
+          canEdit={can.writeAnalysis(session.workspace.role)}
+          emailConfigured={emailConfigured}
+        />
+
         <AlertsPanel
           alerts={views}
           projects={session.projects.map((p) => ({ slug: p.slug, name: p.name }))}
+          channels={channels.map((c) => ({ id: c.id, name: c.name }))}
           now={now}
         />
 
@@ -134,20 +175,6 @@ export default async function AlertsPage() {
           )}
         </Card>
 
-        <Card title="Delivery" subtitle="What is wired, and what is not">
-          <p
-            style={{
-              fontSize: "var(--size-body-sm)",
-              color: "var(--text-body)",
-              lineHeight: "var(--lh-normal)",
-              maxWidth: "66ch",
-            }}
-          >
-            Slack and generic webhook channels deliver. Email does not — no mailer is configured,
-            so an email channel records the firing and sends nothing. Configure a Slack or webhook
-            channel for anything you need to actually reach you.
-          </p>
-        </Card>
       </PageBody>
     </>
   );

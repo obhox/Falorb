@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { generatePublicKey } from "./api-keys";
 import * as schema from "./schema/index";
 import type { Database } from "./index";
@@ -20,11 +20,79 @@ export interface Workspace {
   role: string;
 }
 
+/** One row per workspace the caller belongs to, for rendering the switcher. */
+export interface WorkspaceSummary {
+  organizationId: string;
+  organizationName: string;
+  slug: string;
+  role: string;
+}
+
+/**
+ * Every workspace this user is a member of, oldest membership first.
+ *
+ * Ordered so the list is stable between renders — a switcher whose entries
+ * reshuffle on every navigation is worse than no switcher.
+ */
+export async function listWorkspaces(
+  db: Database,
+  userId: string,
+): Promise<WorkspaceSummary[]> {
+  return db
+    .select({
+      organizationId: schema.memberships.organizationId,
+      organizationName: schema.organizations.name,
+      slug: schema.organizations.slug,
+      role: schema.memberships.role,
+    })
+    .from(schema.memberships)
+    .innerJoin(schema.organizations, eq(schema.organizations.id, schema.memberships.organizationId))
+    .where(eq(schema.memberships.userId, userId))
+    .orderBy(asc(schema.memberships.createdAt), asc(schema.memberships.id));
+}
+
+/**
+ * Record which workspace a user is looking at.
+ *
+ * Returns false when they are not a member, having written nothing. That check
+ * is the whole security surface of the switcher: the organization id arrives
+ * from a form post, so it is an attacker-controlled string, and the only thing
+ * separating "change my view" from "read another tenant" is that a membership
+ * must exist. It is deliberately verified here, next to the write, rather than
+ * left to the caller — a second call site that forgot would be a tenancy
+ * breach rather than a missing feature.
+ */
+export async function setActiveWorkspace(
+  db: Database,
+  userId: string,
+  organizationId: string,
+): Promise<boolean> {
+  const [membership] = await db
+    .select({ id: schema.memberships.id })
+    .from(schema.memberships)
+    .where(
+      and(
+        eq(schema.memberships.userId, userId),
+        eq(schema.memberships.organizationId, organizationId),
+      ),
+    )
+    .limit(1);
+
+  if (!membership) return false;
+
+  await db
+    .update(schema.user)
+    .set({ activeOrganizationId: organizationId, updatedAt: new Date() })
+    .where(eq(schema.user.id, userId));
+
+  return true;
+}
+
 export async function ensureWorkspace(
   db: Database,
   user: { id: string; name?: string | null; email: string },
 ): Promise<Workspace> {
-  const [existing] = await db
+  const memberships = await db
     .select({
       organizationId: schema.memberships.organizationId,
       role: schema.memberships.role,
@@ -33,9 +101,41 @@ export async function ensureWorkspace(
     .from(schema.memberships)
     .innerJoin(schema.organizations, eq(schema.organizations.id, schema.memberships.organizationId))
     .where(eq(schema.memberships.userId, user.id))
-    .limit(1);
+    /**
+     * Ordered, because picking a row without one is not a choice — it is
+     * whatever Postgres happens to return, and that can change between requests
+     * after a vacuum or a plan change. A user who belongs to two organizations
+     * (which is exactly what accepting an invitation creates) was being
+     * resolved into an arbitrary one, and the role came from the same arbitrary
+     * row: someone who is a viewer in one workspace and an owner in another
+     * could be evaluated as either.
+     *
+     * Oldest membership first, so the fallback below is stable and the
+     * workspace someone created for themselves stays their default until they
+     * choose otherwise. `id` breaks ties if two memberships share a timestamp.
+     */
+    .orderBy(asc(schema.memberships.createdAt), asc(schema.memberships.id));
 
-  if (existing) {
+  if (memberships.length) {
+    /**
+     * Honour the stored preference, but only as a *hint*. The active id is
+     * re-checked against the membership list on every single resolution rather
+     * than trusted, so being removed from a workspace takes effect on the next
+     * request: the stored id stops matching and the caller falls back to one
+     * they are genuinely in. The column is never the thing that grants access.
+     */
+    const [{ activeOrganizationId } = { activeOrganizationId: null }] = await db
+      .select({ activeOrganizationId: schema.user.activeOrganizationId })
+      .from(schema.user)
+      .where(eq(schema.user.id, user.id))
+      .limit(1);
+
+    const active = activeOrganizationId
+      ? memberships.find((m) => m.organizationId === activeOrganizationId)
+      : undefined;
+
+    const existing = active ?? memberships[0]!;
+
     return {
       organizationId: existing.organizationId,
       organizationName: existing.organizationName,

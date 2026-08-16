@@ -37,6 +37,15 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm -r typecheck
       - run: pnpm -r test
+
+      - name: No known-vulnerable dependencies
+        # The same reasoning as the tracker size budget below: a threshold only
+        # holds if crossing it breaks the build. Six high-severity advisories
+        # accumulated here unnoticed, including a SQL-injection fix that had
+        # been deliberately declined while it was only a peer-range annoyance.
+        # Failing on `high` keeps the gate actionable — moderate advisories in
+        # build-time tooling are reported by `pnpm audit` without blocking.
+        run: pnpm audit --audit-level=high
       - name: Build tracker
         run: pnpm --filter @falorb/tracker build
       - name: Enforce tracker size budget
@@ -83,6 +92,10 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
+      # The collector runs on Bun, and Bun is not preinstalled on the runner.
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
       - run: pnpm install --frozen-lockfile
 
       - name: Apply migrations
@@ -101,13 +114,43 @@ jobs:
         run: pnpm --filter @falorb/queries smoke
 
       - name: Every worker job runs
-        run: npx tsx apps/worker/src/verify-jobs.ts
+        # Through pnpm, not `npx`. tsx is a devDependency of apps/worker and
+        # pnpm does not hoist it to the root bin, so `npx tsx` from the repo
+        # root cannot find it — every other step here already goes through
+        # `pnpm --filter` for the same reason.
+        run: pnpm --filter @falorb/worker verify:jobs
+
+      - name: Workspace resolution keeps tenants apart
+        # Which workspace resolves decides what every dashboard query is scoped
+        # to, so a regression here is a cross-tenant read rather than a cosmetic
+        # bug. Needs a real database, hence this job rather than the unit tests.
+        run: pnpm --filter @falorb/db verify:workspace
 
       - name: Build tracker for the collector to serve
         run: pnpm --filter @falorb/tracker build
 
+      # The load test posts to a live collector and asserts the events reach
+      # ClickHouse, so both halves of the pipeline have to be running. Nothing
+      # started them before, which is why the step failed with every request
+      # rejected rather than with a real result.
+      - name: Start the collector and worker
+        run: |
+          bun apps/ingest/src/index.ts > /tmp/ingest.log 2>&1 &
+          pnpm --filter @falorb/worker start > /tmp/worker.log 2>&1 &
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:3001/health >/dev/null && break
+            sleep 2
+          done
+          curl -sf http://localhost:3001/health || { echo "collector never became healthy"; cat /tmp/ingest.log; exit 1; }
+
       - name: End-to-end event delivery, with zero loss
         run: node scripts/loadtest.mjs --events 2000 --concurrency 20
+
+      - name: Collector and worker logs
+        if: always()
+        run: |
+          echo "--- ingest ---"; tail -40 /tmp/ingest.log || true
+          echo "--- worker ---"; tail -40 /tmp/worker.log || true
 
       - name: MCP server answers a real client
         run: pnpm --filter @falorb/mcp smoke

@@ -44,9 +44,15 @@ export default async function EventsPage({
   };
 
   const [names, byName, properties, sessions] = await Promise.all([
-    breakdown({ projectIds: [project.id], range: resolved.range, field: "event", limit: 20 }),
+    breakdown({
+      projectIds: [project.id],
+      range: resolved.range,
+      field: "event",
+      limit: 20,
+      orderBy: "events",
+    }),
     trend({ ...scope, metric: "events", interval: resolved.interval, breakdown: "event", limit: 3 }),
-    breakdown({ ...scope, field: "path", limit: 10 }),
+    breakdown({ ...scope, field: "path", limit: 10, orderBy: "events" }),
     sessionList({ ...scope, limit: 40 }),
   ]);
 

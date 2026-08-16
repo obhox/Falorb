@@ -13,11 +13,11 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "nodemailer": "^6.9.16"
+    "nodemailer": "^9.0.5"
   },
   "devDependencies": {
-    "@types/nodemailer": "^6.4.17",
     "@types/node": "^22.10.5",
+    "@types/nodemailer": "^8.0.1",
     "typescript": "^5.7.3",
     "vitest": "^3.0.5"
   }

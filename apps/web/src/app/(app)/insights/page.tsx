@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Card } from "@falorb/ui";
 import { requireSession } from "@/server/session";
 import { breakdown, crossProjectPeople, totals, trend } from "@/server/analytics";
+import { peopleIdentities } from "@/server/people";
 import { PageBody, PageHeader } from "@/components/shell/PageHeader";
 import { RangePicker } from "@/components/shell/RangePicker";
 import { StatStrip } from "@/components/StatStrip";
@@ -12,7 +13,16 @@ import { asKey, CHARTS, DIMENSIONS, METRICS } from "@/lib/insight-options";
 import { InsightResult, type InsightRow } from "@/components/InsightResult";
 import { Empty } from "@/components/Empty";
 import { bucketGrid, seriesFromTrend } from "@/lib/series";
-import { countryLabel, delta, duration, eventLabel, money, num, relative } from "@/lib/format";
+import {
+  countryLabel,
+  delta,
+  duration,
+  eventLabel,
+  money,
+  num,
+  personLabel,
+  relative,
+} from "@/lib/format";
 import { one, resolveRange, type SearchParams } from "@/lib/range";
 
 export const metadata: Metadata = { title: "Insights" };
@@ -83,6 +93,13 @@ export default async function InsightsPage({
   const buckets = bucketGrid(resolved.range, resolved.interval);
   const series = seriesFromTrend(overTime, buckets.keys, resolved.interval);
   const now = Date.now();
+
+  // The cross-product list comes back from ClickHouse as bare person ids;
+  // identity lives in Postgres, so it is resolved here in one batched read.
+  const identities = await peopleIdentities(
+    session.workspace.organizationId,
+    crossing.map((person) => person.person_id),
+  );
 
   const projectsById = new Map(session.projects.map((p) => [p.id, p]));
 
@@ -196,15 +213,25 @@ export default async function InsightsPage({
                   data-plain
                   style={{ ...body, textDecoration: "none" }}
                 >
-                  <span
-                    style={{
-                      fontFamily: "var(--font-mono)",
-                      fontSize: "var(--size-micro)",
-                      color: "var(--text-primary)",
-                    }}
-                  >
-                    {person.person_id.slice(0, 8)}
-                  </span>
+                  {(() => {
+                    const identity = identities.get(person.person_id);
+                    const known = identity?.email ?? identity?.name ?? null;
+                    return (
+                      <span
+                        style={{
+                          fontFamily: known ? "var(--font-sans)" : "var(--font-mono)",
+                          fontSize: known ? "var(--size-label)" : "var(--size-micro)",
+                          color: "var(--text-primary)",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                        title={known ?? person.person_id}
+                      >
+                        {known ?? personLabel(person.person_id)}
+                      </span>
+                    );
+                  })()}
                   <span style={figure}>{num(person.project_count)}</span>
                   <span
                     style={{

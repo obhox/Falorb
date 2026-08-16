@@ -5,6 +5,7 @@ import {
   text,
   timestamp,
   uniqueIndex,
+  uuid,
 } from "drizzle-orm/pg-core";
 
 /**
@@ -26,6 +27,24 @@ export const user = pgTable(
     email: text("email").notNull(),
     emailVerified: boolean("email_verified").notNull().default(false),
     image: text("image"),
+    /**
+     * Which workspace this account is currently looking at.
+     *
+     * Someone who accepts an invitation belongs to two organizations, and
+     * without a stored choice `ensureWorkspace` could only ever hand back one
+     * of them — whichever the ordering picked — leaving the other unreachable.
+     * This is that choice.
+     *
+     * It carries **no foreign key**, for two reasons. `tenancy.ts` already
+     * imports `user` from this file, so pointing back at `organizations` would
+     * make the schema modules circular. More importantly the constraint would
+     * not be earning anything: this is a preference, not a grant, and every
+     * resolution re-checks that a matching membership still exists. A value
+     * left dangling by a deleted organization — or by someone being removed
+     * from one — finds no membership and falls back to a workspace they are
+     * actually in, which is the same behaviour a `SET NULL` would produce.
+     */
+    activeOrganizationId: uuid("active_organization_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

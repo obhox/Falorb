@@ -7,16 +7,18 @@
     "dev": "tsx watch src/index.ts",
     "start": "tsx src/index.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "verify:jobs": "tsx src/verify-jobs.ts",
+    "backfill": "tsx src/backfill.ts"
   },
   "dependencies": {
     "@clickhouse/client": "^1.23.1",
     "@falorb/core": "workspace:*",
     "@falorb/db": "workspace:*",
-    "drizzle-orm": "^0.38.4",
-    "ioredis": "^5.4.2",
+    "@falorb/mailer": "workspace:*",
     "@falorb/queries": "workspace:*",
-    "@falorb/mailer": "workspace:*"
+    "drizzle-orm": "^0.45.2",
+    "ioredis": "^5.4.2"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",

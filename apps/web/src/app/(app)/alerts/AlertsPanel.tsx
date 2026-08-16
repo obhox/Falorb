@@ -25,6 +25,8 @@ export interface AlertView {
   kindLabel: string;
   description: string;
   scope: string;
+  /** Null when the rule delivers nowhere. */
+  channelName: string | null;
   active: boolean;
   cooldownMinutes: number;
   lastFiredAt: string | null;
@@ -57,10 +59,12 @@ const DIRECTION_LABELS = {
 export function AlertsPanel({
   alerts,
   projects,
+  channels,
   now,
 }: {
   alerts: AlertView[];
   projects: { slug: string; name: string }[];
+  channels: { id: string; name: string }[];
   now: number;
 }) {
   const router = useRouter();
@@ -77,6 +81,7 @@ export function AlertsPanel({
   const [windowMinutes, setWindowMinutes] = useState("60");
   const [cooldown, setCooldown] = useState("60");
   const [scope, setScope] = useState("");
+  const [channel, setChannel] = useState(channels[0]?.id ?? "");
 
   async function submit() {
     setError(null);
@@ -90,6 +95,7 @@ export function AlertsPanel({
     data.set("window_minutes", windowMinutes);
     data.set("cooldown_minutes", cooldown);
     data.set("project", scope);
+    data.set("channel", channel);
 
     const result = await createAlert(data);
     if (!result.ok) {
@@ -169,7 +175,12 @@ export function AlertsPanel({
                       whiteSpace: "nowrap",
                     }}
                   >
-                    {alert.scope} · {alert.description}
+                    {alert.scope} · {alert.description} ·{" "}
+                    {alert.channelName ? (
+                      <>to {alert.channelName}</>
+                    ) : (
+                      <span style={{ color: "var(--signal-warn)" }}>delivers nowhere</span>
+                    )}
                   </span>
                 </span>
 
@@ -231,7 +242,11 @@ export function AlertsPanel({
         footer={
           <>
             <Button onClick={() => setOpen(false)}>Cancel</Button>
-            <Button variant="primary" onClick={submit} disabled={pending}>
+            <Button
+              variant="primary"
+              onClick={submit}
+              disabled={pending || channels.length === 0}
+            >
               Create alert
             </Button>
           </>
@@ -322,6 +337,26 @@ export function AlertsPanel({
               suffix={kind === "anomaly" ? "%" : undefined}
             />
           )}
+
+          <div style={{ display: "grid", gap: 6 }}>
+            <Label>Deliver to</Label>
+            {channels.length === 0 ? (
+              <span style={{ fontSize: "var(--size-micro)", color: "var(--signal-warn)" }}>
+                No delivery channels exist yet. Add one above, or this rule will fire and notify
+                nobody.
+              </span>
+            ) : (
+              <Select
+                size="sm"
+                value={channels.find((c) => c.id === channel)?.name ?? channels[0]!.name}
+                options={channels.map((c) => c.name)}
+                onChange={(label: string) => {
+                  const next = channels.find((c) => c.name === label);
+                  if (next) setChannel(next.id);
+                }}
+              />
+            )}
+          </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
             <Input

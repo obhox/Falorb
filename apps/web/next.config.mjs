@@ -45,6 +45,45 @@ const nextConfig = {
   },
 
   eslint: { ignoreDuringBuilds: true },
+
+  /**
+   * Transport and framing hardening.
+   *
+   * These live in the app rather than only in `infra/Caddyfile` because the
+   * Caddyfile is not on the production path — the stack in
+   * `infra/docker-compose.production.yml` publishes through Coolify's proxy and
+   * never loads it, so headers configured there were being assumed present and
+   * were in fact absent. Headers set here follow the app into any deployment.
+   *
+   * The Content-Security-Policy is deliberately *not* here: it carries a
+   * per-request nonce and so must be generated in `src/middleware.ts`.
+   */
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: [
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          {
+            key: "Strict-Transport-Security",
+            value: "max-age=63072000; includeSubDomains; preload",
+          },
+          {
+            key: "Permissions-Policy",
+            value: "geolocation=(), microphone=(), camera=(), payment=(), usb=(), interest-cohort=()",
+          },
+          // The dashboard renders one customer's data at a time; isolating the
+          // browsing context keeps a malicious opener or embedder from probing
+          // it through shared process state.
+          { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+          { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
+          { key: "X-DNS-Prefetch-Control", value: "off" },
+        ],
+      },
+    ];
+  },
 };
 
 export default nextConfig;

@@ -15,9 +15,8 @@ export function Sparkline({ data = [], width, height = 32, color = "var(--series
   ]);
   const line = pts.map((p, i) => `${i ? "L" : "M"}${p[0].toFixed(2)} ${p[1].toFixed(2)}`).join(" ");
   const area = `${line} L${w} ${h} L0 ${h} Z`;
-  // React.useId, not Math.random: the server and the client each render this
-  // component once, and a random id would differ between the two passes and
-  // break hydration on the gradient reference.
+  // Stable across server and client render: a random id differs between
+  // the two passes and breaks hydration on the url(#…) reference.
   const gid = "sl" + React.useId().replace(/:/g, "");
   return (
     <svg

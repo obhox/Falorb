@@ -74,6 +74,31 @@ export default async function globalSetup(config: FullConfig) {
     .limit(1);
   if (!user) throw new Error("Sign-up reported success but no user row exists");
 
+  /**
+   * Confirm the address, then sign in.
+   *
+   * Sign-up does not return a session when email verification is required, and
+   * it is required whenever a mailer is configured — which it is on any install
+   * with `RESEND_API_KEY` set. Relying on `autoSignIn` therefore produced an
+   * empty cookie jar and every signed-in test failed at the auth gate, which
+   * reads as the dashboard being broken rather than the fixture being wrong.
+   *
+   * Verifying in the database rather than by clicking a link in an email is the
+   * point of a fixture: the flow under test is the dashboard, not the mailer.
+   */
+  await db
+    .update(schema.user)
+    .set({ emailVerified: true })
+    .where(eq(schema.user.id, user.id));
+
+  const signIn = await api.post("/api/auth/sign-in/email", {
+    data: { email, password },
+  });
+
+  if (!signIn.ok()) {
+    throw new Error(`Sign-in failed (${signIn.status()}): ${await signIn.text()}`);
+  }
+
   const [org] = await db
     .select()
     .from(schema.organizations)
@@ -107,8 +132,16 @@ export default async function globalSetup(config: FullConfig) {
   // The membership was created after the session cookie was issued, but the
   // organization is resolved per request rather than baked into the cookie, so
   // the existing cookie already sees it.
+  const state = await api.storageState();
+  if (state.cookies.length === 0) {
+    throw new Error(
+      "Signed in but captured no cookies — every signed-in test would fail at the auth gate. " +
+        "Check that FALORB_APP_URL matches the origin the suite runs on.",
+    );
+  }
+
   mkdirSync(dirname(AUTH_STATE), { recursive: true });
-  writeFileSync(AUTH_STATE, JSON.stringify(await api.storageState(), null, 2));
+  writeFileSync(AUTH_STATE, JSON.stringify(state, null, 2));
 
   const account: E2EAccount = {
     email,

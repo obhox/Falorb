@@ -37,7 +37,13 @@ export interface ProjectSettings {
   retentionDays: number;
 }
 
-export function SettingsForm({ project }: { project: ProjectSettings }) {
+export function SettingsForm({
+  project,
+  canEdit,
+}: {
+  project: ProjectSettings;
+  canEdit: boolean;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [result, setResult] = useState<ActionResult | null>(null);
@@ -174,9 +180,15 @@ export function SettingsForm({ project }: { project: ProjectSettings }) {
       </Card>
 
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <Button type="submit" variant="primary" disabled={pending}>
-          {pending ? "Saving" : "Save changes"}
-        </Button>
+        {canEdit ? (
+          <Button type="submit" variant="primary" disabled={pending}>
+            {pending ? "Saving" : "Save changes"}
+          </Button>
+        ) : (
+          <span style={{ fontSize: "var(--size-label)", color: "var(--text-muted)" }}>
+            Read-only — an owner or admin can change these settings.
+          </span>
+        )}
         {result && (
           <span
             role="status"

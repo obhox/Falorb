@@ -3,7 +3,14 @@ import { cache } from "react";
 import { headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { and, eq, isNull } from "drizzle-orm";
-import { db, ensureWorkspace, schema, type Workspace } from "@falorb/db";
+import {
+  db,
+  ensureWorkspace,
+  listWorkspaces,
+  schema,
+  type Workspace,
+  type WorkspaceSummary,
+} from "@falorb/db";
 import { auth } from "./auth";
 
 /**
@@ -31,6 +38,11 @@ export type ProjectRow = typeof schema.projects.$inferSelect;
 export interface DashboardSession {
   user: SessionUser;
   workspace: Workspace;
+  /**
+   * Every workspace this account belongs to, for the switcher in the shell.
+   * Usually one; more than one whenever someone has accepted an invitation.
+   */
+  workspaces: WorkspaceSummary[];
   /** Active, non-archived projects in this organization. */
   projects: ProjectRow[];
 }
@@ -42,16 +54,21 @@ export const getSession = cache(async (): Promise<DashboardSession | null> => {
   const database = db();
   const workspace = await ensureWorkspace(database, session.user);
 
-  const projects = await database
-    .select()
-    .from(schema.projects)
-    .where(
-      and(
-        eq(schema.projects.organizationId, workspace.organizationId),
-        isNull(schema.projects.archivedAt),
-      ),
-    )
-    .orderBy(schema.projects.name);
+  // Both reads are scoped by the workspace `ensureWorkspace` just resolved, so
+  // they cannot disagree with it, and they are independent of each other.
+  const [workspaces, projects] = await Promise.all([
+    listWorkspaces(database, session.user.id),
+    database
+      .select()
+      .from(schema.projects)
+      .where(
+        and(
+          eq(schema.projects.organizationId, workspace.organizationId),
+          isNull(schema.projects.archivedAt),
+        ),
+      )
+      .orderBy(schema.projects.name),
+  ]);
 
   return {
     user: {
@@ -60,6 +77,7 @@ export const getSession = cache(async (): Promise<DashboardSession | null> => {
       email: session.user.email,
     },
     workspace,
+    workspaces,
     projects,
   };
 });

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Badge, Button, Card, Icon } from "@falorb/ui";
+import { can, ROLE_LABELS, type MemberRole } from "@falorb/db";
 import { requireSession } from "@/server/session";
 import { PageBody, PageHeader } from "@/components/shell/PageHeader";
 import { CopyField } from "@/components/CopyField";
@@ -30,11 +31,25 @@ export default async function InstanceSettingsPage() {
         title="Settings"
         meta={session.workspace.organizationName}
         actions={
-          <Link href="/settings/new">
-            <Button size="sm" variant="primary" iconLeft={<Icon name="plus" size={13} />}>
-              Add property
-            </Button>
-          </Link>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <Link href="/settings/team" style={{ textDecoration: "none" }}>
+              <Button size="sm" iconLeft={<Icon name="users" size={13} />}>
+                Team
+              </Button>
+            </Link>
+            <Link href="/settings/mcp" style={{ textDecoration: "none" }}>
+              <Button size="sm" iconLeft={<Icon name="plug" size={13} />}>
+                MCP & keys
+              </Button>
+            </Link>
+            {can.manageProject(session.workspace.role) && (
+              <Link href="/settings/new">
+                <Button size="sm" variant="primary" iconLeft={<Icon name="plus" size={13} />}>
+                  Add property
+                </Button>
+              </Link>
+            )}
+          </div>
         }
       />
 
@@ -134,8 +149,8 @@ export default async function InstanceSettingsPage() {
               }}
             >
               The API serves programs — scripts, CI, and the MCP server an assistant connects to.
-              It authenticates with bearer keys rather than this session. Mint one from the API
-              itself; the dashboard does not issue keys.
+              It authenticates with bearer keys rather than this session. Issue one on the{" "}
+              <Link href="/settings/mcp">MCP &amp; keys page</Link>.
             </p>
           </div>
         </Card>
@@ -143,7 +158,10 @@ export default async function InstanceSettingsPage() {
         <Card title="Workspace">
           <div style={{ display: "grid", gap: "var(--space-6)", maxWidth: "66ch" }}>
             <Row label="Organization" value={session.workspace.organizationName} />
-            <Row label="Your role" value={session.workspace.role} />
+            <Row
+              label="Your role"
+              value={ROLE_LABELS[session.workspace.role as MemberRole] ?? session.workspace.role}
+            />
             <Row label="Signed in as" value={session.user.email} />
             <p
               style={{
@@ -152,8 +170,8 @@ export default async function InstanceSettingsPage() {
                 lineHeight: "var(--lh-normal)",
               }}
             >
-              Inviting teammates is not implemented yet. The membership table and roles exist, but
-              nothing sends an invitation.
+              Roles apply to the whole workspace, not per property. Manage who is in it on the{" "}
+              <Link href="/settings/team">team page</Link>.
             </p>
           </div>
         </Card>

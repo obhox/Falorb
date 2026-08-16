@@ -69,7 +69,7 @@ export default async function GoalsPage({
     primary && primary.conversions > 0
       ? attribution({ ...scope, goal: toDefinition(primary.goal), model, limit: 12 })
       : Promise.resolve([]),
-    breakdown({ ...scope, field: "channel", limit: 8 }),
+    breakdown({ ...scope, field: "channel", limit: 8, orderBy: "revenue" }),
   ]);
 
   const buckets = bucketGrid(resolved.range, resolved.interval);

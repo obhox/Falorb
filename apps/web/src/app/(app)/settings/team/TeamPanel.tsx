@@ -12,13 +12,17 @@ import {
   Input,
   Select,
 } from "@falorb/ui";
+// Subpath, not the package root: `@falorb/db` re-exports drizzle, the Postgres
+// driver and the ClickHouse client, and pulling those into a client component
+// drags `node:crypto` and `node:fs` into the browser bundle. `./roles` is pure
+// data with no imports of its own.
 import {
   ASSIGNABLE_ROLES,
   INVITABLE_ROLES,
   ROLE_DESCRIPTIONS,
   ROLE_LABELS,
   type MemberRole,
-} from "@falorb/db";
+} from "@falorb/db/roles";
 import { CopyField } from "@/components/CopyField";
 import { Empty } from "@/components/Empty";
 import {

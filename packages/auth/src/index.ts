@@ -9,9 +9,37 @@ function mailer(): Mailer {
   return sharedMailer;
 }
 
+/**
+ * Whether a new account must confirm its address before it counts as real.
+ *
+ * This used to be `mailer().isConfigured` — verification switched itself off
+ * whenever no mail provider was set. That is a fail-open default: a production
+ * install that simply had not configured `RESEND_API_KEY` accepted unverified
+ * addresses forever, and because invitation acceptance binds a seat to an
+ * email address, an unverified account was enough to claim someone else's
+ * invitation. (Both accept paths now check `emailVerified` independently, so
+ * that specific escalation is closed twice over.)
+ *
+ * The default is now inverted: production requires verification unless
+ * explicitly told otherwise, and refuses to start if that would lock everyone
+ * out. Outside production it follows the mailer, so local development stays
+ * frictionless.
+ */
 function requireVerification(): boolean {
   const override = process.env.FALORB_REQUIRE_EMAIL_VERIFICATION;
   if (override) return override === "true";
+
+  if (process.env.NODE_ENV === "production") {
+    if (!mailer().isConfigured) {
+      throw new Error(
+        "Email verification is required in production but no mail provider is configured. " +
+          "Set RESEND_API_KEY (or SMTP_*), or set FALORB_REQUIRE_EMAIL_VERIFICATION=false to " +
+          "accept unverified addresses deliberately.",
+      );
+    }
+    return true;
+  }
+
   return mailer().isConfigured;
 }
 
@@ -27,11 +55,16 @@ function requireVerification(): boolean {
  * app supplies only its own `baseURL`.
  *
  * better-auth gets its own `pg` pool rather than sharing the application's
- * Drizzle connection. Its Drizzle adapter requires drizzle-orm ^0.45 while the
- * rest of this workspace is on 0.38, and upgrading the ORM across six verified
- * packages to satisfy one library's peer range is a poor trade. A second pool
- * on the same database costs a handful of connections and keeps the versions
- * independent.
+ * Drizzle connection. It costs a handful of connections and keeps better-auth's
+ * schema expectations from coupling to the application's ORM version.
+ *
+ * This used to be justified by the workspace sitting on drizzle-orm 0.38 while
+ * better-auth's adapter wanted ^0.45, with the upgrade judged not worth the
+ * churn. That trade stopped being defensible once 0.38 carried a published SQL
+ * injection advisory (patched in 0.45.2): a version pin held for convenience
+ * becomes a liability the moment it has a CVE attached, and the workspace is
+ * now on 0.45.2 throughout. The separate pool stays because the isolation is
+ * worth having on its own merits, not because the versions have to differ.
  *
  * Field mapping is explicit because this schema uses snake_case columns while
  * better-auth's models are camelCase. Without it, every insert would fail on a
@@ -92,11 +125,75 @@ export function createAuth(options: AuthOptions) {
       },
     },
 
+    /**
+     * Brute-force protection.
+     *
+     * Left unconfigured, better-auth applies a generic 100-requests-per-minute
+     * default and only in production, which is no obstacle at all to a
+     * credential-stuffing run against `/sign-in/email`. The rules below are
+     * per-path because the useful limits differ by two orders of magnitude:
+     * a dashboard makes many session reads and a human makes very few sign-in
+     * attempts.
+     *
+     * Storage is in-memory, which is correct for the single-replica topology
+     * in `infra/docker-compose.production.yml` but does not survive a restart
+     * and is not shared between instances. Scaling the API horizontally means
+     * moving this to shared storage first, or the effective limit multiplies
+     * by the replica count.
+     */
+    rateLimit: {
+      /**
+       * Disabled only when explicitly asked, for the end-to-end suite.
+       *
+       * The limits below are per IP: 5 sign-ups an hour, 5 sign-ins per five
+       * minutes. A test run legitimately spends several of both — it registers
+       * a fixture account and deliberately fails sign-ins to assert the error
+       * path — so consecutive runs throttle themselves and fail on auth,
+       * looking exactly like a broken dashboard. Opt out by origin, never by
+       * NODE_ENV, so a misconfigured production cannot silently unlimit itself.
+       */
+      enabled: process.env.FALORB_AUTH_RATE_LIMIT !== "off",
+      window: 60,
+      max: 100,
+      customRules: {
+        "/sign-in/email": { window: 300, max: 5 },
+        "/sign-up/email": { window: 3600, max: 5 },
+        "/forget-password": { window: 3600, max: 5 },
+        "/reset-password": { window: 3600, max: 5 },
+        "/send-verification-email": { window: 3600, max: 5 },
+      },
+    },
+
+    advanced: {
+      /**
+       * Without this, every rate-limit bucket keys on the reverse proxy's
+       * address — one shared bucket for all users, which is simultaneously a
+       * brute-force hole and a self-inflicted denial of service. Both proxies
+       * in front of this (Caddy in `infra/Caddyfile`, Coolify's in the
+       * production stack) overwrite `X-Forwarded-For` with the real peer, so
+       * the header is trustworthy *here* and must not be forwarded from
+       * anywhere else.
+       */
+      ipAddress: { ipAddressHeaders: ["x-forwarded-for"] },
+      useSecureCookies: process.env.NODE_ENV === "production",
+    },
+
     session: {
       modelName: "session",
-      expiresIn: 60 * 60 * 24 * 30,
+      /**
+       * Seven days rather than thirty, refreshed daily. This console holds
+       * behavioural data about a customer's visitors, so a stolen session
+       * cookie is worth having; a month of validity makes that theft
+       * effectively permanent.
+       */
+      expiresIn: 60 * 60 * 24 * 7,
       updateAge: 60 * 60 * 24,
-      cookieCache: { enabled: true, maxAge: 5 * 60 },
+      /**
+       * One minute, not five. The cached cookie is what the dashboard's role
+       * checks read, so this window is exactly how long a revoked session, a
+       * removed member or a demoted admin keeps their old privileges.
+       */
+      cookieCache: { enabled: true, maxAge: 60 },
       fields: {
         expiresAt: "expires_at",
         userId: "user_id",

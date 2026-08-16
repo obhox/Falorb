@@ -48,7 +48,7 @@ test.describe("authentication", () => {
     await page.getByLabel("Password").fill("definitely-not-the-password");
     await page.getByRole("button", { name: "Sign in" }).click();
 
-    await expect(page.getByRole("alert")).toBeVisible();
+    await expect(page.locator('p[role="alert"]')).toBeVisible();
     // Still on sign-in — a failed attempt must not partially authenticate.
     await expect(page).toHaveURL(/\/sign-in$/);
   });
@@ -59,7 +59,9 @@ test.describe("authentication", () => {
       await page.getByLabel("Email").fill(email);
       await page.getByLabel("Password").fill("wrong-password-entirely");
       await page.getByRole("button", { name: "Sign in" }).click();
-      return page.getByRole("alert").innerText();
+      // Next renders its route announcer as role="alert" too, so scope to the
+      // form's own message rather than matching every live region on the page.
+      return page.locator('p[role="alert"]').innerText();
     }
 
     const known = await attempt(account.email);

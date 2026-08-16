@@ -1,0 +1,29 @@
+{
+  "name": "@falorb/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "start": "bun src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "smoke": "tsx src/smoke.ts"
+  },
+  "dependencies": {
+    "@falorb/auth": "workspace:*",
+    "@falorb/core": "workspace:*",
+    "@falorb/db": "workspace:*",
+    "@falorb/queries": "workspace:*",
+    "drizzle-orm": "^0.38.4",
+    "hono": "^4.6.16",
+    "zod": "^3.24.1",
+    "@falorb/mailer": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.16",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}

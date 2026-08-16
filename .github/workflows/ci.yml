@@ -1,0 +1,113 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  # A newer push supersedes an in-flight run on the same branch.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Matches infra/docker-compose.yml so local and CI behave identically.
+  DATABASE_URL: postgresql://falorb:falorb@localhost:5432/falorb
+  CLICKHOUSE_URL: http://localhost:8123
+  CLICKHOUSE_USER: falorb
+  CLICKHOUSE_PASSWORD: falorb
+  CLICKHOUSE_DATABASE: falorb
+  REDIS_URL: redis://localhost:6379
+  FALORB_SALT_SECRET: ci-salt-secret-not-used-in-production
+  BETTER_AUTH_SECRET: ci-auth-secret-not-used-in-production
+
+jobs:
+  # Static checks need no services, so they run first and fail fast — no point
+  # spinning up three databases to discover a type error.
+  static:
+    name: Typecheck, tests, tracker size
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r typecheck
+      - run: pnpm -r test
+      - name: Build tracker
+        run: pnpm --filter @falorb/tracker build
+      - name: Enforce tracker size budget
+        # The gate that stops the script on every customer's site growing
+        # unnoticed. Failing the build is the entire point.
+        run: pnpm --filter @falorb/tracker size
+
+  integration:
+    name: Migrations, queries, jobs
+    runs-on: ubuntu-latest
+    needs: static
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: falorb
+          POSTGRES_PASSWORD: falorb
+          POSTGRES_DB: falorb
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U falorb -d falorb"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+      clickhouse:
+        image: clickhouse/clickhouse-server:25.3-alpine
+        env:
+          CLICKHOUSE_USER: falorb
+          CLICKHOUSE_PASSWORD: falorb
+          CLICKHOUSE_DB: falorb
+        ports: ["8123:8123"]
+        options: >-
+          --health-cmd "clickhouse-client --user falorb --password falorb --query 'SELECT 1'"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Apply migrations
+        run: |
+          pnpm --filter @falorb/db migrate
+          pnpm --filter @falorb/db ch:migrate
+
+      - name: Seed projects and generate events
+        run: |
+          pnpm --filter @falorb/db seed
+          pnpm --filter @falorb/db seed:events
+
+      - name: Every query compiles and runs
+        # Unit tests prove the filter compiler is safe; only ClickHouse can
+        # prove the generated SQL is valid.
+        run: pnpm --filter @falorb/queries smoke
+
+      - name: Every worker job runs
+        run: npx tsx apps/worker/src/verify-jobs.ts
+
+      - name: Build tracker for the collector to serve
+        run: pnpm --filter @falorb/tracker build
+
+      - name: End-to-end event delivery, with zero loss
+        run: node scripts/loadtest.mjs --events 2000 --concurrency 20
+
+      - name: MCP server answers a real client
+        run: pnpm --filter @falorb/mcp smoke

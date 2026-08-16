@@ -1,0 +1,92 @@
+# Falorb reverse proxy.
+#
+# Caddy handles TLS automatically. Three hostnames, deliberately separate:
+#
+#   a.<domain>          the collector. Publicly reachable, high volume.
+#   analytics.<domain>  the dashboard.
+#   mcp.<domain>        the MCP server, for assistants connecting remotely.
+#
+# The collector is on its own subdomain rather than a path on the dashboard so
+# that an ad blocker rule against it cannot take the dashboard down with it,
+# and so the two can be scaled and cached independently.
+
+{
+	email {$ACME_EMAIL}
+	# Deployments behind Coolify already terminate TLS at the edge; uncomment
+	# to let Caddy issue certificates itself instead.
+	# auto_https off
+}
+
+# --- collector ---------------------------------------------------------------
+a.{$FALORB_DOMAIN} {
+	encode zstd gzip
+
+	# The tracker is immutable and versioned by deploy, so it is worth caching
+	# hard at the edge as well as in the browser.
+	@tracker path /t.js
+	header @tracker {
+		Cache-Control "public, max-age=31536000, immutable"
+		Access-Control-Allow-Origin "*"
+	}
+
+	# Collection endpoint. No caching, ever.
+	@collect path /e /i
+	header @collect Cache-Control "no-store"
+
+	# Nothing here is authenticated by cookie, so a permissive CORS policy is
+	# correct — authorisation is by project key and Origin allow-list inside
+	# the app.
+	header {
+		-Server
+		X-Content-Type-Options nosniff
+	}
+
+	reverse_proxy ingest:3001 {
+		header_up X-Real-IP {remote_host}
+		# The app trusts the leftmost X-Forwarded-For entry, which is only safe
+		# because this proxy sets it. Do not expose ingest directly.
+		header_up X-Forwarded-For {remote_host}
+	}
+}
+
+# --- dashboard ---------------------------------------------------------------
+analytics.{$FALORB_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		-Server
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	}
+
+	# The account API and the dashboard share an origin so the session cookie
+	# is first-party and needs no cross-site exemption.
+	handle /api/* {
+		reverse_proxy api:3003
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+}
+
+# --- MCP ---------------------------------------------------------------------
+mcp.{$FALORB_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		-Server
+		X-Content-Type-Options nosniff
+	}
+
+	reverse_proxy mcp:3002 {
+		# MCP streams responses; buffering would defeat it.
+		flush_interval -1
+		# Long-lived connections for streamable HTTP.
+		transport http {
+			read_timeout 10m
+		}
+	}
+}

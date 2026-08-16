@@ -1,0 +1,66 @@
+<!-- @dsCard group="Components" viewport="700x470" name="Charts" subtitle="LineChart, StackedBars, DonutChart, FunnelChart, SankeyDiagram, HeatmapGrid, RetentionMatrix" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/lucide@0.454.0/dist/umd/lucide.min.js"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>body{margin:0;background:var(--bg-shell);padding:16px 18px}.g{display:grid;gap:12px}</style>
+</head><body><div id="root"></div><script type="text/babel">
+const { ChartFrame, Legend, LineChart, StackedBars, DonutChart, FunnelChart, SankeyDiagram, HeatmapGrid, RetentionMatrix, Select, SegmentedControl } = window.FalorbDesignSystem_c510a5;
+const M=["Sep","Oct","Nov","Dec","Jan","Feb","Mar","Apr","May","Jun","Jul","Aug"];
+const V=[26,31,29,22,34,38,36,44,41,49,46,54];
+const S=[38,44,41,33,48,53,50,61,57,66,63,72];
+const stack=M.map((l,i)=>({label:l,values:[V[i]*0.42,V[i]*0.33,V[i]*0.25]}));
+const hours=["00","02","04","06","08","10","12","14","16","18","20","22"];
+const days=["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+const matrix=days.map((d,r)=>hours.map((h,c)=>Math.round(Math.max(0,Math.sin((c+1)/3.2)*40+ (r<5?36:10) + ((r*c)%7))))); 
+function Demo(){return(<div className="g">
+ <div className="g" style={{gridTemplateColumns:"1.35fr 1fr"}}>
+  <ChartFrame title="Visitors vs sessions" subtitle="Last 12 months" height={130}
+    actions={<Select size="sm" value="Monthly" options={["Daily","Weekly","Monthly"]} onChange={()=>{}}/>}
+    legend={<Legend items={[{label:"Visitors",shape:"line"},{label:"Sessions",shape:"line",color:"var(--series-2)"}]}/>}>
+    <LineChart labels={M} height={130} series={[{name:"Visitors",data:V,fill:true},{name:"Sessions",data:S,color:"var(--series-2)"}]}/>
+  </ChartFrame>
+  <ChartFrame title="Sessions by device" height={130}>
+   <DonutChart size={124} thickness={14} totalLabel="Sessions" segments={[{label:"Desktop",value:61},{label:"Mobile",value:31},{label:"Tablet",value:8}]}/>
+  </ChartFrame>
+ </div>
+ <div className="g" style={{gridTemplateColumns:"1fr 1fr"}}>
+  <ChartFrame title="Traffic by source" height={120} legend={<Legend items={[{label:"Direct"},{label:"Search",color:"var(--series-2)"},{label:"Social",color:"var(--series-4)"}]}/>}>
+   <StackedBars data={stack} height={120} series={[{name:"Direct"},{name:"Search",color:"var(--series-2)"},{name:"Social",color:"var(--series-4)"}]}/>
+  </ChartFrame>
+  <ChartFrame title="Docs → first event" height={120}>
+   <FunnelChart steps={[{label:"Viewed pricing",value:8412},{label:"Opened docs",value:3110},{label:"Copied snippet",value:1204},{label:"First event",value:702}]}/>
+  </ChartFrame>
+ </div>
+ <ChartFrame title="Path across properties" subtitle="Sankey · entry → property → action" height={190}>
+  <SankeyDiagram height={190}
+   nodes={[
+    {id:"search",label:"Search",column:0},{id:"hn",label:"HN",column:0},{id:"direct",label:"Direct",column:0},
+    {id:"marketing",label:"falorb.io",column:1},{id:"docs",label:"docs.falorb.io",column:1},
+    {id:"snippet",label:"Copied snippet",column:2},{id:"exit",label:"Left",column:2}
+   ]}
+   links={[
+    {from:"search",to:"docs",value:6209},{from:"search",to:"marketing",value:2100},
+    {from:"hn",to:"marketing",value:5338},{from:"hn",to:"docs",value:1200},
+    {from:"direct",to:"marketing",value:3800},
+    {from:"marketing",to:"snippet",value:2400},{from:"marketing",to:"exit",value:8838},
+    {from:"docs",to:"snippet",value:4100},{from:"docs",to:"exit",value:3309}
+   ]}/>
+ </ChartFrame>
+ <div className="g" style={{gridTemplateColumns:"1fr 1fr"}}>
+  <ChartFrame title="Activity by hour" height={150}><HeatmapGrid rows={days} cols={hours} values={matrix}/></ChartFrame>
+  <ChartFrame title="Weekly retention" height={150}>
+   <RetentionMatrix cellWidth={40} cohorts={[
+     {label:"Jul 14 – Jul 20",size:1284,values:[100,42,31,24,21]},
+     {label:"Jul 21 – Jul 27",size:1102,values:[100,38,29,22]},
+     {label:"Jul 28 – Aug 3",size:1340,values:[100,45,33]},
+     {label:"Aug 4 – Aug 10",size:1512,values:[100,41]}
+   ]}/>
+  </ChartFrame>
+ </div>
+</div>);}
+ReactDOM.createRoot(document.getElementById("root")).render(<Demo/>);
+</script></body></html>

@@ -1,0 +1,36 @@
+:root{
+--font-sans:"Instrument Sans","Helvetica Neue",system-ui,sans-serif;
+--font-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,monospace;
+
+/* Display — page titles only, tight and optically large. */
+--size-display-1:44px;
+--size-display-2:34px;
+--size-title:24px;
+--size-subtitle:18px;
+--size-body:14px;
+--size-body-sm:13px;
+--size-label:12px;
+--size-micro:11px;
+/* Numerals: the loudest thing on any Falorb screen. */
+--size-metric-xl:40px;
+--size-metric-lg:30px;
+--size-metric-md:22px;
+
+--lh-tight:1.04; /* @kind font */
+--lh-snug:1.2; /* @kind font */
+--lh-normal:1.45; /* @kind font */
+--lh-loose:1.6; /* @kind font */
+
+--wt-regular:400; /* @kind font */
+--wt-medium:500; /* @kind font */
+--wt-semibold:600; /* @kind font */
+
+--ls-display:-0.028em;
+--ls-title:-0.018em;
+--ls-body:-0.006em;
+--ls-metric:-0.03em;
+--ls-label:0.06em;   /* uppercase micro-labels only */
+--ls-mono:-0.01em;
+
+--tnum:"tnum" 1,"zero" 1; /* @kind font */ /* tabular + slashed zero for every figure in a column */
+}

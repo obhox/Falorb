@@ -1,0 +1,19 @@
+{
+  "name": "@falorb/tracker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/t.js",
+  "scripts": {
+    "build": "esbuild src/index.ts --bundle --minify --format=iife --target=es2020 --legal-comments=none --outfile=dist/t.js",
+    "size": "node scripts/size.mjs",
+    "typecheck": "tsc --noEmit",
+    "//test": "The tracker runs entirely inside an IIFE against browser APIs, so there is nothing importable to unit test. Its behaviour is covered by the Playwright end-to-end suite and by the size gate; --passWithNoTests keeps it in the recursive run without failing.",
+    "test": "vitest run --passWithNoTests"
+  },
+  "devDependencies": {
+    "esbuild": "^0.24.2",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}

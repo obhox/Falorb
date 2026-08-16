@@ -1,0 +1,51 @@
+<!-- @dsCard group="Components" viewport="700x230" name="Core" subtitle="Button, IconButton, Badge, Tag, Card, GlassPanel" -->
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/lucide@0.454.0/dist/umd/lucide.min.js"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>body{margin:0;background:var(--bg-shell);padding:18px 20px}.row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.lbl{font-size:11px;text-transform:uppercase;letter-spacing:var(--ls-label);color:var(--text-muted);font-weight:500}.stack{display:grid;gap:14px}</style>
+</head><body><div id="root"></div><script type="text/babel">
+const NS = window.FalorbDesignSystem_c510a5;
+
+const { Button, IconButton, Badge, Tag, Icon, GlassPanel } = NS;
+function Demo(){return(<div className="stack">
+<div className="row">
+  <Button variant="primary" iconLeft={<Icon name="plus" size={14}/>}>Add property</Button>
+  <Button variant="secondary">Secondary</Button>
+  <Button variant="glass">Glass</Button>
+  <Button variant="ghost">Ghost</Button>
+  <Button variant="accent">Accent</Button>
+  <Button variant="danger">Delete</Button>
+  <Button variant="secondary" disabled>Disabled</Button>
+</div>
+<div className="row">
+  <Button size="sm" variant="secondary">sm 28</Button>
+  <Button size="md" variant="secondary">md 34</Button>
+  <Button size="lg" variant="secondary">lg 42</Button>
+  <span style={{width:12}}/>
+  <IconButton label="Refresh" icon={<Icon name="refresh-cw" size={16}/>}/>
+  <IconButton label="Filters" variant="solid" icon={<Icon name="sliders-horizontal" size={16}/>}/>
+  <IconButton label="Active" variant="solid" active icon={<Icon name="pin" size={16}/>}/>
+  <IconButton label="Glass" variant="glass" icon={<Icon name="download" size={16}/>}/>
+</div>
+<div className="row">
+  <Badge dot>Live</Badge><Badge tone="accent">beta</Badge><Badge tone="up" mono>+8.7%</Badge>
+  <Badge tone="down" mono>-6.3%</Badge><Badge tone="warn">sampled</Badge><Badge tone="solid">1.9 KB</Badge>
+  <span style={{width:12}}/>
+  <Tag icon={<Icon name="filter" size={12}/>} onRemove={()=>{}}>country = DE</Tag>
+  <Tag active onClick={()=>{}}>returning</Tag>
+</div>
+<div className="row" style={{alignItems:"stretch"}}>
+  <div style={{width:300}}><NS.Card title="Top referrers" subtitle="Last 7 days"><div style={{fontFamily:"var(--font-mono)",fontSize:13,color:"var(--text-primary)"}}>google.com &nbsp; 4,182</div></NS.Card></div>
+  <GlassPanel padding={14} radius="var(--radius-card)" style={{width:220}}>
+    <div style={{fontSize:11,color:"var(--text-muted)",marginBottom:6}}>Jun 2026</div>
+    <div style={{fontFamily:"var(--font-mono)",fontSize:20,color:"var(--ink-0)",letterSpacing:"-.03em"}}>33,800</div>
+  </GlassPanel>
+</div>
+</div>);}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<Demo />);
+</script></body></html>

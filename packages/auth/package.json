@@ -1,0 +1,25 @@
+{
+  "name": "@falorb/auth",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "better-auth": "^1.6.29",
+    "pg": "^8.13.1",
+    "@falorb/mailer": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}

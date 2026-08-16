@@ -1,0 +1,43 @@
+<clickhouse>
+    <profiles>
+        <default>
+            <!--
+              Hard ceilings so a runaway dashboard query cannot take the server
+              (and with it the other containers on the box) down. A query that
+              needs more than 4GB on a small-to-medium analytics install is a
+              bug in the query, not a legitimate workload.
+            -->
+            <max_memory_usage>4000000000</max_memory_usage>
+            <max_bytes_before_external_group_by>2000000000</max_bytes_before_external_group_by>
+            <max_execution_time>60</max_execution_time>
+
+            <!-- Leave headroom for the other services sharing this host. -->
+            <max_threads>4</max_threads>
+
+            <!-- Batch inserts server-side, but always wait for the flush.
+                 With wait_for_async_insert=0 a malformed batch is accepted
+                 over HTTP and then discarded during parsing, with no error
+                 returned to anyone — silent data loss that is extremely hard
+                 to diagnose after the fact. -->
+            <async_insert>1</async_insert>
+            <wait_for_async_insert>1</wait_for_async_insert>
+
+            <!-- Approximate distinct counts are the norm in analytics and are
+                 dramatically cheaper; exact counts are opt-in per query. -->
+            <count_distinct_implementation>uniqCombined64</count_distinct_implementation>
+        </default>
+    </profiles>
+
+    <quotas>
+        <default>
+            <interval>
+                <duration>3600</duration>
+                <queries>0</queries>
+                <errors>0</errors>
+                <result_rows>0</result_rows>
+                <read_rows>0</read_rows>
+                <execution_time>0</execution_time>
+            </interval>
+        </default>
+    </quotas>
+</clickhouse>

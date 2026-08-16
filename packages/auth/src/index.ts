@@ -1,0 +1,158 @@
+import { betterAuth } from "better-auth";
+import pg from "pg";
+import { Mailer, resetPasswordMail, verifyEmailMail } from "@falorb/mailer";
+
+/** Created once, lazily — constructing a transport per email would be wasteful. */
+let sharedMailer: Mailer | undefined;
+function mailer(): Mailer {
+  sharedMailer ??= new Mailer();
+  return sharedMailer;
+}
+
+function requireVerification(): boolean {
+  const override = process.env.FALORB_REQUIRE_EMAIL_VERIFICATION;
+  if (override) return override === "true";
+  return mailer().isConfigured;
+}
+
+/**
+ * Authentication for dashboard users, shared by every app that needs to read a
+ * session.
+ *
+ * This started life inside `apps/api`. It lives here now because the dashboard
+ * also has to validate sessions, and it does so in server components — an HTTP
+ * hop to the API for every render would be both slow and circular. Two
+ * better-auth instances configured separately would drift on field mappings and
+ * silently stop accepting each other's cookies, so there is one config and each
+ * app supplies only its own `baseURL`.
+ *
+ * better-auth gets its own `pg` pool rather than sharing the application's
+ * Drizzle connection. Its Drizzle adapter requires drizzle-orm ^0.45 while the
+ * rest of this workspace is on 0.38, and upgrading the ORM across six verified
+ * packages to satisfy one library's peer range is a poor trade. A second pool
+ * on the same database costs a handful of connections and keeps the versions
+ * independent.
+ *
+ * Field mapping is explicit because this schema uses snake_case columns while
+ * better-auth's models are camelCase. Without it, every insert would fail on a
+ * missing column.
+ */
+
+export interface AuthOptions {
+  /** Origin this instance is mounted on, e.g. http://localhost:3000. */
+  baseURL: string;
+  /** Mount path. Both apps expose better-auth at /api/auth. */
+  basePath?: string;
+  connectionString?: string;
+  secret?: string;
+  trustedOrigins?: string[];
+  /** Pool size. Small by default: this pool only serves auth. */
+  maxConnections?: number;
+}
+
+export function createAuth(options: AuthOptions) {
+  const pool = new pg.Pool({
+    connectionString: options.connectionString ?? process.env.DATABASE_URL,
+    max: options.maxConnections ?? 5,
+  });
+
+  return betterAuth({
+    database: pool,
+    secret: options.secret ?? process.env.BETTER_AUTH_SECRET,
+    baseURL: options.baseURL,
+    basePath: options.basePath ?? "/api/auth",
+
+    emailAndPassword: {
+      enabled: true,
+      // Long enough to resist trivial guessing; better-auth hashes with scrypt.
+      minPasswordLength: 10,
+      maxPasswordLength: 256,
+      /**
+       * Verification is required only when email can actually be delivered.
+       *
+       * Hardcoding `true` would lock every new account out of any install that
+       * has not configured SMTP, and hardcoding `false` would leave a
+       * production deployment accepting unverified addresses forever. Deriving
+       * it from whether a mailer exists makes the safe choice automatic in both
+       * cases. `FALORB_REQUIRE_EMAIL_VERIFICATION` overrides either way.
+       */
+      requireEmailVerification: requireVerification(),
+      autoSignIn: true,
+
+      sendResetPassword: async ({ user, url }) => {
+        await mailer().send(resetPasswordMail(user.email, url));
+      },
+    },
+
+    emailVerification: {
+      sendOnSignUp: mailer().isConfigured,
+      autoSignInAfterVerification: true,
+      sendVerificationEmail: async ({ user, url }) => {
+        await mailer().send(verifyEmailMail(user.email, url));
+      },
+    },
+
+    session: {
+      modelName: "session",
+      expiresIn: 60 * 60 * 24 * 30,
+      updateAge: 60 * 60 * 24,
+      cookieCache: { enabled: true, maxAge: 5 * 60 },
+      fields: {
+        expiresAt: "expires_at",
+        userId: "user_id",
+        ipAddress: "ip_address",
+        userAgent: "user_agent",
+        createdAt: "created_at",
+        updatedAt: "updated_at",
+      },
+    },
+
+    trustedOrigins: options.trustedOrigins ?? defaultTrustedOrigins(),
+
+    user: {
+      modelName: "user",
+      fields: {
+        emailVerified: "email_verified",
+        createdAt: "created_at",
+        updatedAt: "updated_at",
+      },
+    },
+    account: {
+      modelName: "account",
+      fields: {
+        accountId: "account_id",
+        providerId: "provider_id",
+        userId: "user_id",
+        accessToken: "access_token",
+        refreshToken: "refresh_token",
+        idToken: "id_token",
+        accessTokenExpiresAt: "access_token_expires_at",
+        refreshTokenExpiresAt: "refresh_token_expires_at",
+        createdAt: "created_at",
+        updatedAt: "updated_at",
+      },
+    },
+    verification: {
+      modelName: "verification",
+      fields: {
+        expiresAt: "expires_at",
+        createdAt: "created_at",
+        updatedAt: "updated_at",
+      },
+    },
+
+    // Ids are generated by better-auth, not the database: `user.id` and friends
+    // are plain `text` columns with no default, so leaving generation to
+    // Postgres would insert nulls.
+  });
+}
+
+export function defaultTrustedOrigins(): string[] {
+  return (process.env.FALORB_TRUSTED_ORIGINS ?? "http://localhost:3000")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+export type Auth = ReturnType<typeof createAuth>;
+export type AuthSession = Auth["$Infer"]["Session"];

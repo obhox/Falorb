@@ -1,0 +1,33 @@
+{
+  "name": "@falorb/mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "falorb-mcp": "./src/index.ts"
+  },
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "start:http": "tsx src/index.ts --http",
+    "dev": "tsx watch src/index.ts --http",
+    "inspect": "npx @modelcontextprotocol/inspector tsx src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "smoke": "tsx src/smoke.ts"
+  },
+  "dependencies": {
+    "@clickhouse/client": "^1.23.1",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@falorb/core": "workspace:*",
+    "@falorb/db": "workspace:*",
+    "@falorb/queries": "workspace:*",
+    "drizzle-orm": "^0.38.4",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}

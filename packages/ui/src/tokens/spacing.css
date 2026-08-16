@@ -1,0 +1,30 @@
+:root{
+/* 4px base with 2px half-steps for dense table/control interiors. */
+--space-0:0px;
+--space-1:2px;
+--space-2:4px;
+--space-3:6px;
+--space-4:8px;
+--space-5:10px;
+--space-6:12px;
+--space-7:16px;
+--space-8:20px;
+--space-9:24px;
+--space-10:32px;
+--space-11:40px;
+--space-12:56px;
+--space-13:72px;
+--space-14:96px;
+
+/* Composition rules baked into tokens. */
+--gutter-panel:12px;      /* gap between floating panels */
+--pad-panel:20px;         /* panel interior */
+--pad-card:16px;
+--pad-control-x:12px;
+--pad-control-y:7px;
+--row-height:38px;        /* data table row */
+--row-height-dense:30px;
+--shell-pad:12px;         /* app shell inset — panels float, never touch the edge */
+--content-max:1440px;
+--prose-max:66ch;
+}

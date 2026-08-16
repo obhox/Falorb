@@ -1,0 +1,66 @@
+<clickhouse>
+    <!--
+      Tuning for a single shared server that also runs Postgres, Redis, and a
+      dozen application containers. Stock ClickHouse assumes it owns the whole
+      machine and will happily consume every core and most of RAM.
+    -->
+
+    <!--
+      Required. The image otherwise binds only to 127.0.0.1 inside the
+      container, so a published port accepts the TCP connection and then resets
+      it — the failure looks like a crash but the server is running fine.
+      Exposure is still controlled by Docker's port publishing and, in
+      production, by keeping this service off the public network.
+    -->
+    <listen_host>0.0.0.0</listen_host>
+
+    <!-- Cap the page cache. Default is 5GB, which is more than the whole box
+         should give to one service in this deployment. -->
+    <mark_cache_size>536870912</mark_cache_size>
+    <uncompressed_cache_size>0</uncompressed_cache_size>
+
+    <!-- Background merge/mutation pools. Defaults scale with core count and
+         can starve the application containers during a large merge. -->
+    <background_pool_size>8</background_pool_size>
+    <background_schedule_pool_size>8</background_schedule_pool_size>
+    <background_common_pool_size>4</background_common_pool_size>
+    <background_merges_mutations_concurrency_ratio>2</background_merges_mutations_concurrency_ratio>
+
+    <!--
+      These must be lowered alongside the pool above. ClickHouse refuses to
+      start if number_of_free_entries_in_pool_to_execute_mutation (default 20)
+      exceeds background_pool_size * concurrency_ratio, on the grounds that
+      mutations could never acquire a slot. Here that product is 8*2 = 16, so
+      the thresholds have to come down with it.
+    -->
+    <merge_tree>
+        <number_of_free_entries_in_pool_to_execute_mutation>4</number_of_free_entries_in_pool_to_execute_mutation>
+        <number_of_free_entries_in_pool_to_lower_max_size_of_merge>4</number_of_free_entries_in_pool_to_lower_max_size_of_merge>
+        <number_of_free_entries_in_pool_to_execute_optimize_entire_partition>6</number_of_free_entries_in_pool_to_execute_optimize_entire_partition>
+    </merge_tree>
+
+    <!-- Keep logs bounded; ClickHouse's own system tables can otherwise grow
+         larger than the analytics data on a low-traffic install. -->
+    <query_log>
+        <database>system</database>
+        <table>query_log</table>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+        <ttl>event_date + INTERVAL 14 DAY DELETE</ttl>
+    </query_log>
+    <trace_log remove="1"/>
+    <metric_log remove="1"/>
+    <asynchronous_metric_log remove="1"/>
+    <session_log remove="1"/>
+    <part_log>
+        <database>system</database>
+        <table>part_log</table>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+        <ttl>event_date + INTERVAL 7 DAY DELETE</ttl>
+    </part_log>
+
+    <logger>
+        <level>warning</level>
+        <size>100M</size>
+        <count>3</count>
+    </logger>
+</clickhouse>

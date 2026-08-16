@@ -1,0 +1,48 @@
+:root{
+/* Backgrounds */
+--bg-app:var(--ink-1000);
+--bg-shell:var(--ink-950);
+--surface-panel:var(--ink-900);
+--surface-card:var(--ink-850);
+--surface-raised:var(--ink-800);
+--surface-inset:rgba(0,0,0,.28);
+--surface-glass:var(--glass-bg);
+--surface-hover:var(--w-4);
+--surface-active:var(--w-8);
+--surface-selected:rgba(125,211,252,.10);
+
+/* Text */
+--text-primary:var(--ink-50);
+--text-body:var(--ink-150);
+--text-secondary:var(--ink-300);
+--text-muted:var(--ink-400);
+--text-inverse:var(--ink-950);
+--text-accent:var(--glacier-400);
+--text-link:var(--glacier-300);
+--text-link-hover:var(--glacier-200);
+
+/* Borders */
+--border-subtle:var(--w-6);
+--border-default:var(--w-8);
+--border-strong:var(--w-16);
+--border-accent:var(--glacier-500);
+--grid-line:rgba(255,255,255,.05);
+
+/* Controls */
+--control-bg:var(--w-6);
+--control-bg-hover:var(--w-12);
+--control-bg-active:var(--w-16);
+--control-border:var(--w-8);
+--control-fg:var(--ink-100);
+--btn-primary-bg:var(--ink-50);
+--btn-primary-fg:var(--ink-950);
+--btn-primary-bg-hover:var(--ink-0);
+--focus-ring:var(--shadow-focus); /* @kind shadow */
+
+/* Data */
+--metric-fg:var(--ink-0);
+--delta-up:var(--signal-up);
+--delta-down:var(--signal-down);
+--chart-track:var(--w-4);
+--chart-hatch:var(--hatch); /* @kind other */
+}

@@ -1,0 +1,25 @@
+{
+  "name": "@falorb/ingest",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/index.ts",
+    "start": "bun src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "geoip:download": "node scripts/download-geoip.mjs"
+  },
+  "dependencies": {
+    "@falorb/core": "workspace:*",
+    "@falorb/db": "workspace:*",
+    "hono": "^4.6.16",
+    "ioredis": "^5.4.2",
+    "maxmind": "^4.3.24"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.16",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}

@@ -1,0 +1,68 @@
+# The collector, on Bun.
+#
+# Separate from the Node services because it is the only one that matters for
+# throughput — it sits in front of every pageview on every tracked site — and
+# Bun's HTTP server is meaningfully faster per request than Node's.
+#
+# It also serves the tracker bundle, so the build stage compiles that here
+# rather than expecting it to exist.
+
+FROM oven/bun:1-alpine AS deps
+RUN apk add --no-cache nodejs npm && npm install -g pnpm@10
+WORKDIR /repo
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.json ./
+COPY packages/core/package.json      packages/core/
+COPY packages/db/package.json        packages/db/
+COPY packages/queries/package.json   packages/queries/
+COPY packages/auth/package.json      packages/auth/
+COPY packages/mailer/package.json    packages/mailer/
+COPY packages/tracker/package.json   packages/tracker/
+COPY packages/sdk-node/package.json  packages/sdk-node/
+COPY packages/sdk-react/package.json packages/sdk-react/
+COPY packages/ui/package.json        packages/ui/
+COPY apps/ingest/package.json        apps/ingest/
+COPY apps/worker/package.json        apps/worker/
+COPY apps/api/package.json           apps/api/
+COPY apps/mcp/package.json           apps/mcp/
+COPY apps/web/package.json           apps/web/
+
+RUN pnpm install --frozen-lockfile
+
+FROM deps AS build
+WORKDIR /repo
+COPY . .
+
+# Build the tracker here so the collector always serves a bundle matching the
+# code it was deployed from. Fetching it from anywhere else would let the two
+# drift.
+RUN pnpm --filter @falorb/tracker build
+
+# The size budget is enforced in the image build as well as in CI: a deploy
+# that quietly ships an oversized tracker to every customer's site should fail
+# here too, not just on a pull request.
+RUN pnpm --filter @falorb/tracker size
+
+RUN pnpm --filter @falorb/ingest deploy --legacy --prod /out
+
+FROM oven/bun:1-alpine AS runtime
+ENV NODE_ENV=production
+RUN apk add --no-cache tini curl \
+ && addgroup -S falorb && adduser -S falorb -G falorb
+
+WORKDIR /app
+COPY --from=build --chown=falorb:falorb /out /app
+# The tracker bundle is not part of the ingest package, so it is copied in
+# explicitly and its path pinned via FALORB_TRACKER_PATH below.
+COPY --from=build --chown=falorb:falorb /repo/packages/tracker/dist /app/tracker-dist
+
+ENV FALORB_TRACKER_PATH=/app/tracker-dist/t.js
+
+USER falorb
+EXPOSE 3001
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
+  CMD curl -fsS http://127.0.0.1:3001/health || exit 1
+
+ENTRYPOINT ["/sbin/tini", "--"]
+CMD ["bun", "src/index.ts"]

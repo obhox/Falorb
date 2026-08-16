@@ -13,10 +13,11 @@ Living record of what exists, what is half-built, and what has not been started.
 
 **Where things stand:** the collection pipeline, storage layer, identity graph,
 query layer, background workers, MCP server and self-serve account system are
-complete and verified. The dashboard now exists — 20 routes, building and
-typechecking, built on the Falorb design system — but only its signed-out
-screens have been exercised in a browser. The integrations layer is design-only.
-Verification commands are in [README.md](README.md).
+complete and verified. The dashboard is built — 24 routes on the Falorb design
+system, light and dark, role-enforced, driven end to end by Playwright. It does
+not yet cover the whole backend: see *Backend surface not yet in the dashboard*.
+The integrations layer is design-only. Verification commands are in
+[README.md](README.md).
 
 ---
 
@@ -318,54 +319,78 @@ deliberately does not do.
 
 ## 14. Dashboard — `apps/web`
 
-Next.js 15 App Router on React 19, built against the Falorb design system.
-**20 routes compile and the production build passes** (`pnpm --filter
-@falorb/web build`). Server components call `@falorb/queries` directly — no
-HTTP hop between the dashboard and the query layer.
-
-**Not yet verified in a browser while signed in.** The sign-in and sign-up
-screens were exercised against the running app and the auth gate redirects
-correctly; every authenticated screen is typechecked and builds, but has not
-been rendered with a live session. See *Known defects* — the seeded properties
-belong to an organization with no members, so a fresh signup lands on an empty
-portfolio until a membership row is added.
+Next.js 15 App Router on React 19, built on the Falorb design system. **24
+routes, production build passing, and an end-to-end suite that drives them in a
+browser** (`pnpm --filter @falorb/web e2e`). Server components call
+`@falorb/queries` directly — no HTTP hop between the dashboard and the query
+layer.
 
 | | Route | Purpose |
 |---|---|---|
-| 🟡 | `/` | All-properties overview — stat strip, per-property sparkline + delta |
-| 🟡 | `/p/[project]` | Property summary — totals, visitors/sessions trend, four breakdowns |
-| 🟡 | `/p/[project]/live` | Realtime feed, pages and countries now, longest-on-site |
-| 🟡 | `/p/[project]/people` | Person list — debounced search, identified filter, sort, paging |
-| 🟡 | `/people/[personId]` | **Deep profile** — cross-property timeline, products used, acquisition chain, interests, aliases |
-| 🟡 | `/p/[project]/funnels` | URL-encoded builder + drop-off waterfall |
-| 🟡 | `/p/[project]/paths` | Sankey + entry/exit/frustration reports |
-| 🟡 | `/p/[project]/retention` | Cohort grid + stickiness distribution |
-| 🟡 | `/p/[project]/events` | Event explorer with per-event filtering and session list |
-| 🟡 | `/p/[project]/goals` | Goals CRUD + conversions + three attribution models |
-| 🟡 | `/p/[project]/settings` | Snippet, domains, timezone, identity scope, consent, retention |
-| 🟡 | `/settings`, `/settings/new` | Instance settings; add a property |
-| 🟡 | `/insights` | Cross-project builder — metric × dimension × chart, people across products |
-| 🟡 | `/alerts` | Rule management matching the worker's condition shapes, plus firing history |
-| ✅ | Auth | better-auth mounted same-origin at `/api/auth`; config shared with the API via `@falorb/auth`. Sign-in, sign-up and the redirect gate verified in a browser |
-| 🟡 | SSE live streaming | `/api/live/[project]`, 3s poll, cursor-advanced, 30-min self-close |
-| 🟡 | Charts | Design system's own chart set — no chart library added |
-
-**Two design-system fixes were needed for SSR** and are noted in
-`packages/ui/src/index.jsx`: `Sparkline` and `LineChart` derived their SVG
-gradient ids from `Math.random()`, which differs between the server and client
-render passes and breaks hydration; both now use `React.useId()`. `Icon` was
-switched from the Lucide CDN sprite to the bundled `lucide-react` so glyphs are
-present in the first paint.
+| ✅ | `/` | All-properties overview — stat strip, per-property sparkline + delta |
+| ✅ | `/p/[project]` | Property summary — totals, visitors/sessions trend, four breakdowns |
+| ✅ | `/p/[project]/live` | Realtime feed, pages and countries now, longest-on-site |
+| ✅ | `/p/[project]/people` | Person list — debounced search, identified filter, sort, paging |
+| ✅ | `/people/[personId]` | **Deep profile** — cross-property timeline, products used, acquisition chain, interests, aliases |
+| ✅ | `/p/[project]/funnels` | URL-encoded builder + drop-off waterfall |
+| ✅ | `/p/[project]/paths` | Sankey + entry/exit/frustration reports |
+| ✅ | `/p/[project]/retention` | Cohort grid + stickiness distribution |
+| ✅ | `/p/[project]/events` | Event explorer with per-event filtering and session list |
+| ✅ | `/p/[project]/crawlers` | **AI & crawlers** — see §14b |
+| ✅ | `/p/[project]/goals` | Goals CRUD + conversions + three attribution models |
+| ✅ | `/p/[project]/settings` | Snippet, public link, domains, timezone, identity scope, consent, retention |
+| ✅ | `/settings` | Instance settings — properties, endpoints, workspace |
+| ✅ | `/settings/team` | Members, roles, invitations |
+| ✅ | `/settings/mcp` | API keys + MCP connection config |
+| ✅ | `/settings/new` | Add a property |
+| ✅ | `/insights` | Cross-project builder — metric × dimension × chart, people across products |
+| ✅ | `/alerts` | Delivery channels, rules, firing history |
+| ✅ | `/share/[token]` | Public read-only property summary |
+| ✅ | `/invite/[token]` | Invitation acceptance, bound to the invited address |
+| ✅ | Auth | better-auth mounted same-origin at `/api/auth`; config shared with the API via `@falorb/auth` |
+| ✅ | SSE live streaming | `/api/live/[project]`, 3s poll, cursor-advanced, 30-min self-close |
+| ✅ | Light & dark themes | Cookie-backed, server-rendered so there is no flash; "system" follows the OS |
+| ✅ | Roles enforced | Every mutation re-derives the caller's role server-side; see §14c |
 
 ## 14a. Design system — `packages/ui`
 
 | | Feature | Notes |
 |---|---|---|
-| ✅ | 32 components ported | core, forms, navigation, feedback, data, charts — copied from `Design System/`, not rewritten |
-| ✅ | 9 token files | Imported through one `styles.css` entry point |
-| ✅ | Fonts self-hosted | `next/font` replaces the Google Fonts CDN link, so tabular figures do not arrive late and reflow number columns |
-| ✅ | Types under React 19 | `.d.ts` return types moved to `React.JSX.Element` |
-| ⬜ | Sync tooling | Re-copying from `Design System/` is manual; the four deliberate deltas must be re-applied by hand |
+| ✅ | 32 components ported | Copied from `Design System/`, not rewritten |
+| ✅ | Reproducible sync | `pnpm --filter @falorb/ui sync` re-copies and re-applies the deltas; `sync:check` fails CI on drift |
+| ✅ | Fonts self-hosted | `next/font` replaces the CDN link, so tabular figures do not arrive late and reflow number columns |
+| ✅ | Pure black, neutral ramp | `--ink-1000` is `#000000` and every step is R=G=B; the ramp used to carry a cool cast |
+| ✅ | Light theme | `tokens/themes.css` re-points the semantic layer. Alpha-whites become alpha-blacks, elevation becomes shadow, accent and signal ramps darken for contrast |
+
+**Six deltas from the design system source**, all encoded in the sync script:
+`"use client"` on every component; `Icon` from bundled `lucide-react` rather
+than a CDN sprite; `React.JSX.Element` for React 19; `useId` gradient ids
+(`Math.random()` broke hydration); `Checkbox`/`Switch` given real inputs (they
+were spans with click handlers — no keyboard, no label association, no ARIA);
+`Select` renders through a portal (as a positioned child it was clipped by
+`Card`'s `overflow: hidden` and by scroll containers).
+
+## 14b. AI usage — `/p/[project]/crawlers`
+
+Answers what ChatGPT, Claude, Perplexity and the rest do with a property.
+
+| | Feature | Notes |
+|---|---|---|
+| ✅ | Answering vs ingesting | `ChatGPT-User` (a person asked, and is waiting) is now a different agent from `GPTBot` (bulk corpus). The classifier previously collapsed them, losing the more valuable one |
+| ✅ | Agent inventory | Vendor, request volume, share, and the robots.txt token that would block it |
+| ✅ | Referrals back | Visitors arriving *from* an assistant — the only figure showing the reading produced a reader |
+| ✅ | Pages being read | What the assistants actually fetch |
+| ✅ | `bot_name` filterable | Added to the query layer's allow-list; it was stored but not reportable |
+
+## 14c. Roles and team
+
+| | Feature | Notes |
+|---|---|---|
+| ✅ | Canonical role model | `@falorb/db/roles` — owner > admin > member > viewer, shared by API and dashboard so the two cannot disagree |
+| ✅ | Enforced on every mutation | Project settings, goals, alerts, channels, sharing, keys and team all re-derive the role server-side. A server action is a public endpoint; a hidden button is not a check |
+| ✅ | Invitations | Hashed tokens, 7-day expiry, acceptance bound to the invited address, membership and consumption in one transaction |
+| ✅ | Last-owner guard | The only owner cannot be demoted or removed |
+
 
 ## 15. SDKs
 
@@ -379,16 +404,50 @@ present in the first paint.
 | | Feature | Notes |
 |---|---|---|
 | ✅ | Local Docker Compose | Verified cold start |
-| ⬜ | Coolify deployment | `a.obhox.com` → ingest, `analytics.obhox.com` → web |
-| ✅ | Caddy config | `infra/Caddyfile` — collector, dashboard and MCP on separate hostnames |
+| 🟡 | Coolify deployment | Dockerfiles, production compose and [DEPLOY.md](infra/DEPLOY.md) built and verified locally; the Coolify MCP is read-only so the console steps are manual |
+| ✅ | Caddy config | `infra/Caddyfile` — `a.` / `dashboard.` / `mcp.` on separate hostnames |
 | ✅ | Backups | `infra/backup.sh` — incremental ClickHouse, verified gzip for Postgres |
 | ⬜ | Rollout to the 10 live sites | obhox, linkbry, letternerd, spendtab, usebund, patrio, wardrobe, falorb |
 
 ---
 
+## Backend surface not yet in the dashboard
+
+Audited by enumerating every schema table and every query-layer export, then
+checking what `apps/web` actually references. The dashboard is **not** a
+complete front end for the backend; these are the gaps, in the order they cost
+the most.
+
+| Backend | State | What is missing in the UI |
+|---|---|---|
+| `dataRequests` | worker processes them | No way to raise a GDPR export or erasure. The `data-requests` job runs every 2m against rows nothing creates |
+| `segments` | table + `segment-counts` worker | People can be filtered but not *saved* as a segment; the worker caches sizes for segments that cannot be created |
+| `funnels` | table | The funnel builder is URL-only. Nothing saves a funnel, so one cannot be shared by name or reused in an alert |
+| `insights` | table | Same for the cross-project builder — the query lives in the URL and nowhere else |
+| `dashboardWidgets` | table | The design system's custom-view builder (widget grid) is not built; `/insights` is a single fixed layout |
+| `webhooks` | table + dispatcher job | No UI to register an endpoint or see delivery history |
+| `consentRecords` | ingest writes them | No UI to read the consent log |
+| `auditLog` | API writes it | No UI to read it. Written on project, key, member and person actions and visible only in Postgres |
+| `personMerges` | resolver writes it | Merge/unmerge exists in the API; the person profile cannot trigger or reverse one |
+| `closedSessions` | query exists | Not consumed — the session list uses `sessionList` |
+
+Auth internals (`account`, `session`, `verification`) are managed by better-auth
+and correctly have no UI.
+
 ## Known defects
 
-None outstanding. Everything previously listed here is fixed and verified.
+1. **The seed attaches no account.** `pnpm db:seed` creates the properties but
+   no membership, so a fresh signup sees an empty portfolio while every seeded
+   person sits in an organization nobody belongs to. The seed now says so and
+   takes `SEED_OWNER_EMAIL=you@example.com` to fix it, but it cannot do it
+   unprompted — the account has to exist first.
+2. **`BETTER_AUTH_SECRET` is a low-entropy placeholder.** better-auth warns on
+   every boot. It signs session cookies, so rotating it signs everyone out —
+   change it before the first real account. `openssl rand -base64 32`.
+3. **`Tooltip` has the clipping bug `Select` just had.** It positions absolutely
+   inside its trigger, so inside a `Card` (`overflow: hidden`) it is cut off. Not
+   currently used by the dashboard, so it is latent rather than visible; the fix
+   is the same portal treatment.
 
 ### Fixed
 
@@ -411,13 +470,12 @@ None outstanding. Everything previously listed here is fixed and verified.
 
 ## Suggested next order
 
-1. **Sign in and walk the dashboard.** Fix defect 5 first (the membership row),
-   or every screen renders an honest but empty state. This is the only thing
-   standing between "builds" and "verified".
-2. Rotate `BETTER_AUTH_SECRET` (defect 6) before any real account exists.
-3. Close the remaining defects — three are silent failures.
-4. Playwright end-to-end over the dashboard, so the signed-in screens stay
-   verified rather than being re-checked by hand.
-5. Webhook dispatcher + goal evaluator.
-6. Integrations, starting with Stripe (revenue) and Slack (alert delivery).
-7. Coolify deploy, then instrument obhox.com first.
+1. Fix defect 1 (`SEED_OWNER_EMAIL`) and rotate `BETTER_AUTH_SECRET`, in that
+   order — the first makes the dashboard show data, the second is cheap now and
+   expensive after real accounts exist.
+2. Close the highest-cost integration gaps: GDPR data requests, then saved
+   segments and funnels. Each has a worker or a table already waiting on a UI.
+3. Audit log and consent log viewers — both are written today and readable only
+   in Postgres, which is the wrong place to look during an incident.
+4. Webhook management, then the custom-view widget builder.
+5. Coolify deploy, then instrument obhox.com first.

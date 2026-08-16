@@ -1,0 +1,76 @@
+# Shared image for the Node services: worker, api and mcp.
+#
+# One Dockerfile with an APP argument rather than three near-identical files.
+# They share every dependency and differ only in entrypoint, so separate files
+# would triplicate the pnpm plumbing and drift apart the first time one is
+# edited.
+#
+# Multi-stage so the runtime image carries no build toolchain and no dev
+# dependencies. `pnpm deploy` produces a self-contained node_modules with the
+# workspace symlinks resolved, which is the only reliable way to ship one
+# package out of a pnpm monorepo.
+
+ARG NODE_VERSION=22-alpine
+
+# --- dependencies -------------------------------------------------------------
+FROM node:${NODE_VERSION} AS deps
+RUN corepack enable
+WORKDIR /repo
+
+# Copy only manifests first: this layer is cached until a dependency actually
+# changes, so ordinary source edits skip the whole install.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.json ./
+COPY packages/core/package.json           packages/core/
+COPY packages/db/package.json             packages/db/
+COPY packages/queries/package.json        packages/queries/
+COPY packages/auth/package.json           packages/auth/
+COPY packages/mailer/package.json         packages/mailer/
+COPY packages/tracker/package.json        packages/tracker/
+COPY packages/sdk-node/package.json       packages/sdk-node/
+COPY packages/sdk-react/package.json      packages/sdk-react/
+COPY packages/ui/package.json             packages/ui/
+COPY apps/ingest/package.json             apps/ingest/
+COPY apps/worker/package.json             apps/worker/
+COPY apps/api/package.json                apps/api/
+COPY apps/mcp/package.json                apps/mcp/
+COPY apps/web/package.json                apps/web/
+
+# --frozen-lockfile: a deploy must never silently resolve a different version
+# than what was tested.
+RUN pnpm install --frozen-lockfile
+
+# --- prune to a single app ----------------------------------------------------
+FROM deps AS build
+ARG APP
+WORKDIR /repo
+COPY . .
+
+# `pnpm deploy` flattens the workspace dependencies of one package into an
+# isolated directory that can be copied out on its own.
+RUN pnpm --filter "@falorb/${APP}" deploy --legacy --prod /out
+
+# --- runtime ------------------------------------------------------------------
+FROM node:${NODE_VERSION} AS runtime
+ARG APP
+ENV NODE_ENV=production \
+    APP_NAME=${APP}
+
+# tini reaps zombies and forwards signals, so SIGTERM actually reaches the
+# process and the worker's graceful drain runs instead of being killed.
+RUN apk add --no-cache tini curl
+
+# Unprivileged: nothing here needs root, and a compromised analytics collector
+# should not be able to write to its own image.
+RUN addgroup -S falorb && adduser -S falorb -G falorb
+WORKDIR /app
+COPY --from=build --chown=falorb:falorb /out /app
+
+# The services run TypeScript directly through tsx rather than being compiled.
+# The alternative is a per-package build step emitting to dist/, which for a
+# private monorepo buys a marginal startup saving in exchange for a second
+# toolchain to keep working.
+RUN npm install -g tsx@4
+
+USER falorb
+ENTRYPOINT ["/sbin/tini", "--"]
+CMD ["sh", "-c", "tsx src/index.ts"]

@@ -1,0 +1,19 @@
+# Keep the build context small and free of anything that could leak.
+node_modules
+**/node_modules
+.git
+.github
+**/dist
+**/.next
+**/.turbo
+**/test-results
+**/playwright-report
+**/*.tsbuildinfo
+infra/geoip/*.mmdb
+infra/backups
+infra/data
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store

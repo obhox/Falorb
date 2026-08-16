@@ -3,7 +3,7 @@
 # Caddy handles TLS automatically. Three hostnames, deliberately separate:
 #
 #   a.<domain>          the collector. Publicly reachable, high volume.
-#   analytics.<domain>  the dashboard.
+#   dashboard.<domain>  the dashboard.
 #   mcp.<domain>        the MCP server, for assistants connecting remotely.
 #
 # The collector is on its own subdomain rather than a path on the dashboard so
@@ -50,7 +50,7 @@ a.{$FALORB_DOMAIN} {
 }
 
 # --- dashboard ---------------------------------------------------------------
-analytics.{$FALORB_DOMAIN} {
+dashboard.{$FALORB_DOMAIN} {
 	encode zstd gzip
 
 	header {

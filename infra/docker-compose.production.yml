@@ -1,0 +1,198 @@
+# Falorb — production stack for Coolify.
+#
+# Deployed as a Coolify "Docker Compose" resource pointed at this file. It is
+# separate from infra/docker-compose.yml, which is a *development* file that
+# publishes Postgres, Redis and ClickHouse on host ports with a well-known
+# password. Deploying that file would put three unauthenticated databases on
+# the public internet, so the two must never be confused.
+#
+# Differences that matter here:
+#   - No `ports:` on any datastore. They are reachable only on the internal
+#     compose network; Coolify's proxy is the sole ingress.
+#   - Every secret comes from a Coolify-generated value. Nothing is hardcoded.
+#   - Domains are assigned with SERVICE_FQDN_* magic variables, which Coolify
+#     expands and wires into its proxy automatically.
+#
+# Coolify conventions used:
+#   SERVICE_FQDN_<NAME>_<PORT>  publish a service at a domain
+#   SERVICE_PASSWORD_<NAME>     generate and persist a random password
+#   SERVICE_BASE64_64_<NAME>    generate a 64-byte base64 secret
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: falorb
+      POSTGRES_PASSWORD: ${SERVICE_PASSWORD_POSTGRES}
+      POSTGRES_DB: falorb
+    volumes:
+      - falorb-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U falorb -d falorb"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    # appendonly is not optional here: the ingest stream lives in Redis, and
+    # without it a container restart drops every event not yet written to
+    # ClickHouse.
+    command: >-
+      redis-server --appendonly yes
+      --requirepass ${SERVICE_PASSWORD_REDIS}
+      --maxmemory 512mb --maxmemory-policy noeviction
+    volumes:
+      - falorb-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${SERVICE_PASSWORD_REDIS}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:25.3-alpine
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_USER: falorb
+      CLICKHOUSE_PASSWORD: ${SERVICE_PASSWORD_CLICKHOUSE}
+      CLICKHOUSE_DB: falorb
+    volumes:
+      - falorb-clickhouse:/var/lib/clickhouse
+      - ./infra/clickhouse/config.d:/etc/clickhouse-server/config.d:ro
+      # Writable: the image's entrypoint generates users.d/default-user.xml
+      # here. Mounting it read-only makes the container crash-loop.
+      - ./infra/clickhouse/users.d:/etc/clickhouse-server/users.d
+    ulimits:
+      nofile: { soft: 262144, hard: 262144 }
+    healthcheck:
+      test:
+        - CMD
+        - clickhouse-client
+        - --user=falorb
+        - --password=${SERVICE_PASSWORD_CLICKHOUSE}
+        - --query=SELECT 1
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  # --- migrations -------------------------------------------------------------
+  # Runs to completion before the apps start, so no service ever queries a
+  # schema that does not exist yet.
+  migrate:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.node
+      args:
+        APP: db
+    restart: "no"
+    command: ["sh", "-c", "tsx src/migrate-all.ts"]
+    environment:
+      DATABASE_URL: postgresql://falorb:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/falorb
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: falorb
+      CLICKHOUSE_PASSWORD: ${SERVICE_PASSWORD_CLICKHOUSE}
+      CLICKHOUSE_DATABASE: falorb
+    depends_on:
+      postgres: { condition: service_healthy }
+      clickhouse: { condition: service_healthy }
+
+  # --- collector --------------------------------------------------------------
+  ingest:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.ingest
+    restart: unless-stopped
+    environment:
+      # Own subdomain so an ad-blocker rule against the collector cannot take
+      # the dashboard down with it.
+      SERVICE_FQDN_INGEST_3001: /
+      PORT: 3001
+      DATABASE_URL: postgresql://falorb:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/falorb
+      REDIS_URL: redis://:${SERVICE_PASSWORD_REDIS}@redis:6379
+      FALORB_SALT_SECRET: ${SERVICE_BASE64_64_SALT}
+      MAXMIND_DB_PATH: ${MAXMIND_DB_PATH:-}
+      FALORB_RATE_LIMIT: ${FALORB_RATE_LIMIT:-600}
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+
+  # --- background jobs --------------------------------------------------------
+  worker:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.node
+      args:
+        APP: worker
+    restart: unless-stopped
+    # No domain: the worker serves no HTTP and must not be reachable.
+    environment:
+      DATABASE_URL: postgresql://falorb:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/falorb
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: falorb
+      CLICKHOUSE_PASSWORD: ${SERVICE_PASSWORD_CLICKHOUSE}
+      CLICKHOUSE_DATABASE: falorb
+      REDIS_URL: redis://:${SERVICE_PASSWORD_REDIS}@redis:6379
+      FALORB_APP_URL: https://dashboard.${FALORB_DOMAIN}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      IPINFO_TOKEN: ${IPINFO_TOKEN:-}
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  # --- account & management API ------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.node
+      args:
+        APP: api
+    restart: unless-stopped
+    command: ["sh", "-c", "tsx src/index.ts"]
+    environment:
+      SERVICE_FQDN_API_3003: /
+      PORT: 3003
+      DATABASE_URL: postgresql://falorb:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/falorb
+      BETTER_AUTH_SECRET: ${SERVICE_BASE64_64_AUTH}
+      FALORB_API_URL: https://api.${FALORB_DOMAIN}
+      FALORB_APP_URL: https://dashboard.${FALORB_DOMAIN}
+      FALORB_INGEST_URL: https://a.${FALORB_DOMAIN}
+      FALORB_MCP_URL: https://mcp.${FALORB_DOMAIN}/mcp
+      # Load-bearing. better-auth rejects a session whose Origin is not listed
+      # here, and CORS blocks the request before that — so a hostname typo
+      # surfaces as "sign-in silently does nothing" rather than as an error.
+      # Must match the dashboard's real origin exactly, scheme included.
+      FALORB_TRUSTED_ORIGINS: https://dashboard.${FALORB_DOMAIN},https://${FALORB_DOMAIN}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  # --- MCP server --------------------------------------------------------------
+  mcp:
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.node
+      args:
+        APP: mcp
+    restart: unless-stopped
+    command: ["sh", "-c", "tsx src/index.ts --http"]
+    environment:
+      SERVICE_FQDN_MCP_3002: /
+      FALORB_MCP_PORT: 3002
+      DATABASE_URL: postgresql://falorb:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/falorb
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: falorb
+      CLICKHOUSE_PASSWORD: ${SERVICE_PASSWORD_CLICKHOUSE}
+      CLICKHOUSE_DATABASE: falorb
+      FALORB_INGEST_URL: https://a.${FALORB_DOMAIN}
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+volumes:
+  falorb-postgres:
+  falorb-redis:
+  falorb-clickhouse:

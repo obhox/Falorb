@@ -8,7 +8,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./schema": "./src/schema/index.ts",
-    "./clickhouse": "./src/clickhouse/index.ts"
+    "./clickhouse": "./src/clickhouse/index.ts",
+    "./roles": "./src/roles.ts"
   },
   "scripts": {
     "generate": "drizzle-kit generate",
@@ -18,7 +19,8 @@
     "typecheck": "tsc --noEmit",
     "seed": "tsx src/seed.ts",
     "seed:events": "tsx src/seed-events.ts",
-    "seed:owner": "tsx src/seed.ts"
+    "seed:owner": "tsx src/seed.ts",
+    "migrate:all": "tsx src/migrate-all.ts"
   },
   "dependencies": {
     "@clickhouse/client": "^1.10.1",

@@ -53,7 +53,13 @@ services:
       retries: 10
 
   clickhouse:
-    image: clickhouse/clickhouse-server:25.3-alpine
+    # Built rather than pulled: the server config is baked into the image. It used
+    # to arrive as bind mounts of infra/clickhouse/{config.d,users.d}, but Coolify
+    # rewrites relative bind mounts into empty directories it manages, so the
+    # overrides silently never reached the server. See Dockerfile.clickhouse.
+    build:
+      context: .
+      dockerfile: infra/docker/Dockerfile.clickhouse
     restart: unless-stopped
     environment:
       CLICKHOUSE_USER: falorb
@@ -61,19 +67,19 @@ services:
       CLICKHOUSE_DB: falorb
     volumes:
       - falorb-clickhouse:/var/lib/clickhouse
-      - ./infra/clickhouse/config.d:/etc/clickhouse-server/config.d:ro
-      # Writable: the image's entrypoint generates users.d/default-user.xml
-      # here. Mounting it read-only makes the container crash-loop.
-      - ./infra/clickhouse/users.d:/etc/clickhouse-server/users.d
     ulimits:
       nofile: { soft: 262144, hard: 262144 }
     healthcheck:
+      # Tests the HTTP interface on 8123, not the native protocol. Everything that
+      # actually talks to ClickHouse here -- migrate, ingest, api -- speaks HTTP, and
+      # a clickhouse-client check passes over a loopback-only bind that refuses every
+      # one of them. The check has to exercise the interface the callers use.
       test:
-        - CMD
-        - clickhouse-client
-        - --user=falorb
-        - --password=${SERVICE_PASSWORD_CLICKHOUSE}
-        - --query=SELECT 1
+        - CMD-SHELL
+        - >-
+          wget -q -O - --header="X-ClickHouse-User: falorb"
+          --header="X-ClickHouse-Key: ${SERVICE_PASSWORD_CLICKHOUSE}"
+          "http://127.0.0.1:8123/?query=SELECT%201" | grep -q 1
       interval: 10s
       timeout: 5s
       retries: 20

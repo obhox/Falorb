@@ -1,0 +1,25 @@
+# ClickHouse with this deployment's server config baked in.
+#
+# The config used to arrive as two bind mounts of infra/clickhouse/{config.d,users.d}.
+# That works under plain `docker compose`, but Coolify rewrites relative bind mounts
+# in a compose file into directories it manages itself under
+# /data/coolify/applications/<uuid>/... and creates them EMPTY -- it does not copy the
+# repository's files into them. The server therefore started with none of these
+# overrides.
+#
+# The failure that produced was quiet and misleading. Mounting an empty directory over
+# /etc/clickhouse-server/config.d also masks the image's OWN docker_related_config.xml,
+# which is what sets listen_host to 0.0.0.0 in Docker. The server fell back to the
+# built-in default and listened on 127.0.0.1 only, so `clickhouse-client` inside the
+# container still answered on the native port and the compose healthcheck passed --
+# while every other container got ECONNREFUSED on the HTTP port. `migrate` died on 8123
+# with the databases reporting healthy. (Verified: the stock image binds 0.0.0.0; it is
+# the empty mount, not the absence of falorb.xml alone, that breaks it.)
+#
+# Baking the config in removes the dependency on how any particular platform treats
+# bind mounts. users.d stays writable in the image layer, because the entrypoint
+# generates default-user.xml there at start-up.
+FROM clickhouse/clickhouse-server:25.3-alpine
+
+COPY infra/clickhouse/config.d/ /etc/clickhouse-server/config.d/
+COPY infra/clickhouse/users.d/ /etc/clickhouse-server/users.d/

@@ -16,6 +16,7 @@
     "@falorb/db": "workspace:*",
     "@falorb/mailer": "workspace:*",
     "@falorb/queries": "workspace:*",
+    "@hono/node-server": "^1.13.7",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.6.16",
     "zod": "^3.24.1"

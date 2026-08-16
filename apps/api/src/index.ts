@@ -474,6 +474,20 @@ function publicProject(p: typeof schema.projects.$inferSelect) {
   };
 }
 
-console.log(`[api] listening on :${port}`);
-
+// Bun starts a server from this default export; Node does not. Keeping it means
+// `bun src/index.ts` still works locally, which is what apps/api/package.json's
+// start script uses.
 export default { port, fetch: app.fetch };
+
+// The container runs this file with tsx on Node, where the export above binds
+// nothing at all -- the process idled with no listener while cheerfully logging
+// that it was listening, so the proxy returned 502 for a container that looked
+// healthy. Serve explicitly unless Bun is already doing it.
+if (!process.versions.bun) {
+  const { serve } = await import("@hono/node-server");
+  serve({ fetch: app.fetch, port }, (info) => {
+    console.log(`[api] listening on :${info.port}`);
+  });
+} else {
+  console.log(`[api] listening on :${port}`);
+}

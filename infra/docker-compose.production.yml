@@ -193,6 +193,10 @@ services:
   # the app itself (`apps/web/next.config.mjs` and `src/middleware.ts`), so they
   # hold whichever proxy is in front.
   web:
+    # Same reason as api and mcp: Dockerfile.node carries no EXPOSE, so without
+    # this the proxy has no port to route to and answers "no available server".
+    expose:
+      - "3000"
     build:
       context: .
       dockerfile: infra/docker/Dockerfile.node

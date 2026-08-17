@@ -99,7 +99,9 @@ const VERSION = "1";
 
   // --- state ---------------------------------------------------------------
 
-  const SESSION_TIMEOUT = 30 * 60 * 1000;
+  // Thirty minutes, written out: esbuild folds `30 * 60 * 1000` to `1800*1e3`
+  // rather than `18e5`, and this file is measured to the byte.
+  const SESSION_TIMEOUT = 1_800_000;
   const DEVICE_KEY = "_falorb_did";
   const SESSION_KEY = "_falorb_sid";
   const USER_KEY = "_falorb_uid";
@@ -112,6 +114,10 @@ const VERSION = "1";
   let lastPath = "";
   let pageEnteredAt = now();
   let maxScroll = 0;
+  // A page can only be left once. Closing a tab fires visibilitychange->hidden
+  // *and* pagehide, and both report the exit, so without this every session
+  // recorded two identical $pageleave events at the same instant.
+  let leaveSent = false;
 
   function now(): number {
     return Date.now();
@@ -248,7 +254,11 @@ const VERSION = "1";
           method: "POST",
           body: payload,
           keepalive: true,
-          mode: "cors",
+          // `mode` is not set: "cors" is already the default for fetch, and
+          // the byte budget does not pay for restating a default. `credentials`
+          // is, because its default is "same-origin" — which would attach the
+          // site's own cookies whenever the collector is self-hosted on the
+          // same origin as the page.
           credentials: "omit",
           headers: { "Content-Type": "text/plain" },
         }).catch(() => {});
@@ -260,14 +270,23 @@ const VERSION = "1";
     }
   }
 
-  function enqueue(e: WireEvent): void {
-    if (!consentGranted) return;
-    queue.push(e);
-    if (queue.length >= 10) {
-      flush();
-    } else if (!flushTimer) {
-      flushTimer = setTimeout(() => flush(), 2000);
+  /**
+   * Queue an event, reporting whether it was accepted.
+   *
+   * Acceptance *is* the consent state, so that flag is the return value rather
+   * than a pair of literals — one source of truth for an answer `page()` acts
+   * on, and a few bytes cheaper in a file that is measured to the byte.
+   */
+  function enqueue(e: WireEvent): boolean {
+    if (consentGranted) {
+      queue.push(e);
+      if (queue.length >= 10) {
+        flush();
+      } else if (!flushTimer) {
+        flushTimer = setTimeout(flush, 2000);
+      }
     }
+    return consentGranted;
   }
 
   function base(name: string, props?: Props): WireEvent {
@@ -333,16 +352,32 @@ const VERSION = "1";
     if (path === lastPath) return;
 
     if (lastPath) sendPageLeave();
-    lastPath = path;
-    pageEnteredAt = now();
-    maxScroll = 0;
 
     const e = base("$pageview");
     e.ti = d.title;
-    enqueue(e);
+
+    /**
+     * Commit the new page only if its pageview was accepted.
+     *
+     * `enqueue` drops everything until consent is granted. This used to set
+     * `lastPath` first, so a page loaded before consent recorded itself as
+     * reported while nothing had been sent — and the retry in `consent()` then
+     * hit the `path === lastPath` guard and returned immediately. The pageview
+     * was lost for good, while every later event on the same page (pageleave,
+     * web vitals) enqueued normally once consent arrived. A session with an
+     * exit but no entry is exactly what that looks like.
+     */
+    if (!enqueue(e)) return;
+
+    lastPath = path;
+    pageEnteredAt = now();
+    maxScroll = 0;
+    leaveSent = false;
   }
 
   function sendPageLeave(): void {
+    if (leaveSent) return;
+    leaveSent = true;
     const e = base("$pageleave", { scroll_depth: maxScroll });
     e.du = now() - pageEnteredAt;
     enqueue(e);
@@ -403,13 +438,13 @@ const VERSION = "1";
     if (push) {
       history.pushState = function (...args) {
         push.apply(this, args as never);
-        setTimeout(() => page(), 0);
+        setTimeout(page, 0);
       };
     }
     if (replace) {
       history.replaceState = function (...args) {
         replace.apply(this, args as never);
-        setTimeout(() => page(), 0);
+        setTimeout(page, 0);
       };
     }
     w.addEventListener("popstate", () => page());
@@ -662,12 +697,21 @@ const VERSION = "1";
       }
       sendPageLeave();
       flush(true);
+    } else {
+      // Visible again — a tab switched back to, or a page restored from the
+      // back/forward cache. The next exit is a genuine one rather than a
+      // duplicate of the exit already reported, so the guard reopens. The
+      // dwell timer is deliberately not restarted: duration has always been
+      // measured from when the page was entered, and changing that here would
+      // quietly redefine the metric.
+      leaveSent = false;
     }
   });
   w.addEventListener("pagehide", () => {
     sendPageLeave();
     flush(true);
   });
+
 
   const api = function (method: string, ...args: unknown[]) {
     const fn = (api as unknown as Record<string, unknown>)[method];

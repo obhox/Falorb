@@ -20,8 +20,23 @@ import { dirname, join } from "node:path";
  * (Caddy's default) this ships at ~2.6 KB.
  *
  * Lower this number rather than raising it.
+ *
+ * Keep a few bytes of headroom, and do not read "99% of budget" as passing
+ * comfortably. gzip output is not identical across zlib versions: the same
+ * 6,600-byte bundle measured 3,069 B on a developer machine (Node 25) and
+ * 3,073 B on CI (Node 22), which failed a build that passed locally. The bytes
+ * had not changed; the compressor had.
+ *
+ * So this reports headroom rather than only a pass/fail, and says so out loud
+ * when the margin is thinner than that spread. "✓ within budget" at 3,071 B is
+ * true and useless — it is the reading that sent a red build to CI. If you see
+ * the warning, measure on the Node version in .github/workflows/ci.yml before
+ * believing the pass.
  */
 const BUDGET_GZIP = 3072;
+
+/** Below this much headroom, a local pass does not predict CI. */
+const THIN_MARGIN = 32;
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const file = join(root, "dist", "t.js");
@@ -46,4 +61,13 @@ if (gz > BUDGET_GZIP) {
   console.error(`\n✗ tracker exceeds gzip budget by ${gz - BUDGET_GZIP} B`);
   process.exit(1);
 }
-console.log("\n✓ within budget");
+
+const headroom = BUDGET_GZIP - gz;
+console.log(`\n✓ within budget — ${headroom} B to spare`);
+
+if (headroom < THIN_MARGIN) {
+  console.warn(
+    `⚠ only ${headroom} B of headroom. gzip varies by a few bytes between zlib\n` +
+      `  versions, so this margin may not survive CI (node ${process.version} here).`,
+  );
+}

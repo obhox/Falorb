@@ -1,13 +1,5 @@
 import type { ClickHouseClient } from "@clickhouse/client";
-import {
-  EVENTS,
-  chDate,
-  chDateEnd,
-  chDateTime,
-  runQuery,
-  type BuiltQuery,
-  type DateRange,
-} from "./base";
+import { chDate, chDateEnd, chDateTime, runQuery, type BuiltQuery, type DateRange } from "./base";
 
 /**
  * The all-projects overview — every property at a glance, in one query rather
@@ -207,58 +199,4 @@ export function crossProjectPeople(
   options: { projectIds: number[]; range: DateRange; minProjects?: number; limit?: number },
 ): Promise<CrossProjectPerson[]> {
   return runQuery<CrossProjectPerson>(client, buildCrossProjectPeople(options));
-}
-
-export interface InstallStatusRow {
-  project_id: number;
-  first_event: string;
-  last_event: string;
-  events_24h: number;
-  events_total: number;
-}
-
-/**
- * Whether a property is actually receiving events.
- *
- * "Is my snippet working" is the first question every new property raises, and
- * until now the only answer available was an empty dashboard — which looks
- * identical to a quiet week. This separates the three states that matter:
- * never installed (no events at all), installed and live (events recently),
- * and installed but silent (events once, none lately).
- *
- * Bots are deliberately *included*. A crawler hitting the page proves the
- * snippet is served and the collector is reachable, which is exactly what an
- * installation check is asking. Excluding them would report a working install
- * as broken whenever the only traffic so far was a crawler.
- */
-export function buildInstallStatus(options: {
-  projectIds: number[];
-  now?: number;
-}): BuiltQuery {
-  const now = options.now ?? Date.now();
-
-  return {
-    sql: `
-      SELECT
-          project_id,
-          toString(min(timestamp))                              AS first_event,
-          toString(max(timestamp))                              AS last_event,
-          countIf(timestamp >= {since:DateTime64(3)})           AS events_24h,
-          count()                                               AS events_total
-      FROM ${EVENTS}
-      WHERE has({projectIds:Array(UInt32)}, project_id)
-      GROUP BY project_id
-    `,
-    params: {
-      projectIds: options.projectIds,
-      since: chDateTime(now - 86_400_000),
-    },
-  };
-}
-
-export function installStatus(
-  client: ClickHouseClient,
-  options: { projectIds: number[]; now?: number },
-): Promise<InstallStatusRow[]> {
-  return runQuery<InstallStatusRow>(client, buildInstallStatus(options));
 }

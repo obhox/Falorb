@@ -1,6 +1,6 @@
 "use client";
 
-import { useOptimistic, useTransition } from "react";
+import { useEffect, useState } from "react";
 import { Icon } from "@falorb/ui";
 import { setTheme } from "@/server/actions/theme";
 import type { ThemeChoice } from "@/server/theme";
@@ -18,13 +18,25 @@ const OPTIONS: { value: ThemeChoice; icon: string; label: string }[] = [
  * anyone who picks light or dark once can never get back to following their
  * machine — a one-way door that shows up as "why is the app light at night".
  *
- * The selection updates optimistically. The server action rewrites a cookie and
- * revalidates the root layout, which takes a beat; without the optimistic value
- * the button you just pressed stays unlit for that beat and reads as broken.
+ * The pressed option lights immediately. The server action rewrites a cookie
+ * and revalidates the root layout, which takes a beat; without local state the
+ * button you just pressed stays unlit for that beat and reads as broken.
+ *
+ * Local state rather than `useOptimistic`, deliberately. An optimistic update
+ * has to happen inside a transition that is still open, and a `startTransition`
+ * with a synchronous body closes its scope the moment that body returns — the
+ * async action it kicked off is still in flight. React 19 raises "an optimistic
+ * state update occurred outside a transition or action" for that, and because
+ * this control sits in the app shell the error surfaced on *other* screens,
+ * where it looked like the alert or goal action had failed. Plain state gives
+ * the same instant feedback with none of that coupling.
  */
 export function ThemeToggle({ current }: { current: ThemeChoice }) {
-  const [, startTransition] = useTransition();
-  const [optimistic, setOptimistic] = useOptimistic(current);
+  const [selected, setSelected] = useState<ThemeChoice>(current);
+
+  // The cookie is the source of truth. Re-syncing when the server sends a new
+  // value keeps this honest if the theme changed in another tab.
+  useEffect(() => setSelected(current), [current]);
 
   return (
     <div
@@ -41,7 +53,7 @@ export function ThemeToggle({ current }: { current: ThemeChoice }) {
       }}
     >
       {OPTIONS.map((option) => {
-        const active = optimistic === option.value;
+        const active = selected === option.value;
         return (
           <button
             key={option.value}
@@ -49,12 +61,10 @@ export function ThemeToggle({ current }: { current: ThemeChoice }) {
             aria-label={option.label}
             aria-pressed={active}
             title={option.label}
-            onClick={() =>
-              startTransition(() => {
-                setOptimistic(option.value);
-                void setTheme(option.value);
-              })
-            }
+            onClick={() => {
+              setSelected(option.value);
+              void setTheme(option.value);
+            }}
             style={{
               display: "inline-flex",
               alignItems: "center",

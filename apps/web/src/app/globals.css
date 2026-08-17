@@ -61,3 +61,22 @@ body > div:first-of-type,
 a[data-plain] {
   color: inherit;
 }
+
+/* Toasts enter from the corner they live in. A settle, not a bounce. */
+@keyframes falorb-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [role="status"],
+  [role="alert"] {
+    animation: none !important;
+  }
+}

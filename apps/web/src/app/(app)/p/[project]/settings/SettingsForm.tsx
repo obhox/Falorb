@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { Button, Card, Checkbox, Icon, Input, Select, Switch } from "@falorb/ui";
-import { updateProjectSettings, type ActionResult } from "@/server/actions/project";
+import { updateProjectSettings } from "@/server/actions/project";
+import { useAction } from "@/lib/use-action";
 
 /**
  * Property settings.
@@ -44,9 +44,7 @@ export function SettingsForm({
   project: ProjectSettings;
   canEdit: boolean;
 }) {
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
-  const [result, setResult] = useState<ActionResult | null>(null);
+  const { run, pending } = useAction();
 
   const [name, setName] = useState(project.name);
   const [domains, setDomains] = useState(project.domains.join(", "));
@@ -58,7 +56,6 @@ export function SettingsForm({
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    setResult(null);
 
     const data = new FormData();
     data.set("name", name);
@@ -69,9 +66,9 @@ export function SettingsForm({
     data.set("consent_mode", consent);
     if (cookieless) data.set("cookieless", "on");
 
-    const outcome = await updateProjectSettings(project.slug, data);
-    setResult(outcome);
-    if (outcome.ok) startTransition(() => router.refresh());
+    // The action returns its own "Saved", which `run` shows in preference to
+    // any fallback here.
+    await run(() => updateProjectSettings(project.slug, data));
   }
 
   return (
@@ -187,17 +184,6 @@ export function SettingsForm({
         ) : (
           <span style={{ fontSize: "var(--size-label)", color: "var(--text-muted)" }}>
             Read-only — an owner or admin can change these settings.
-          </span>
-        )}
-        {result && (
-          <span
-            role="status"
-            style={{
-              fontSize: "var(--size-label)",
-              color: result.ok ? "var(--signal-up)" : "var(--signal-down)",
-            }}
-          >
-            {result.message}
           </span>
         )}
       </div>

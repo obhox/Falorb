@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button, Icon } from "@falorb/ui";
 import { acceptInvitation } from "@/server/actions/invite";
+import { useAction } from "@/lib/use-action";
 
 export function AcceptInvite({
   token,
@@ -13,24 +13,15 @@ export function AcceptInvite({
   organization: string;
 }) {
   const router = useRouter();
-  const [pending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
+  const { run, pending } = useAction();
 
   async function accept() {
-    setError(null);
-    const result = await acceptInvitation(token);
+    const result = await run(() => acceptInvitation(token), { success: "Joined" });
+    if (!result?.ok) return;
 
-    if (!result.ok) {
-      setError(result.message ?? "That invitation could not be accepted.");
-      return;
-    }
-
-    // Refresh before navigating: the sidebar and the portfolio are rendered
-    // from the session's project list, which has just changed.
-    startTransition(() => {
-      router.refresh();
-      router.replace("/");
-    });
+    // `run` already refreshed, which matters here: the sidebar and portfolio
+    // are rendered from the session's project list, which has just changed.
+    router.replace("/");
   }
 
   return (
@@ -46,11 +37,6 @@ export function AcceptInvite({
         </Button>
       </div>
 
-      {error && (
-        <span role="alert" style={{ fontSize: "var(--size-label)", color: "var(--signal-down)" }}>
-          {error}
-        </span>
-      )}
     </div>
   );
 }

@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { Badge, Button, Card, Checkbox, Dialog, Icon, IconButton, Input, Select } from "@falorb/ui";
 import { CopyField } from "@/components/CopyField";
 import { Empty } from "@/components/Empty";
 import { createApiKey, revokeApiKey } from "@/server/actions/keys";
+import { useAction } from "@/lib/use-action";
 import { relative, shortDate } from "@/lib/format";
 
 export interface KeyView {
@@ -43,10 +43,8 @@ export function KeysPanel({
   stdioCommand: string;
   now: number;
 }) {
-  const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [pending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
+  const { run, pending } = useAction();
 
   const [name, setName] = useState("");
   const [write, setWrite] = useState(false);
@@ -55,28 +53,21 @@ export function KeysPanel({
   const [issued, setIssued] = useState<string | null>(null);
 
   async function submit() {
-    setError(null);
     const data = new FormData();
     data.set("name", name);
     if (write) data.set("write", "on");
     data.set("project", scope);
     data.set("expires_in_days", expiry);
 
-    const result = await createApiKey(data);
-    if (!result.ok) {
-      setError(result.message ?? "That key could not be created.");
-      return;
-    }
+    const result = await run(() => createApiKey(data));
+    if (!result?.ok) return;
 
     setIssued(result.key ?? null);
     setName("");
-    startTransition(() => router.refresh());
   }
 
   async function revoke(id: string) {
-    const result = await revokeApiKey(id);
-    if (!result.ok) setError(result.message ?? "That key could not be revoked.");
-    startTransition(() => router.refresh());
+    await run(() => revokeApiKey(id));
   }
 
   const scopeLabels = ["All properties", ...projects.map((p) => p.name)];
@@ -204,19 +195,6 @@ export function KeysPanel({
           </div>
         )}
 
-        {error && (
-          <span
-            role="status"
-            style={{
-              display: "block",
-              marginTop: "var(--space-5)",
-              fontSize: "var(--size-label)",
-              color: "var(--signal-down)",
-            }}
-          >
-            {error}
-          </span>
-        )}
       </Card>
 
       <Dialog
@@ -238,7 +216,7 @@ export function KeysPanel({
             <>
               <Button onClick={() => setOpen(false)}>Cancel</Button>
               <Button variant="primary" onClick={submit} disabled={pending || !name.trim()}>
-                Create key
+                {pending ? "Creating" : "Create key"}
               </Button>
             </>
           )
@@ -329,11 +307,6 @@ export function KeysPanel({
               hint="Blank means it never expires. A key you cannot remember issuing is one worth expiring."
             />
 
-            {error && (
-              <span style={{ fontSize: "var(--size-label)", color: "var(--signal-down)" }}>
-                {error}
-              </span>
-            )}
           </div>
         )}
       </Dialog>

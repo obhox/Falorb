@@ -1,5 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
+import { eq } from "drizzle-orm";
 import { createClickHouse } from "./clickhouse/client";
+import { createDatabase } from "./index";
+import * as schema from "./schema/index";
 import { toEventRow } from "./clickhouse/rows";
 import type { Channel, DeviceType, FalorbEvent } from "@falorb/core";
 import { loadRootEnv } from "./load-env";
@@ -47,16 +50,52 @@ function pick<T>(r: () => number, items: readonly T[]): T {
 }
 
 interface ProjectSpec {
+  /** Resolved from `slug` at run time — see `resolveProjectIds`. */
   id: number;
+  slug: string;
   host: string;
   /** Ordered journey; each step has a probability of being reached. */
   funnel: Array<{ path: string; keep: number }>;
   content: string[];
 }
 
+/**
+ * Point the specs at the projects that actually exist.
+ *
+ * These ids used to be hardcoded as 1, 2, 3 — correct only on a database whose
+ * very first seed run created them. On any instance seeded more than once the
+ * events landed on whatever happened to hold those ids, which was usually an
+ * organization nobody was a member of. The symptom is the worst kind: the seed
+ * reports success, and the dashboard shows an empty workspace.
+ */
+async function resolveProjectIds(): Promise<void> {
+  const db = createDatabase();
+
+  for (const project of PROJECTS) {
+    const [row] = await db
+      .select({ id: schema.projects.id })
+      .from(schema.projects)
+      .where(eq(schema.projects.slug, project.slug))
+      .limit(1);
+
+    if (!row) {
+      throw new Error(
+        `No project "${project.slug}". Run \`pnpm db:seed\` first — it creates the ` +
+          "projects this generator writes events for.",
+      );
+    }
+    project.id = row.id;
+  }
+
+  console.log(
+    `writing to ${PROJECTS.map((p) => `${p.slug}=${p.id}`).join(", ")}`,
+  );
+}
+
 const PROJECTS: ProjectSpec[] = [
   {
-    id: 1,
+    id: 0,
+    slug: "acme",
     host: "acme.example",
     funnel: [
       { path: "/", keep: 1 },
@@ -67,7 +106,8 @@ const PROJECTS: ProjectSpec[] = [
     content: ["consulting", "engineering", "design"],
   },
   {
-    id: 2,
+    id: 0,
+    slug: "beacon",
     host: "beacon.example",
     funnel: [
       { path: "/", keep: 1 },
@@ -78,7 +118,8 @@ const PROJECTS: ProjectSpec[] = [
     content: ["product", "growth"],
   },
   {
-    id: 3,
+    id: 0,
+    slug: "notewell",
     host: "notewell.example",
     funnel: [
       { path: "/", keep: 1 },
@@ -192,6 +233,8 @@ function blankEvent(): FalorbEvent {
 async function main(): Promise<void> {
   const days = Number(process.env.SEED_DAYS ?? CH_DEFAULTS.days);
   const perProject = Number(process.env.SEED_PEOPLE ?? CH_DEFAULTS.peoplePerProject);
+  await resolveProjectIds();
+
   const r = rng(20260816);
   const client = createClickHouse();
   const now = Date.now();

@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { Button, Card, Icon, Input } from "@falorb/ui";
 import { createProjectAction } from "@/server/actions/project";
+import { useAction } from "@/lib/use-action";
 
 /**
  * Adding a property.
@@ -14,23 +15,18 @@ import { createProjectAction } from "@/server/actions/project";
 export function NewProjectForm() {
   const [name, setName] = useState("");
   const [domains, setDomains] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
+  const { run, pending } = useAction();
 
-  function submit(event: React.FormEvent) {
+  async function submit(event: React.FormEvent) {
     event.preventDefault();
-    setError(null);
 
     const data = new FormData();
     data.set("name", name);
     data.set("domains", domains);
 
-    // On success the action redirects to the new property's settings, so the
-    // only thing that comes back here is a failure.
-    startTransition(async () => {
-      const result = await createProjectAction(data);
-      if (result && !result.ok) setError(result.message ?? "That property could not be created.");
-    });
+    // The action redirects on success, which `run` re-throws rather than
+    // treating as a failure — so only a real refusal ever toasts here.
+    await run(() => createProjectAction(data), { quiet: true, refresh: false });
   }
 
   return (
@@ -53,11 +49,6 @@ export function NewProjectForm() {
           hint="Events from any other origin are rejected at the edge. An apex domain authorises its subdomains."
         />
 
-        {error && (
-          <span style={{ fontSize: "var(--size-label)", color: "var(--signal-down)" }}>
-            {error}
-          </span>
-        )}
 
         <div>
           <Button

@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
 import {
   Badge,
   Button,
@@ -31,6 +30,7 @@ import {
   removeMember,
   revokeInvitation,
 } from "@/server/actions/team";
+import { useAction } from "@/lib/use-action";
 import { relative, shortDate } from "@/lib/format";
 
 export interface TeamMemberView {
@@ -72,45 +72,26 @@ export function TeamPanel({
   ownerCount: number;
   now: number;
 }) {
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
   const [open, setOpen] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const { run, pending } = useAction();
 
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<MemberRole>("member");
   const [issuedLink, setIssuedLink] = useState<string | null>(null);
 
-  function refresh() {
-    startTransition(() => router.refresh());
-  }
 
   async function submitInvite() {
-    setError(null);
     const data = new FormData();
     data.set("email", email);
     data.set("role", role);
 
-    const result = await inviteMember(data);
-    if (!result.ok) {
-      setError(result.message ?? "That invitation could not be sent.");
-      return;
-    }
+    const result = await run(() => inviteMember(data));
+    if (!result?.ok) return;
 
     setIssuedLink(result.url ?? null);
     setEmail("");
-    refresh();
   }
 
-  async function run(action: () => Promise<{ ok: boolean; message?: string }>) {
-    setError(null);
-    setNotice(null);
-    const result = await action();
-    if (!result.ok) setError(result.message ?? "That did not work.");
-    else if (result.message) setNotice(result.message);
-    refresh();
-  }
 
   return (
     <>
@@ -311,17 +292,6 @@ export function TeamPanel({
         )}
       </Card>
 
-      {(error || notice) && (
-        <span
-          role="status"
-          style={{
-            fontSize: "var(--size-label)",
-            color: error ? "var(--signal-down)" : "var(--signal-up)",
-          }}
-        >
-          {error ?? notice}
-        </span>
-      )}
 
       <Dialog
         open={open}
@@ -338,7 +308,7 @@ export function TeamPanel({
             <>
               <Button onClick={() => setOpen(false)}>Cancel</Button>
               <Button variant="primary" onClick={submitInvite} disabled={pending || !email.trim()}>
-                Send invitation
+                {pending ? "Sending" : "Send invitation"}
               </Button>
             </>
           )
@@ -399,11 +369,6 @@ export function TeamPanel({
               </span>
             </div>
 
-            {error && (
-              <span style={{ fontSize: "var(--size-label)", color: "var(--signal-down)" }}>
-                {error}
-              </span>
-            )}
           </div>
         )}
       </Dialog>

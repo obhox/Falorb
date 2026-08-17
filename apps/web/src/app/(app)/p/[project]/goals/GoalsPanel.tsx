@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
 import {
   Badge,
   Button,
@@ -15,6 +14,7 @@ import {
 } from "@falorb/ui";
 import { Empty } from "@/components/Empty";
 import { createGoal, deleteGoal, toggleGoal } from "@/server/actions/goals";
+import { useAction } from "@/lib/use-action";
 import { money, num, pct } from "@/lib/format";
 
 export interface GoalView {
@@ -39,10 +39,8 @@ export interface GoalView {
  * is which is the kind of quiet inaccuracy that gets into a board deck.
  */
 export function GoalsPanel({ slug, goals }: { slug: string; goals: GoalView[] }) {
-  const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [pending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
+  const { run, pending } = useAction();
 
   const [name, setName] = useState("");
   const [kind, setKind] = useState<"event" | "path">("event");
@@ -50,34 +48,29 @@ export function GoalsPanel({ slug, goals }: { slug: string; goals: GoalView[] })
   const [value, setValue] = useState("");
 
   async function submit() {
-    setError(null);
     const data = new FormData();
     data.set("name", name);
     data.set("kind", kind);
     data.set("matcher", matcher);
     data.set("value", value);
 
-    const result = await createGoal(slug, data);
-    if (!result.ok) {
-      setError(result.message ?? "That goal could not be created.");
-      return;
-    }
+    const result = await run(() => createGoal(slug, data), { success: "Goal created" });
+    if (!result?.ok) return;
 
     setOpen(false);
     setName("");
     setMatcher("");
     setValue("");
-    startTransition(() => router.refresh());
   }
 
   async function remove(goalId: string) {
-    await deleteGoal(slug, goalId);
-    startTransition(() => router.refresh());
+    await run(() => deleteGoal(slug, goalId));
   }
 
   async function setActive(goalId: string, active: boolean) {
-    await toggleGoal(slug, goalId, active);
-    startTransition(() => router.refresh());
+    await run(() => toggleGoal(slug, goalId, active), {
+      success: active ? "Goal enabled" : "Goal paused",
+    });
   }
 
   return (
@@ -188,7 +181,7 @@ export function GoalsPanel({ slug, goals }: { slug: string; goals: GoalView[] })
           <>
             <Button onClick={() => setOpen(false)}>Cancel</Button>
             <Button variant="primary" onClick={submit} disabled={pending}>
-              Create goal
+              {pending ? "Creating" : "Create goal"}
             </Button>
           </>
         }
@@ -241,11 +234,6 @@ export function GoalsPanel({ slug, goals }: { slug: string; goals: GoalView[] })
             hint="Used only when the event carries no revenue of its own. Leave blank to report measured revenue only."
           />
 
-          {error && (
-            <span style={{ fontSize: "var(--size-label)", color: "var(--signal-down)" }}>
-              {error}
-            </span>
-          )}
         </div>
       </Dialog>
     </>

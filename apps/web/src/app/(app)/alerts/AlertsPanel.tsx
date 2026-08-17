@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
 import {
   Badge,
   Button,
@@ -16,6 +15,7 @@ import {
 } from "@falorb/ui";
 import { Empty } from "@/components/Empty";
 import { createAlert, deleteAlert, setAlertActive } from "@/server/actions/alerts";
+import { useAction } from "@/lib/use-action";
 import { relative } from "@/lib/format";
 
 export interface AlertView {
@@ -67,10 +67,8 @@ export function AlertsPanel({
   channels: { id: string; name: string }[];
   now: number;
 }) {
-  const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [pending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
+  const { run, pending } = useAction();
 
   const [name, setName] = useState("");
   const [kind, setKind] = useState<keyof typeof KIND_LABELS>("threshold");
@@ -84,7 +82,6 @@ export function AlertsPanel({
   const [channel, setChannel] = useState(channels[0]?.id ?? "");
 
   async function submit() {
-    setError(null);
     const data = new FormData();
     data.set("name", name);
     data.set("kind", kind);
@@ -97,14 +94,12 @@ export function AlertsPanel({
     data.set("project", scope);
     data.set("channel", channel);
 
-    const result = await createAlert(data);
-    if (!result.ok) {
-      setError(result.message ?? "That alert could not be created.");
-      return;
+    const result = await run(() => createAlert(data), { success: "Alert created" });
+    // Only close on success, so a rejected rule keeps everything typed into it.
+    if (result?.ok) {
+      setOpen(false);
+      setName("");
     }
-    setOpen(false);
-    setName("");
-    startTransition(() => router.refresh());
   }
 
   const scopeLabels = ["All properties", ...projects.map((p) => p.name)];
@@ -210,9 +205,9 @@ export function AlertsPanel({
                   size="sm"
                   checked={alert.active}
                   onChange={(checked: boolean) => {
-                    void setAlertActive(alert.id, checked).then(() =>
-                      startTransition(() => router.refresh()),
-                    );
+                    void run(() => setAlertActive(alert.id, checked), {
+                      success: checked ? "Alert enabled" : "Alert paused",
+                    });
                   }}
                 />
 
@@ -221,11 +216,7 @@ export function AlertsPanel({
                   label={`Remove ${alert.name}`}
                   icon={<Icon name="trash-2" size={13} />}
                   disabled={pending}
-                  onClick={() => {
-                    void deleteAlert(alert.id).then(() =>
-                      startTransition(() => router.refresh()),
-                    );
-                  }}
+                  onClick={() => void run(() => deleteAlert(alert.id))}
                 />
               </div>
             ))}
@@ -242,12 +233,8 @@ export function AlertsPanel({
         footer={
           <>
             <Button onClick={() => setOpen(false)}>Cancel</Button>
-            <Button
-              variant="primary"
-              onClick={submit}
-              disabled={pending || channels.length === 0}
-            >
-              Create alert
+            <Button variant="primary" onClick={submit} disabled={pending}>
+              {pending ? "Creating" : "Create alert"}
             </Button>
           </>
         }
@@ -376,11 +363,6 @@ export function AlertsPanel({
             />
           </div>
 
-          {error && (
-            <span style={{ fontSize: "var(--size-label)", color: "var(--signal-down)" }}>
-              {error}
-            </span>
-          )}
         </div>
       </Dialog>
     </>

@@ -7,6 +7,9 @@ import { assertSafeWebhookUrl, UnsafeUrlError } from "@falorb/core";
 import { requireSession } from "@/server/session";
 import type { ActionResult } from "./project";
 import { deny } from "./guard";
+// A "use server" file may only export async functions, so the kind list lives
+// in a plain module — see the note there.
+import { CHANNEL_KINDS, type ChannelKind } from "@/lib/channel-kinds";
 
 /**
  * Alert delivery channels.
@@ -20,9 +23,6 @@ import { deny } from "./guard";
  * reads: `{ url }` for Slack and webhooks, `{ url, secret }` to sign a webhook,
  * `{ to }` for email.
  */
-
-export const CHANNEL_KINDS = ["slack", "webhook", "email"] as const;
-export type ChannelKind = (typeof CHANNEL_KINDS)[number];
 
 export async function createChannel(formData: FormData): Promise<ActionResult> {
   const session = await requireSession();

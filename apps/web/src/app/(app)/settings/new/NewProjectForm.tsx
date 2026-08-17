@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { Button, Card, Icon, Input } from "@falorb/ui";
 import { createProjectAction } from "@/server/actions/project";
+import { useAction } from "@/lib/use-action";
 
 /**
  * Adding a property.
@@ -14,35 +15,36 @@ import { createProjectAction } from "@/server/actions/project";
 export function NewProjectForm() {
   const [name, setName] = useState("");
   const [domains, setDomains] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
+  const { run, pending } = useAction();
 
-  function submit(event: React.FormEvent) {
+  async function submit(event: React.FormEvent) {
     event.preventDefault();
-    setError(null);
 
     const data = new FormData();
     data.set("name", name);
     data.set("domains", domains);
 
     // On success the action redirects to the new property's settings, so the
-    // only thing that comes back here is a failure. We can't hook a client-side
-    // success callback into a server-side redirect, so a marker is set here,
-    // right before the attempt, and consumed on mount by the destination page.
-    // If the action fails below, no redirect happens and the marker is cleared.
+    // acknowledgement cannot be raised here — this component is gone by then.
+    // A marker set immediately before the attempt and consumed on mount by the
+    // destination page is the only way to carry a client-side success across a
+    // server-side redirect.
     if (typeof window !== "undefined") {
       sessionStorage.setItem("falorb_pending_project_created", "1");
     }
 
-    startTransition(async () => {
-      const result = await createProjectAction(data);
-      if (result && !result.ok) {
-        setError(result.message ?? "That property could not be created.");
-        if (typeof window !== "undefined") {
-          sessionStorage.removeItem("falorb_pending_project_created");
-        }
-      }
+    // `run` re-throws the redirect rather than treating it as a failure, so
+    // only a genuine refusal returns here — and it has already been toasted.
+    const result = await run(() => createProjectAction(data), {
+      quiet: true,
+      refresh: false,
     });
+
+    // No redirect happened, so the marker would otherwise fire spuriously on
+    // whichever page the reader visits next.
+    if (!result?.ok && typeof window !== "undefined") {
+      sessionStorage.removeItem("falorb_pending_project_created");
+    }
   }
 
   return (
@@ -65,11 +67,6 @@ export function NewProjectForm() {
           hint="Events from any other origin are rejected at the edge. An apex domain authorises its subdomains."
         />
 
-        {error && (
-          <span style={{ fontSize: "var(--size-label)", color: "var(--signal-down)" }}>
-            {error}
-          </span>
-        )}
 
         <div>
           <Button

@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { Badge, Button, Card, Dialog, Icon, IconButton, Input, SegmentedControl } from "@falorb/ui";
 import { Empty } from "@/components/Empty";
-import { createChannel, deleteChannel, type ChannelKind } from "@/server/actions/channels";
+import { createChannel, deleteChannel } from "@/server/actions/channels";
+import { CHANNEL_LABELS as KIND_LABELS, type ChannelKind } from "@/lib/channel-kinds";
+import { useAction } from "@/lib/use-action";
 
 export interface ChannelView {
   id: string;
@@ -15,12 +16,6 @@ export interface ChannelView {
   active: boolean;
   ruleCount: number;
 }
-
-const KIND_LABELS: Record<ChannelKind, string> = {
-  slack: "Slack",
-  webhook: "Webhook",
-  email: "Email",
-};
 
 /**
  * Where alerts are delivered.
@@ -38,10 +33,8 @@ export function ChannelsPanel({
   canEdit: boolean;
   emailConfigured: boolean;
 }) {
-  const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [pending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
+  const { run, pending } = useAction();
 
   const [name, setName] = useState("");
   const [kind, setKind] = useState<ChannelKind>("slack");
@@ -50,7 +43,6 @@ export function ChannelsPanel({
   const [to, setTo] = useState("");
 
   async function submit() {
-    setError(null);
     const data = new FormData();
     data.set("name", name);
     data.set("kind", kind);
@@ -58,24 +50,18 @@ export function ChannelsPanel({
     data.set("secret", secret);
     data.set("to", to);
 
-    const result = await createChannel(data);
-    if (!result.ok) {
-      setError(result.message ?? "That channel could not be added.");
-      return;
-    }
+    const result = await run(() => createChannel(data), { success: "Channel added" });
+    if (!result?.ok) return;
 
     setOpen(false);
     setName("");
     setUrl("");
     setSecret("");
     setTo("");
-    startTransition(() => router.refresh());
   }
 
   async function remove(id: string) {
-    const result = await deleteChannel(id);
-    if (!result.ok) setError(result.message ?? "That channel could not be removed.");
-    startTransition(() => router.refresh());
+    await run(() => deleteChannel(id));
   }
 
   return (
@@ -181,19 +167,6 @@ export function ChannelsPanel({
           </div>
         )}
 
-        {error && (
-          <span
-            role="status"
-            style={{
-              display: "block",
-              marginTop: "var(--space-5)",
-              fontSize: "var(--size-label)",
-              color: "var(--signal-down)",
-            }}
-          >
-            {error}
-          </span>
-        )}
       </Card>
 
       <Dialog
@@ -206,7 +179,7 @@ export function ChannelsPanel({
           <>
             <Button onClick={() => setOpen(false)}>Cancel</Button>
             <Button variant="primary" onClick={submit} disabled={pending}>
-              Add channel
+              {pending ? "Adding" : "Add channel"}
             </Button>
           </>
         }
@@ -279,11 +252,6 @@ export function ChannelsPanel({
             </>
           )}
 
-          {error && (
-            <span style={{ fontSize: "var(--size-label)", color: "var(--signal-down)" }}>
-              {error}
-            </span>
-          )}
         </div>
       </Dialog>
     </>

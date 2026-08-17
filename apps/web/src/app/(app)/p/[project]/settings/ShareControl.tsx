@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { Badge, Button, Card, Icon } from "@falorb/ui";
 import { CopyField } from "@/components/CopyField";
 import { createShareLink, revokeShareLink } from "@/server/actions/sharing";
+import { useAction } from "@/lib/use-action";
 
 /**
  * Issue, rotate and revoke this property's public link.
@@ -14,31 +14,17 @@ import { createShareLink, revokeShareLink } from "@/server/actions/sharing";
  * aggregate figures or their visitor list, and people guess generously.
  */
 export function ShareControl({ slug, initialUrl }: { slug: string; initialUrl: string | null }) {
-  const router = useRouter();
   const [url, setUrl] = useState(initialUrl);
-  const [pending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
+  const { run, pending } = useAction();
 
   async function create() {
-    setError(null);
-    const result = await createShareLink(slug);
-    if (!result.ok) {
-      setError(result.message ?? "The link could not be created.");
-      return;
-    }
-    setUrl(result.url);
-    startTransition(() => router.refresh());
+    const result = await run(() => createShareLink(slug));
+    if (result?.ok) setUrl(result.url);
   }
 
   async function revoke() {
-    setError(null);
-    const result = await revokeShareLink(slug);
-    if (!result.ok) {
-      setError(result.message ?? "The link could not be revoked.");
-      return;
-    }
-    setUrl(null);
-    startTransition(() => router.refresh());
+    const result = await run(() => revokeShareLink(slug));
+    if (result?.ok) setUrl(null);
   }
 
   return (
@@ -123,9 +109,6 @@ export function ShareControl({ slug, initialUrl }: { slug: string; initialUrl: s
           </span>
         </div>
 
-        {error && (
-          <span style={{ fontSize: "var(--size-label)", color: "var(--signal-down)" }}>{error}</span>
-        )}
       </div>
     </Card>
   );

@@ -7,6 +7,7 @@ import { WorkspaceSwitcher } from "@/components/shell/WorkspaceSwitcher";
 import { num } from "@/lib/format";
 import { getTheme } from "@/server/theme";
 import { ThemeToggle } from "@/components/ThemeToggle";
+import { ToastProvider } from "@/components/Toast";
 
 /**
  * The signed-in shell: a fixed 224px rail and a flexible main panel, both
@@ -65,6 +66,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   ];
 
   return (
+    <ToastProvider>
     <div
       style={{
         height: "100%",
@@ -129,5 +131,6 @@ export default async function AppLayout({ children }: { children: React.ReactNod
         {children}
       </main>
     </div>
+    </ToastProvider>
   );
 }

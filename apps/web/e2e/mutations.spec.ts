@@ -14,6 +14,14 @@ import { test, expect, expectRendered } from "./fixtures";
 
 const GOAL_PREFIX = "E2E goal";
 
+/** Toasts, excluding Next's always-present route announcer. */
+function toast(page: import("@playwright/test").Page) {
+  return page.locator('[role="status"], [role="alert"]:not([id="__next-route-announcer__"])');
+}
+function errorToast(page: import("@playwright/test").Page) {
+  return page.locator('[role="alert"]:not([id="__next-route-announcer__"])');
+}
+
 test.afterAll(async () => {
   await createDatabase()
     .delete(schema.goals)
@@ -89,7 +97,7 @@ test.describe("property settings", () => {
 
     await retention.fill("400");
     await page.getByRole("button", { name: "Save changes" }).click();
-    await expect(page.getByRole("status")).toHaveText("Saved");
+    await expect(toast(page)).toContainText("Saved");
 
     await page.reload();
     await expect(page.getByLabel("Retention")).toHaveValue("400");
@@ -97,7 +105,7 @@ test.describe("property settings", () => {
     // Put it back, so a re-run starts from the same state.
     await page.getByLabel("Retention").fill(original);
     await page.getByRole("button", { name: "Save changes" }).click();
-    await expect(page.getByRole("status")).toHaveText("Saved");
+    await expect(toast(page)).toContainText("Saved");
   });
 
   test("rejects a retention window outside the allowed range", async ({ page, account }) => {
@@ -107,7 +115,8 @@ test.describe("property settings", () => {
     await page.getByLabel("Retention").fill("99999");
     await page.getByRole("button", { name: "Save changes" }).click();
 
-    await expect(page.getByRole("status")).toContainText("between 1 and 3650");
+    // Refusals surface as a toast now rather than an inline status line.
+    await expect(errorToast(page)).toContainText("between 1 and 3650");
   });
 });
 

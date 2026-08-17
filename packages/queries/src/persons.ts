@@ -390,3 +390,72 @@ export function personInterests(
 ): Promise<InterestRow[]> {
   return runQuery<InterestRow>(client, buildPersonInterests(options));
 }
+
+export interface PersonTotalsRow {
+  person_id: string;
+  sessions: number;
+  pageviews: number;
+  events: number;
+  revenue: number;
+}
+
+/**
+ * Lifetime totals for a set of people, straight from the event store.
+ *
+ * The profile totals in Postgres used to be accumulated — each sessionizer run
+ * added its batch to whatever was already there. That is only correct if every
+ * session is folded in exactly once, which nothing guaranteed: the run window
+ * deliberately overlaps so a session closing on the boundary is not missed, and
+ * a crash between the ClickHouse read and the Postgres write replays the batch.
+ * Both double-count, and an accumulator never recovers from either.
+ *
+ * Recomputing makes the totals a projection of the event store rather than a
+ * running tally. It costs one grouped scan per batch, it is idempotent, and it
+ * repairs any drift that has already occurred on the next run.
+ *
+ * Bots are excluded, matching every other metric in the product.
+ */
+export function buildPersonTotals(options: {
+  personIds: string[];
+  projectIds: number[];
+}): BuiltQuery {
+  return {
+    // Suffixed inner aliases, renamed outside — the same hazard sessions.ts
+    // documents. `toString(person_id) AS person_id` shadows the real column, so
+    // the WHERE clause resolves person_id to the String alias and comparing it
+    // against a UUID array fails with "no supertype for types UUID, String".
+    sql: `
+      SELECT
+          person_id_a  AS person_id,
+          sessions_a   AS sessions,
+          pageviews_a  AS pageviews,
+          events_a     AS events,
+          revenue_a    AS revenue
+      FROM (
+          SELECT
+              toString(person_id)                          AS person_id_a,
+              uniqCombined64(session_id)                   AS sessions_a,
+              countIf(name = '$pageview')                  AS pageviews_a,
+              count()                                      AS events_a,
+              round(sum(ifNull(toFloat64(revenue), 0)), 4) AS revenue_a
+          FROM ${EVENTS}
+          WHERE has({projectIds:Array(UInt32)}, project_id)
+            -- Mapped through toUUID rather than declared Array(UUID): the ids
+            -- arrive as JS strings, and this keeps the comparison
+            -- UUID-to-UUID so the column's index stays usable.
+            AND has(arrayMap(x -> toUUID(x), {personIds:Array(String)}), person_id)
+            AND is_bot = 0
+          GROUP BY person_id
+      )
+    `,
+    params: { personIds: options.personIds, projectIds: options.projectIds },
+  };
+}
+
+export function personTotals(
+  client: ClickHouseClient,
+  options: { personIds: string[]; projectIds: number[] },
+): Promise<PersonTotalsRow[]> {
+  if (!options.personIds.length) return Promise.resolve([]);
+  return runQuery<PersonTotalsRow>(client, buildPersonTotals(options));
+}

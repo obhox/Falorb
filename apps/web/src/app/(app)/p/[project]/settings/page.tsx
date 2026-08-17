@@ -6,6 +6,7 @@ import { PageBody } from "@/components/shell/PageHeader";
 import { CopyField } from "@/components/CopyField";
 import { SettingsForm } from "./SettingsForm";
 import { ShareControl } from "./ShareControl";
+import { ProjectCreatedTracker } from "./ProjectCreatedTracker";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +31,7 @@ export default async function ProjectSettingsPage({
 
   return (
     <PageBody>
+      <ProjectCreatedTracker />
       <Card
         title="Install"
         subtitle="One tag in <head>. 1.94 KB gzipped, no cookies in cookieless mode."

@@ -131,6 +131,13 @@ services:
       FALORB_SALT_SECRET: ${SERVICE_BASE64_64_SALT}
       MAXMIND_DB_PATH: ${MAXMIND_DB_PATH:-}
       FALORB_RATE_LIMIT: ${FALORB_RATE_LIMIT:-600}
+      # Reverse proxies in front of this container. One (Coolify's) by default.
+      # Raise it to 2 before putting a CDN in front, or the collector reads the
+      # CDN's address as the visitor's: clientIp() counts back from the right of
+      # X-Forwarded-For, and that address selects the rate-limit bucket, the geo
+      # attribution and the daily ip_hash that stitches sessions together. Every
+      # visitor would collapse into one identity, silently and without an error.
+      FALORB_TRUSTED_PROXY_COUNT: ${FALORB_TRUSTED_PROXY_COUNT:-1}
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }

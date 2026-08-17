@@ -24,9 +24,27 @@ export function NewProjectForm() {
     data.set("name", name);
     data.set("domains", domains);
 
-    // The action redirects on success, which `run` re-throws rather than
-    // treating as a failure — so only a real refusal ever toasts here.
-    await run(() => createProjectAction(data), { quiet: true, refresh: false });
+    // On success the action redirects to the new property's settings, so the
+    // acknowledgement cannot be raised here — this component is gone by then.
+    // A marker set immediately before the attempt and consumed on mount by the
+    // destination page is the only way to carry a client-side success across a
+    // server-side redirect.
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("falorb_pending_project_created", "1");
+    }
+
+    // `run` re-throws the redirect rather than treating it as a failure, so
+    // only a genuine refusal returns here — and it has already been toasted.
+    const result = await run(() => createProjectAction(data), {
+      quiet: true,
+      refresh: false,
+    });
+
+    // No redirect happened, so the marker would otherwise fire spuriously on
+    // whichever page the reader visits next.
+    if (!result?.ok && typeof window !== "undefined") {
+      sessionStorage.removeItem("falorb_pending_project_created");
+    }
   }
 
   return (

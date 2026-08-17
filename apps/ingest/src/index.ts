@@ -4,7 +4,7 @@ import { cors } from "hono/cors";
 import { wireBatchSchema } from "@falorb/core";
 import { EVENT_STREAM, loadConfig } from "./config";
 import { decodeBatch } from "./decode";
-import { clientIp, initGeo, lookupGeo } from "./geo";
+import { clientIp, geoSources, initGeo, resolveGeo } from "./geo";
 import { hashIp } from "./identity";
 import { createDatabase, schema } from "@falorb/db";
 import { ProjectCache, originAllowed, type CachedProject } from "./projects";
@@ -51,8 +51,20 @@ app.use(
 
 app.get("/health", async (c) => {
   const redisOk = await stream.ping();
+  const sources = geoSources(c.req.raw.headers);
+
   return c.json(
-    { ok: redisOk, redis: redisOk, geo: geoReady, tracker: trackerBundle !== null },
+    {
+      ok: redisOk,
+      redis: redisOk,
+      // True when country can be resolved by *either* route, so this answers
+      // the question the dashboard actually asks: will events carry a country?
+      // `geoSource` says which, because "database" and "header" fail for
+      // different reasons and are fixed differently.
+      geo: sources.database || sources.header,
+      geoSource: sources.database ? "database" : sources.header ? "header" : "none",
+      tracker: trackerBundle !== null,
+    },
     redisOk ? 200 : 503,
   );
 });
@@ -126,7 +138,8 @@ app.post("/e", async (c) => {
     project,
     userAgent: c.req.header("user-agent") ?? "",
     ip,
-    geo: lookupGeo(ip),
+    // Database first, edge header as the fallback — see resolveGeo.
+    geo: resolveGeo(ip, c.req.raw.headers),
     saltSecret: config.saltSecret,
     receivedAt,
   });
@@ -144,7 +157,7 @@ app.post("/e", async (c) => {
 });
 
 console.log(
-  `[ingest] listening on :${config.port}  stream=${EVENT_STREAM}  geo=${geoReady ? "on" : "off"}`,
+  `[ingest] listening on :${config.port}  stream=${EVENT_STREAM}  geo=${geoReady ? "database" : geoSources().header ? "header-fallback" : "off"}`,
 );
 
 export default { port: config.port, fetch: app.fetch };

@@ -1,0 +1,87 @@
+# The dashboard.
+#
+# Separate from Dockerfile.node because it is the only service that is compiled
+# rather than run from source. api, mcp, worker and migrate execute their
+# TypeScript through tsx, so shipping them is a matter of pruning the workspace
+# with `pnpm deploy`. Next is different: it produces a build, and that build has
+# to be moved out of the monorepo intact.
+#
+# It used to be built by Dockerfile.node, which meant no `next build` ran at
+# all — the image shipped without a .next directory and `next start` refused to
+# boot. Adding the build step alone was not enough: `pnpm deploy` rearranges
+# node_modules, and a plain `.next` resolves its server externals against the
+# layout it was compiled in, so every route answered 500 with
+# "Cannot find module '@clickhouse/client-<hash>'". `output: "standalone"` in
+# next.config.mjs is the fix — Next traces the server's real dependencies and
+# emits a self-contained tree that does not care where it is copied to.
+
+ARG NODE_VERSION=22-alpine
+
+# --- dependencies -------------------------------------------------------------
+FROM node:${NODE_VERSION} AS deps
+RUN corepack enable
+WORKDIR /repo
+
+# Manifests first, so this layer stays cached until a dependency actually
+# changes and ordinary source edits skip the whole install.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.json ./
+COPY packages/core/package.json           packages/core/
+COPY packages/db/package.json             packages/db/
+COPY packages/queries/package.json        packages/queries/
+COPY packages/auth/package.json           packages/auth/
+COPY packages/mailer/package.json         packages/mailer/
+COPY packages/tracker/package.json        packages/tracker/
+COPY packages/sdk-node/package.json       packages/sdk-node/
+COPY packages/sdk-react/package.json      packages/sdk-react/
+COPY packages/ui/package.json             packages/ui/
+COPY apps/ingest/package.json             apps/ingest/
+COPY apps/worker/package.json             apps/worker/
+COPY apps/api/package.json                apps/api/
+COPY apps/mcp/package.json                apps/mcp/
+COPY apps/web/package.json                apps/web/
+
+# Not --prod: next, typescript and the workspace packages' sources are all
+# needed to compile. None of them reach the runtime image.
+RUN pnpm install --frozen-lockfile
+
+# --- build --------------------------------------------------------------------
+FROM deps AS build
+WORKDIR /repo
+COPY . .
+
+# `next build` imports every route to collect page data, which evaluates
+# @falorb/auth, which refuses to load in production unless a mail provider is
+# configured. That guard exists to stop a *running server* from accepting
+# unverified accounts; a compiler has no mail to send and no secrets to be
+# given. Answering it here is safe because this stage is discarded — the
+# runtime stage inherits none of its environment, and the check runs again for
+# real when the container starts with the deployment's own RESEND_API_KEY.
+ENV FALORB_REQUIRE_EMAIL_VERIFICATION=false
+RUN pnpm --filter @falorb/web build
+
+# --- runtime ------------------------------------------------------------------
+FROM node:${NODE_VERSION} AS runtime
+ENV NODE_ENV=production
+WORKDIR /app
+
+# tini reaps zombies and forwards signals, so SIGTERM reaches Next instead of
+# the container being killed outright.
+RUN apk add --no-cache tini curl \
+ && addgroup -S falorb && adduser -S falorb -G falorb
+
+# The standalone tree mirrors the monorepo, because outputFileTracingRoot is
+# the repository root — hence apps/web/server.js rather than server.js.
+COPY --from=build --chown=falorb:falorb /repo/apps/web/.next/standalone ./
+
+# Static assets are the one thing standalone output does not include: Next
+# assumes a CDN may serve them. Nothing does here, so the server has to.
+COPY --from=build --chown=falorb:falorb /repo/apps/web/.next/static ./apps/web/.next/static
+
+USER falorb
+EXPOSE 3000
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
+  CMD curl -fsS http://127.0.0.1:3000/ -o /dev/null || exit 1
+
+ENTRYPOINT ["/sbin/tini", "--"]
+CMD ["node", "apps/web/server.js"]

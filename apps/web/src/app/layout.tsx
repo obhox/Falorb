@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { getTheme, themeAttribute } from "@/server/theme";
+import { FalorbIdentify } from "@/components/FalorbIdentify";
 import { Instrument_Sans, JetBrains_Mono } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 
 /**
@@ -55,7 +57,16 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       data-theme={themeAttribute(theme)}
       suppressHydrationWarning
     >
-      <body>{children}</body>
+      <body>
+        <Script
+          defer
+          src="https://a.falorb.com/t.js"
+          data-project="prj_28d7d6d194a98e1d61fa829a87476200"
+          strategy="afterInteractive"
+        />
+        <FalorbIdentify />
+        {children}
+      </body>
     </html>
   );
 }

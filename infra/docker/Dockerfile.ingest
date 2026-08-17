@@ -47,7 +47,10 @@ RUN pnpm --filter @falorb/ingest deploy --legacy --prod /out
 
 FROM oven/bun:1-alpine AS runtime
 ENV NODE_ENV=production
-RUN apk add --no-cache tini curl \
+# `tar` unpacks MaxMind's archives and `coreutils` supplies a `timeout` that
+# honours its exit code — busybox's does not, so a hung download would be
+# indistinguishable from a failed one.
+RUN apk add --no-cache tini curl tar coreutils \
  && addgroup -S falorb && adduser -S falorb -G falorb
 
 WORKDIR /app
@@ -58,11 +61,22 @@ COPY --from=build --chown=falorb:falorb /repo/packages/tracker/dist /app/tracker
 
 ENV FALORB_TRACKER_PATH=/app/tracker-dist/t.js
 
+# The entrypoint fetches the GeoIP database before the collector boots, because
+# the .mmdb is opened once at start-up and held in memory.
+COPY --from=build --chown=falorb:falorb /repo/apps/ingest/docker-entrypoint.sh /app/docker-entrypoint.sh
+COPY --from=build --chown=falorb:falorb /repo/apps/ingest/scripts /app/scripts
+
+# Created with the runtime user's ownership so that an empty named volume
+# mounted here inherits it — otherwise the volume arrives root-owned and the
+# download cannot write to it.
+RUN mkdir -p /geoip && chown falorb:falorb /geoip
+VOLUME ["/geoip"]
+
 USER falorb
 EXPOSE 3001
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=3 \
   CMD curl -fsS http://127.0.0.1:3001/health || exit 1
 
-ENTRYPOINT ["/sbin/tini", "--"]
+ENTRYPOINT ["/sbin/tini", "--", "/app/docker-entrypoint.sh"]
 CMD ["bun", "src/index.ts"]

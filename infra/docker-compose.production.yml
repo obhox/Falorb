@@ -129,7 +129,13 @@ services:
       DATABASE_URL: postgresql://falorb:${SERVICE_PASSWORD_POSTGRES}@postgres:5432/falorb
       REDIS_URL: redis://:${SERVICE_PASSWORD_REDIS}@redis:6379
       FALORB_SALT_SECRET: ${SERVICE_BASE64_64_SALT}
-      MAXMIND_DB_PATH: ${MAXMIND_DB_PATH:-}
+      # Geo enrichment. The entrypoint downloads the database into the volume
+      # below on first boot and refreshes it once it is older than
+      # GEOIP_MAX_AGE_DAYS. Leaving the licence key unset is supported: the
+      # collector starts anyway and country stays empty.
+      MAXMIND_DB_PATH: ${MAXMIND_DB_PATH:-/geoip/GeoLite2-City.mmdb}
+      MAXMIND_LICENSE_KEY: ${MAXMIND_LICENSE_KEY:-}
+      GEOIP_MAX_AGE_DAYS: ${GEOIP_MAX_AGE_DAYS:-30}
       FALORB_RATE_LIMIT: ${FALORB_RATE_LIMIT:-600}
       # Reverse proxies in front of this container. One (Coolify's) by default.
       # Raise it to 2 before putting a CDN in front, or the collector reads the
@@ -138,6 +144,10 @@ services:
       # attribution and the daily ip_hash that stitches sessions together. Every
       # visitor would collapse into one identity, silently and without an error.
       FALORB_TRUSTED_PROXY_COUNT: ${FALORB_TRUSTED_PROXY_COUNT:-1}
+    volumes:
+      # Named, so the ~70MB database survives a redeploy instead of being
+      # re-fetched from MaxMind on every release.
+      - falorb-geoip:/geoip
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -269,3 +279,4 @@ volumes:
   falorb-postgres:
   falorb-redis:
   falorb-clickhouse:
+  falorb-geoip:

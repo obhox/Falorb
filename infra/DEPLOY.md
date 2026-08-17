@@ -208,15 +208,37 @@ curl -X POST https://api.falorb.com/api/projects \
 
 Country, region and city stay empty without it. Collection is unaffected.
 
-1. Free key at <https://www.maxmind.com/en/geolite2/signup>
-2. Add a Coolify **persistent volume** on `ingest`, mounted at `/geoip`
-3. Set `MAXMIND_DB_PATH=/geoip/GeoLite2-City.mmdb`
-4. Download into the volume:
+Set one variable and redeploy:
 
-```bash
-docker exec -it <ingest-container> sh
-MAXMIND_LICENSE_KEY=... MAXMIND_DB_DIR=/geoip node scripts/download-geoip.mjs
 ```
+MAXMIND_LICENSE_KEY=...      # free key at https://www.maxmind.com/en/geolite2/signup
+```
+
+The `ingest` entrypoint downloads the database into the `falorb-geoip` volume
+before the collector starts, and refreshes it once it is older than
+`GEOIP_MAX_AGE_DAYS` (default 30). The volume is named, so a redeploy reuses
+the existing copy rather than re-fetching 70MB from MaxMind.
+
+Nothing else is required — no persistent volume to add by hand, no `docker
+exec`. `MAXMIND_DB_PATH` defaults to the right path inside the volume.
+
+**Why it is not in the image.** The City database is ~70MB, MaxMind's licence
+forbids redistribution, and it is stale within weeks. It belongs in a volume,
+fetched at run time.
+
+**Failure is never fatal.** If the key is missing, MaxMind is unreachable, or
+the download times out, the collector starts anyway and geo fields stay empty.
+Losing pageviews because a licence key expired would be a far worse outcome
+than losing country. Check the startup logs for `[geoip]` lines to see which
+path was taken.
+
+**It only applies going forward.** The raw IP is discarded at ingest by design,
+so events already collected cannot be re-resolved — they keep their empty
+country permanently.
+
+**Refresh needs a restart.** The database is opened once at boot and held in
+memory, so a refreshed file is picked up on the next container start rather
+than immediately.
 
 ---
 

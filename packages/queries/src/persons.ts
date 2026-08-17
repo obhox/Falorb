@@ -429,7 +429,12 @@ export function buildPersonTotals(options: {
           round(sum(ifNull(toFloat64(revenue), 0)), 4) AS revenue
       FROM ${EVENTS}
       WHERE has({projectIds:Array(UInt32)}, project_id)
-        AND has({personIds:Array(UUID)}, person_id)
+        -- Mapped to UUID rather than declared Array(UUID): the ids arrive as
+        -- JS strings, and comparing a UUID column against a String array is a
+        -- type error ("no supertype for types UUID, String") rather than a
+        -- silent miss. Converting the parameter once keeps the comparison
+        -- UUID-to-UUID, so the column's index is still usable.
+        AND has(arrayMap(x -> toUUID(x), {personIds:Array(String)}), person_id)
         AND is_bot = 0
       GROUP BY person_id
     `,

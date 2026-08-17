@@ -10,16 +10,6 @@
         "dev"
       ],
       "port": 3000
-    },
-    {
-      "name": "falorb-site",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": [
-        "--dir",
-        "/Users/obhox/Projects/falorb-site",
-        "dev"
-      ],
-      "port": 3004
     }
   ]
 }

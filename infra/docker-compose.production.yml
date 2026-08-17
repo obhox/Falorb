@@ -202,13 +202,15 @@ services:
     # declare theirs for exactly that reason.
     expose:
       - "3000"
+    # Built from its own Dockerfile.web rather than the shared Dockerfile.node:
+    # a Next app needs a build step, and Dockerfile.node's runtime stage carries
+    # no pnpm to run `pnpm --filter @falorb/web start` with — so this service
+    # could never have started from the shared image.
     image: ${FALORB_IMAGE_PREFIX:-ghcr.io/obhox/falorb}-web:${FALORB_IMAGE_TAG:-latest}
     pull_policy: always
     restart: unless-stopped
-    # No `command:`. The image's own CMD runs Next's standalone server, and the
-    # override that used to be here (`pnpm --filter @falorb/web start`) exited
-    # immediately with "pnpm: not found" — there is no pnpm and no workspace in
-    # a runtime image, only the built app.
+    # No `command:` — the image's own CMD runs `next start`. The override that
+    # used to be here exited immediately with "pnpm: not found".
     environment:
       SERVICE_FQDN_WEB_3000: /
       PORT: 3000

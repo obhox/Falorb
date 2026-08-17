@@ -24,27 +24,10 @@ if (existsSync(rootEnv)) {
 const nextConfig = {
   reactStrictMode: true,
 
-  // What makes the app deployable. `next start` against a plain `.next` needs
-  // the node_modules layout it was built with, and the production image copies
-  // the build out of the workspace into a flat /app — so the two disagreed and
-  // every route 500'd on an unresolvable external. Standalone output traces
-  // exactly the files the server needs and emits its own node_modules, which
-  // survives being moved. See infra/docker/Dockerfile.web.
-  output: "standalone",
-
   // Pinned to the monorepo root. A stray lockfile in a parent directory makes
   // Next infer the workspace root wrongly, and standalone output then traces
   // files from the wrong tree.
   outputFileTracingRoot: root,
-
-  // The tracer copies @swc/helpers' cjs build and stops, but the compiled
-  // server requires the esm one — so a standalone image died on startup with
-  // "Cannot find module .../@swc/helpers/esm/_interop_require_default.js".
-  // Nothing in the app imports this directly; it is Next's own runtime
-  // dependency, which is why static analysis misses it.
-  outputFileTracingIncludes: {
-    "/**": ["../../node_modules/.pnpm/@swc+helpers@*/node_modules/@swc/helpers/**"],
-  },
 
   // Workspace packages ship TypeScript and JSX source rather than build output,
   // so Next has to compile them itself.

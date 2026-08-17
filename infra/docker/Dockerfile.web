@@ -1,0 +1,94 @@
+# The dashboard. Separate from Dockerfile.node because a Next.js app needs a
+# build step and a different entrypoint, and the shared image provides neither:
+# it runs `pnpm deploy --prod` (which prunes dependencies, it does not compile)
+# and its runtime stage has no pnpm at all -- only node, tini, curl and tsx. The
+# compose service started with `pnpm --filter @falorb/web start`, so the
+# container could not run its own command, and `next start` would have had no
+# .next build to serve even if it could.
+#
+# Deliberately the same deps stage as Dockerfile.node: identical COPY order and
+# a single `pnpm install --frozen-lockfile`, so the manifest layer caches on the
+# same terms and the two images resolve the same dependency tree.
+#
+# Not Next's `standalone` output, which would be the smaller image: its file
+# tracing does not follow pnpm's symlinked store completely, and the server died
+# on a missing @swc/helpers module that the trace had left behind. `pnpm deploy
+# --prod` resolves the workspace properly, so the runtime gets a node_modules
+# that actually works, at the cost of some size.
+
+ARG NODE_VERSION=22-alpine
+
+# --- dependencies -------------------------------------------------------------
+FROM node:${NODE_VERSION} AS deps
+RUN corepack enable
+WORKDIR /repo
+
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.json ./
+COPY packages/core/package.json           packages/core/
+COPY packages/db/package.json             packages/db/
+COPY packages/queries/package.json        packages/queries/
+COPY packages/auth/package.json           packages/auth/
+COPY packages/mailer/package.json         packages/mailer/
+COPY packages/tracker/package.json        packages/tracker/
+COPY packages/sdk-node/package.json       packages/sdk-node/
+COPY packages/sdk-react/package.json      packages/sdk-react/
+COPY packages/ui/package.json             packages/ui/
+COPY apps/ingest/package.json             apps/ingest/
+COPY apps/worker/package.json             apps/worker/
+COPY apps/api/package.json                apps/api/
+COPY apps/mcp/package.json                apps/mcp/
+COPY apps/web/package.json                apps/web/
+
+RUN pnpm install --frozen-lockfile
+
+# --- build --------------------------------------------------------------------
+FROM deps AS build
+WORKDIR /repo
+COPY . .
+
+ENV NEXT_TELEMETRY_DISABLED=1 \
+    # packages/auth throws at import time under NODE_ENV=production when no mail
+    # provider is configured, and `next build` evaluates it while collecting page
+    # data -- so the build failed on /invite/[token] before this. RESEND_API_KEY is
+    # a runtime service variable, not a build argument, and passing a real key as
+    # one would bake a secret into the image. This sets the override the error
+    # itself names, to `true`: it asserts production's own default (verification
+    # required) rather than disabling it, and it exists only in this build stage.
+    # The runtime image below never sees it, so the container evaluates the real
+    # rule against the real key.
+    FALORB_REQUIRE_EMAIL_VERIFICATION=true
+# transpilePackages compiles the workspace packages from source, so this needs
+# the whole tree above rather than a pruned copy.
+RUN pnpm --filter @falorb/web build
+
+# The workspace ships whole, dev dependencies included. Both ways of slimming it
+# break this app: `pnpm deploy` into a pruned directory re-roots node_modules, and
+# Next's build emits hashed references to its serverExternalPackages (postgres, pg,
+# @clickhouse/client, better-auth) that only resolve against the layout the build
+# saw -- every one of them failed at runtime with "Failed to load external module
+# postgres-635d2c4bff0272e6". Pruning in place is no better: pnpm removes and
+# rebuilds the modules directory, which is the same re-rooting by another name.
+# Size is the price of an app that starts.
+
+# --- runtime ------------------------------------------------------------------
+FROM node:${NODE_VERSION} AS runtime
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=3000 \
+    # Next's standalone server binds this; the default is loopback in some
+    # versions, which the proxy cannot reach from another container.
+    HOSTNAME=0.0.0.0
+
+RUN apk add --no-cache tini curl
+RUN addgroup -S falorb && adduser -S falorb -G falorb
+WORKDIR /repo/apps/web
+
+# The workspace as the build left it: same paths, same symlinks, plus .next.
+COPY --from=build --chown=falorb:falorb /repo /repo
+
+USER falorb
+EXPOSE 3000
+ENTRYPOINT ["/sbin/tini", "--"]
+# The local binary rather than `pnpm start`: there is no pnpm in this stage, which
+# is exactly what stopped the shared Dockerfile.node from running this service.
+CMD ["node_modules/.bin/next", "start", "--port", "3000"]

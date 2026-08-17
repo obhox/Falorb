@@ -66,13 +66,20 @@ itself, and persists it across redeploys. You only set these:
 | `IPINFO_TOKEN` | *(optional)* enables B2B company identification |
 | `FALORB_RATE_LIMIT` | *(optional)* default `600` events/min per IP hash |
 
-Then set each service's domain under **Configuration → Domains**:
+Then set each service's domain. For a Docker Compose resource these are
+**environment variables**, not the Domains field — Coolify pre-creates one
+`SERVICE_FQDN_<SERVICE>` per service that declares `SERVICE_FQDN_<SERVICE>_<PORT>`
+in the compose file, and you edit its value:
 
-| Service | Domain |
+| Variable | Value |
 |---|---|
-| `ingest` | `https://a.falorb.com` |
-| `api` | `https://api.falorb.com` |
-| `mcp` | `https://mcp.falorb.com` |
+| `SERVICE_FQDN_INGEST` | `https://a.falorb.com` |
+| `SERVICE_FQDN_API` | `https://api.falorb.com` |
+| `SERVICE_FQDN_MCP` | `https://mcp.falorb.com` |
+| `SERVICE_FQDN_WEB` | `https://dashboard.falorb.com` |
+
+They are generated pointing at a `sslip.io` hostname, so leaving one unset does
+not fail loudly — that service is simply not on the domain you expected.
 
 `worker` gets **no domain** — it serves no HTTP and must not be reachable.
 
@@ -100,6 +107,9 @@ when a deploy stalls.
 ## 5. Verify
 
 ```bash
+curl -sI https://dashboard.falorb.com/ | head -1
+# 307 — the dashboard redirecting an unauthenticated request to sign-in
+
 curl https://a.falorb.com/health
 # {"ok":true,"redis":true,"geo":false,"tracker":true}
 
@@ -209,3 +219,34 @@ generated passwords, so the volumes stay readable.
 **Rolling back** means redeploying an older commit. Schema migrations do not
 roll back automatically — the ClickHouse ones are additive, but a Postgres
 migration would need reverting by hand.
+
+---
+
+## Notes on Coolify's behaviour
+
+Three things it does that a plain `docker compose up` does not. Each cost a
+failed deploy here, and each is already handled in the compose file and
+Dockerfiles — this is why those files look the way they do.
+
+**Relative bind mounts are not honoured.** Coolify rewrites them into
+directories it manages under `/data/coolify/applications/<uuid>/` and creates
+them *empty*; the repository's files are never copied in. ClickHouse's config
+arrived that way, and mounting an empty directory over
+`/etc/clickhouse-server/config.d` also masks the image's own
+`docker_related_config.xml` — the setting that makes it listen on `0.0.0.0`. The
+server fell back to loopback, so `clickhouse-client` inside the container kept
+answering while every other container got `ECONNREFUSED` on port 8123. The
+compose healthcheck passed throughout, because it used the native protocol
+rather than the HTTP interface every caller actually uses. The config is now
+baked into `Dockerfile.clickhouse`, and the healthcheck tests HTTP.
+
+**A service with no `EXPOSE` gets no route.** `Dockerfile.node` is shared by
+services listening on different ports, so it declares none, and the proxy
+answered "no available server" for containers that were running perfectly. Each
+service that takes traffic therefore declares `expose:` in the compose file.
+
+**Builds run with `--no-cache`.** Every deploy reinstalls the whole workspace
+once per image, in parallel. On a small shared server that is the difference
+between a five-minute deploy and a thirty-minute one, and npm metadata requests
+were measured at 80s each under the contention. If deploys are slow, build the
+images in CI and have Coolify pull them rather than building on the box.

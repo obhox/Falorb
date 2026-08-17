@@ -197,13 +197,13 @@ services:
     # this the proxy has no port to route to and answers "no available server".
     expose:
       - "3000"
+    # Its own Dockerfile: a Next app needs a build step, and the runtime stage of
+    # Dockerfile.node carries no pnpm to run `pnpm --filter @falorb/web start`
+    # with -- so this service could never have started from the shared image.
     build:
       context: .
-      dockerfile: infra/docker/Dockerfile.node
-      args:
-        APP: web
+      dockerfile: infra/docker/Dockerfile.web
     restart: unless-stopped
-    command: ["sh", "-c", "pnpm --filter @falorb/web start"]
     environment:
       SERVICE_FQDN_WEB_3000: /
       PORT: 3000

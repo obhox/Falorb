@@ -206,7 +206,21 @@ curl -X POST https://api.falorb.com/api/projects \
 
 ## 8. GeoIP (optional)
 
-Country, region and city stay empty without it. Collection is unaffected.
+**Country usually works without this.** If a CDN fronts the collector —
+Cloudflare, Vercel or Fastly all qualify — the edge resolves the country before
+the request arrives and the collector reads it from the header. No database, no
+licence key, no lookup cost.
+
+MaxMind adds **region, city and ASN**, which no header carries. Set it up if you
+want those; skip it if country is enough.
+
+`GET /health` reports which is in use:
+
+```
+{"geo": true, "geoSource": "database"}   MaxMind loaded
+{"geo": true, "geoSource": "header"}     edge header only — country, no city
+{"geo": false, "geoSource": "none"}      no geo at all
+```
 
 Set one variable and redeploy:
 

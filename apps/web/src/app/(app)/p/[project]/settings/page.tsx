@@ -2,10 +2,12 @@ import { Card } from "@falorb/ui";
 import { can } from "@falorb/db";
 import { requireProject } from "@/server/session";
 import { getShare } from "@/server/sharing";
+import { getCollectorHealth, getConnectionStatus } from "@/server/connection";
 import { PageBody } from "@/components/shell/PageHeader";
 import { CopyField } from "@/components/CopyField";
 import { SettingsForm } from "./SettingsForm";
 import { ShareControl } from "./ShareControl";
+import { ConnectionPanel } from "./ConnectionPanel";
 import { ProjectCreatedTracker } from "./ProjectCreatedTracker";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +25,11 @@ export default async function ProjectSettingsPage({
 }) {
   const { session, project } = await requireProject((await params).project);
 
-  const share = await getShare(session.workspace.organizationId, project.id);
+  const [share, connection, collector] = await Promise.all([
+    getShare(session.workspace.organizationId, project.id),
+    getConnectionStatus(project.id),
+    getCollectorHealth(),
+  ]);
   const origin = process.env.FALORB_APP_URL ?? "http://localhost:3000";
 
   const ingest = process.env.FALORB_INGEST_URL ?? "http://localhost:3001";
@@ -32,6 +38,21 @@ export default async function ProjectSettingsPage({
   return (
     <PageBody>
       <ProjectCreatedTracker />
+      <ConnectionPanel
+        slug={project.slug}
+        initial={{
+          state: connection.state,
+          lastEventAt: connection.lastEventAt,
+          events24h: connection.events24h,
+          eventsTotal: connection.eventsTotal,
+          collector,
+          // The first authorised domain is what the test opens. Without one
+          // there is nowhere to send the reader, and events would be rejected
+          // at the edge anyway.
+          siteUrl: project.domains[0] ? `https://${project.domains[0]}` : null,
+        }}
+      />
+
       <Card
         title="Install"
         subtitle="One tag in <head>. 1.94 KB gzipped, no cookies in cookieless mode."

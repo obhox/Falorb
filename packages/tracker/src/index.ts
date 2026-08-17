@@ -99,7 +99,9 @@ const VERSION = "1";
 
   // --- state ---------------------------------------------------------------
 
-  const SESSION_TIMEOUT = 30 * 60 * 1000;
+  // Thirty minutes, written out: esbuild folds `30 * 60 * 1000` to `1800*1e3`
+  // rather than `18e5`, and this file is measured to the byte.
+  const SESSION_TIMEOUT = 1_800_000;
   const DEVICE_KEY = "_falorb_did";
   const SESSION_KEY = "_falorb_sid";
   const USER_KEY = "_falorb_uid";
@@ -252,7 +254,11 @@ const VERSION = "1";
           method: "POST",
           body: payload,
           keepalive: true,
-          mode: "cors",
+          // `mode` is not set: "cors" is already the default for fetch, and
+          // the byte budget does not pay for restating a default. `credentials`
+          // is, because its default is "same-origin" — which would attach the
+          // site's own cookies whenever the collector is self-hosted on the
+          // same origin as the page.
           credentials: "omit",
           headers: { "Content-Type": "text/plain" },
         }).catch(() => {});
@@ -264,15 +270,23 @@ const VERSION = "1";
     }
   }
 
+  /**
+   * Queue an event, reporting whether it was accepted.
+   *
+   * Acceptance *is* the consent state, so that flag is the return value rather
+   * than a pair of literals — one source of truth for an answer `page()` acts
+   * on, and a few bytes cheaper in a file that is measured to the byte.
+   */
   function enqueue(e: WireEvent): boolean {
-    if (!consentGranted) return false;
-    queue.push(e);
-    if (queue.length >= 10) {
-      flush();
-    } else if (!flushTimer) {
-      flushTimer = setTimeout(() => flush(), 2000);
+    if (consentGranted) {
+      queue.push(e);
+      if (queue.length >= 10) {
+        flush();
+      } else if (!flushTimer) {
+        flushTimer = setTimeout(flush, 2000);
+      }
     }
-    return true;
+    return consentGranted;
   }
 
   function base(name: string, props?: Props): WireEvent {
@@ -424,13 +438,13 @@ const VERSION = "1";
     if (push) {
       history.pushState = function (...args) {
         push.apply(this, args as never);
-        setTimeout(() => page(), 0);
+        setTimeout(page, 0);
       };
     }
     if (replace) {
       history.replaceState = function (...args) {
         replace.apply(this, args as never);
-        setTimeout(() => page(), 0);
+        setTimeout(page, 0);
       };
     }
     w.addEventListener("popstate", () => page());

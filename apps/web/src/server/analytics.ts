@@ -121,6 +121,9 @@ export const liveFeed = (o: {
 
 // ---- Portfolio -------------------------------------------------------------
 
+export const installStatus = (o: { projectIds: number[]; now?: number }) =>
+  q.installStatus(ch(), o);
+
 export const portfolioOverview = (o: { projectIds: number[]; range: q.DateRange }) =>
   q.portfolioOverview(ch(), o);
 export const portfolioSparklines = (o: { projectIds: number[]; range: q.DateRange }) =>

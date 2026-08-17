@@ -124,11 +124,14 @@ export default async function PersonPage({
           }}
         >
           <div style={{ display: "grid", gap: "var(--space-6)" }}>
+            {/*
+              Flush body, padded header. `padding={0}` sets both, which leaves
+              the title hard against the card's top-left corner.
+            */}
             <Card
               title="Timeline"
               subtitle={`Most recent ${timeline.length} events, across every property`}
-              padding={0}
-              bodyStyle={{ padding: 0 }}
+              bodyStyle={{ padding: "var(--space-5) 0 0" }}
             >
               {timeline.length === 0 ? (
                 <Empty

@@ -1,6 +1,6 @@
 # Deploying Falorb to Coolify
 
-Target: `falorb.com` on the existing Coolify server (`169.58.25.91`).
+Target: `falorb.com` on the existing Coolify server (`YOUR_SERVER_IP`).
 
 Everything here has been built and run locally — the four images build, the
 migration container applies both schemas against empty databases, and the
@@ -15,10 +15,10 @@ Add four `A` records at your registrar, all pointing at the server:
 
 | Type | Name  | Value           | Purpose |
 |------|-------|-----------------|---------|
-| A    | `a`   | `169.58.25.91`  | Collector — the tracker endpoint |
-| A    | `dashboard` | `169.58.25.91`  | Dashboard |
-| A    | `api` | `169.58.25.91`  | Account & management API |
-| A    | `mcp` | `169.58.25.91`  | MCP server for AI assistants |
+| A    | `a`   | `YOUR_SERVER_IP`  | Collector — the tracker endpoint |
+| A    | `dashboard` | `YOUR_SERVER_IP`  | Dashboard |
+| A    | `api` | `YOUR_SERVER_IP`  | Account & management API |
+| A    | `mcp` | `YOUR_SERVER_IP`  | MCP server for AI assistants |
 
 Four subdomains rather than paths on one, deliberately:
 
@@ -41,7 +41,7 @@ dig +short a.falorb.com dashboard.falorb.com api.falorb.com mcp.falorb.com
 
 1. **Projects → + New → Project**, name it `falorb`.
 2. Inside it: **+ New Resource → Docker Compose**.
-3. Source: **GitHub**, repository `obhox/Falorb`, branch `main`.
+3. Source: **GitHub**, repository `<your-github-org>/falorb`, branch `main`.
 4. **Compose file path**: `infra/docker-compose.production.yml`
 
    Not `infra/docker-compose.yml`. That one is for local development and
@@ -133,7 +133,7 @@ Then create a project and get its snippet:
 ```bash
 curl -X POST https://api.falorb.com/api/projects \
   -H 'Content-Type: application/json' -b cookies.txt \
-  -d '{"name":"Obhox","domains":["obhox.com"]}'
+  -d '{"name":"Acme","domains":["acme.example"]}'
 ```
 
 ---
@@ -161,8 +161,8 @@ MAXMIND_LICENSE_KEY=... MAXMIND_DB_DIR=/geoip node scripts/download-geoip.mjs
 ```
 
 Wire `identify()` into each product's login. **This is the only thing that
-unifies a person across products** — without it, someone using Linkbry and
-Letternerd is two unrelated visitors:
+unifies a person across products** — without it, someone using Beacon and
+Notewell is two unrelated visitors:
 
 ```js
 falorb.identify(user.id, { email: user.email, plan: user.plan })
@@ -173,7 +173,7 @@ To link anonymous click-throughs between your own domains, add:
 ```html
 <script defer src="https://a.falorb.com/t.js"
         data-project="prj_..."
-        data-cross-domain="linkbry.com,letternerd.com,spendtab.com"></script>
+        data-cross-domain="beacon.example,notewell.example,ledgerly.example"></script>
 ```
 
 ---

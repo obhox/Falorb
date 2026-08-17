@@ -71,7 +71,8 @@ infra/backups/
 
 # Screenshot output from `pnpm --filter @falorb/web shots`. Regenerated on
 # demand and tens of megabytes of PNGs — the script is worth tracking, its
-# output is not.
+# output is not. No leading slash: this also covers apps/site/public/shots,
+# where the marketing site's `shots:import` copies the same PNGs from.
 shots/
 
 # Scratch files

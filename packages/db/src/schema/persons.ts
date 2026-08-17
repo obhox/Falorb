@@ -60,8 +60,8 @@ export const persons = pgTable(
 
     /**
      * Every project this person has been seen on. Denormalised from
-     * `person_aliases` so the profile page can render "used Linkbry, read
-     * Letternerd, viewed Spendtab pricing" without a fan-out query.
+     * `person_aliases` so the profile page can render "used Beacon, read
+     * Notewell, viewed Ledgerly pricing" without a fan-out query.
      */
     projectIds: integer("project_ids").array().notNull().default([]),
 

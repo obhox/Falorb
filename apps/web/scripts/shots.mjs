@@ -29,8 +29,12 @@ const run = promisify(execFile);
  */
 
 const BASE = process.env.SHOTS_BASE_URL ?? "http://localhost:3000";
-const EMAIL = process.env.SHOTS_EMAIL ?? "joy@obhox.com";
-const PASSWORD = process.env.SHOTS_PASSWORD ?? "Falorb-Demo-2026!";
+const EMAIL = process.env.SHOTS_EMAIL;
+const PASSWORD = process.env.SHOTS_PASSWORD;
+if (!EMAIL || !PASSWORD) {
+  console.error("Set SHOTS_EMAIL and SHOTS_PASSWORD to the demo account's credentials before running this script.");
+  process.exit(1);
+}
 const OUT = resolve(import.meta.dirname, "../../../shots");
 const SHARE_TOKEN = "fx8Qm2LbVn4pTwRe6YsKdH";
 const INVITE_TOKEN = "hZ3vQpLmR7dNwT2sKfB9xC";
@@ -42,20 +46,36 @@ const MAX_HEIGHT = 5200;
 
 const THEMES = /** @type {const} */ (["dark", "light"]);
 
+/**
+ * Hide the dev server's own furniture.
+ *
+ * `next dev` renders a floating logo button and its overlay portal into every
+ * page. It sits in the corner of every screenshot, and it is not part of the
+ * product — a marketing asset with a framework's dev badge in it is unusable.
+ * Injected as a stylesheet rather than removed from the DOM so nothing the app
+ * renders is disturbed.
+ */
+const HIDE_DEV_CHROME = `
+  nextjs-portal,
+  [data-nextjs-dev-tools-button],
+  [data-next-mark],
+  #next-logo { display: none !important; }
+`;
+
 /** Every screen worth a full-page shot. */
 const PAGES = [
   { name: "01-portfolio", path: "/", wait: "text=Properties" },
-  { name: "02-project-summary", path: "/p/linkbry", wait: "text=Visitors and sessions" },
-  { name: "03-live", path: "/p/linkbry/live", wait: "text=On site now", live: true },
-  { name: "04-people", path: "/p/linkbry/people", wait: "text=Identified only" },
-  { name: "05-funnels", path: "/p/linkbry/funnels", wait: "text=Saved funnels" },
-  { name: "06-paths", path: "/p/linkbry/paths", wait: "text=Entry pages" },
-  { name: "07-retention-daily", path: "/p/linkbry/retention", wait: "text=Cohort retention" },
-  { name: "08-retention-weekly", path: "/p/linkbry/retention?by=week&range=90d", wait: "text=Cohort retention" },
-  { name: "09-events", path: "/p/linkbry/events", wait: "text=Event names" },
-  { name: "10-ai-crawlers", path: "/p/linkbry/crawlers", wait: "text=AI assistants" },
-  { name: "11-goals", path: "/p/linkbry/goals", wait: "text=Attribution" },
-  { name: "12-project-settings", path: "/p/linkbry/settings", wait: "text=Install" },
+  { name: "02-project-summary", path: "/p/beacon", wait: "text=Visitors and sessions" },
+  { name: "29-client-workspace", path: "/", wait: "text=Properties", workspace: "client" },
+  { name: "04-people", path: "/p/beacon/people", wait: "text=Identified only" },
+  { name: "05-funnels", path: "/p/beacon/funnels", wait: "text=Saved funnels" },
+  { name: "06-paths", path: "/p/beacon/paths", wait: "text=Entry pages" },
+  { name: "07-retention-daily", path: "/p/beacon/retention", wait: "text=Cohort retention" },
+  { name: "08-retention-weekly", path: "/p/beacon/retention?by=week&range=90d", wait: "text=Cohort retention" },
+  { name: "09-events", path: "/p/beacon/events", wait: "text=Event names" },
+  { name: "10-ai-crawlers", path: "/p/beacon/crawlers", wait: "text=AI assistants" },
+  { name: "11-goals", path: "/p/beacon/goals", wait: "text=Attribution" },
+  { name: "12-project-settings", path: "/p/beacon/settings", wait: "text=Install" },
   { name: "13-insights", path: "/insights", wait: "text=People across products" },
   { name: "14-alerts", path: "/alerts", wait: "text=Alert rules" },
   { name: "15-settings", path: "/settings", wait: "text=Endpoints" },
@@ -64,11 +84,11 @@ const PAGES = [
   { name: "18-add-property", path: "/settings/new", wait: "text=Add property" },
   { name: "19-invitation", path: `/invite/${INVITE_TOKEN}`, wait: "text=Invitation" },
   // A second property, so the portfolio does not look like one site with tabs.
-  { name: "20-spendtab-summary", path: "/p/spendtab", wait: "text=Visitors and sessions" },
-  { name: "21-spendtab-funnels", path: "/p/spendtab/funnels", wait: "text=Saved funnels" },
-  { name: "22-bund-crawlers", path: "/p/bund/crawlers", wait: "text=AI assistants" },
-  { name: "23-letternerd-summary", path: "/p/letternerd", wait: "text=Visitors and sessions" },
-  { name: "24-obhox-summary", path: "/p/obhox", wait: "text=Visitors and sessions" },
+  { name: "20-ledgerly-summary", path: "/p/ledgerly", wait: "text=Visitors and sessions" },
+  { name: "21-ledgerly-funnels", path: "/p/ledgerly/funnels", wait: "text=Saved funnels" },
+  { name: "22-fintra-crawlers", path: "/p/fintra/crawlers", wait: "text=AI assistants" },
+  { name: "23-notewell-summary", path: "/p/notewell", wait: "text=Visitors and sessions" },
+  { name: "24-acme-summary", path: "/p/acme", wait: "text=Visitors and sessions" },
 ];
 
 /** Screens that must be shot signed out. */
@@ -89,45 +109,40 @@ const CARDS = [
   { page: "/", name: "portfolio-kpis", strip: 1, wait: "text=Properties" },
   { page: "/", name: "portfolio-properties", strip: 2, wait: "text=Properties" },
 
-  { page: "/p/linkbry", name: "summary-kpis", strip: 1, wait: "text=Visitors and sessions" },
-  { page: "/p/linkbry", name: "summary-trend", title: "Visitors and sessions" },
-  { page: "/p/linkbry", name: "summary-top-pages", title: "Top pages" },
-  { page: "/p/linkbry", name: "summary-channels", title: "Channels" },
-  { page: "/p/linkbry", name: "summary-countries", title: "Countries" },
-  { page: "/p/linkbry", name: "summary-devices", title: "Devices" },
+  { page: "/p/beacon", name: "summary-kpis", strip: 1, wait: "text=Visitors and sessions" },
+  { page: "/p/beacon", name: "summary-trend", title: "Visitors and sessions" },
+  { page: "/p/beacon", name: "summary-top-pages", title: "Top pages" },
+  { page: "/p/beacon", name: "summary-channels", title: "Channels" },
+  { page: "/p/beacon", name: "summary-countries", title: "Countries" },
+  { page: "/p/beacon", name: "summary-devices", title: "Devices" },
 
-  { page: "/p/linkbry/funnels", name: "funnels-saved", title: "Saved funnels" },
-  { page: "/p/linkbry/funnels", name: "funnels-conversion", title: "Conversion" },
-  { page: "/p/linkbry/funnels", name: "funnels-dropoff", title: "Drop-off" },
+  { page: "/p/beacon/funnels", name: "funnels-saved", title: "Saved funnels" },
+  { page: "/p/beacon/funnels", name: "funnels-conversion", title: "Conversion" },
+  { page: "/p/beacon/funnels", name: "funnels-dropoff", title: "Drop-off" },
 
-  { page: "/p/linkbry/paths", name: "paths-journeys", title: "Journeys" },
-  { page: "/p/linkbry/paths", name: "paths-entry", title: "Entry pages" },
-  { page: "/p/linkbry/paths", name: "paths-exit", title: "Exit pages" },
+  { page: "/p/beacon/paths", name: "paths-journeys", title: "Journeys" },
+  { page: "/p/beacon/paths", name: "paths-entry", title: "Entry pages" },
+  { page: "/p/beacon/paths", name: "paths-exit", title: "Exit pages" },
 
-  { page: "/p/linkbry/retention?by=week&range=90d", name: "retention-cohorts", title: "Cohort retention" },
-  { page: "/p/linkbry/retention?by=week&range=90d", name: "retention-stickiness", title: "Stickiness" },
+  { page: "/p/beacon/retention?by=week&range=90d", name: "retention-cohorts", title: "Cohort retention" },
+  { page: "/p/beacon/retention?by=week&range=90d", name: "retention-stickiness", title: "Stickiness" },
 
-  { page: "/p/linkbry/events", name: "events-trend", title: "Events over time" },
-  { page: "/p/linkbry/events", name: "events-names", title: "Event names" },
-  { page: "/p/linkbry/events", name: "events-pages", title: "Pages by event volume" },
-  { page: "/p/linkbry/events", name: "events-sessions", title: "Sessions" },
+  { page: "/p/beacon/events", name: "events-trend", title: "Events over time" },
+  { page: "/p/beacon/events", name: "events-names", title: "Event names" },
+  { page: "/p/beacon/events", name: "events-pages", title: "Pages by event volume" },
+  { page: "/p/beacon/events", name: "events-sessions", title: "Sessions" },
 
-  { page: "/p/linkbry/crawlers", name: "ai-kpis", strip: 1, wait: "text=AI assistants" },
-  { page: "/p/linkbry/crawlers", name: "ai-assistants", title: "AI assistants" },
-  { page: "/p/linkbry/crawlers", name: "ai-referrals", title: "Traffic back from assistants" },
-  { page: "/p/linkbry/crawlers", name: "ai-reading", title: "What AI is reading" },
-  { page: "/p/linkbry/crawlers", name: "ai-by-purpose", title: "Every agent, by purpose" },
+  { page: "/p/beacon/crawlers", name: "ai-kpis", strip: 1, wait: "text=AI assistants" },
+  { page: "/p/beacon/crawlers", name: "ai-assistants", title: "AI assistants" },
+  { page: "/p/beacon/crawlers", name: "ai-referrals", title: "Traffic back from assistants" },
+  { page: "/p/beacon/crawlers", name: "ai-reading", title: "What AI is reading" },
+  { page: "/p/beacon/crawlers", name: "ai-by-purpose", title: "Every agent, by purpose" },
 
-  { page: "/p/linkbry/goals", name: "goals-kpis", strip: 1, wait: "text=Attribution" },
-  { page: "/p/linkbry/goals", name: "goals-list", title: "Goals" },
-  { page: "/p/linkbry/goals", name: "goals-revenue-trend", title: "Revenue over time" },
-  { page: "/p/linkbry/goals", name: "goals-attribution", title: "Attribution" },
-  { page: "/p/linkbry/goals", name: "goals-revenue-by-channel", title: "Revenue by channel" },
-
-  { page: "/p/linkbry/live", name: "live-kpis", strip: 1, wait: "text=On site now", live: true },
-  { page: "/p/linkbry/live", name: "live-feed", title: "Event feed" },
-  { page: "/p/linkbry/live", name: "live-pages", title: "Pages right now" },
-  { page: "/p/linkbry/live", name: "live-countries", title: "Countries right now" },
+  { page: "/p/beacon/goals", name: "goals-kpis", strip: 1, wait: "text=Attribution" },
+  { page: "/p/beacon/goals", name: "goals-list", title: "Goals" },
+  { page: "/p/beacon/goals", name: "goals-revenue-trend", title: "Revenue over time" },
+  { page: "/p/beacon/goals", name: "goals-attribution", title: "Attribution" },
+  { page: "/p/beacon/goals", name: "goals-revenue-by-channel", title: "Revenue by channel" },
 
   { page: "/insights", name: "insights-cross-product", title: "People across products" },
 
@@ -142,8 +157,8 @@ const CARDS = [
   { page: "/settings/team", name: "team-roles", title: "What each role can do" },
   { page: "/settings/mcp", name: "mcp-connect", title: "Connect an assistant" },
   { page: "/settings/mcp", name: "mcp-keys", title: "API keys" },
-  { page: "/p/linkbry/settings", name: "install-snippet", title: "Install" },
-  { page: "/p/linkbry/settings", name: "public-link", title: "Public link" },
+  { page: "/p/beacon/settings", name: "install-snippet", title: "Install" },
+  { page: "/p/beacon/settings", name: "public-link", title: "Public link" },
 ];
 
 /** Panels on the person profile, whose URL is discovered at runtime. */
@@ -162,6 +177,19 @@ const PERSON_CARDS = [
 
 function ensureDir(path) {
   mkdirSync(dirname(path), { recursive: true });
+}
+
+/** Install the dev-chrome stylesheet into every document this context opens. */
+async function hideDevChrome(context) {
+  await context.addInitScript((css) => {
+    const install = () => {
+      const style = document.createElement("style");
+      style.textContent = css;
+      document.head?.appendChild(style);
+    };
+    if (document.head) install();
+    else document.addEventListener("DOMContentLoaded", install);
+  }, HIDE_DEV_CHROME);
 }
 
 /** A section whose header carries this exact title — Card or ChartFrame. */
@@ -215,6 +243,18 @@ async function pumpLive(page) {
     await seed(90, 240_000);
     await page.waitForTimeout(3_000);
 
+    /**
+     * Reload before the tight bursts.
+     *
+     * The stream's cursor is set when the connection opens and only moves
+     * forward. A connection opened before the wide burst has already consumed
+     * (and advanced past) those rows, so the events that follow can land
+     * behind it and never be sent. Reloading opens a fresh stream whose cursor
+     * is "now", and everything pumped after it is unambiguously newer.
+     */
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await settle(page, "text=On site now");
+
     // Then tight bursts, timestamped after the stream's cursor, until the feed
     // has rows. Each burst is small: this is meant to look like live traffic,
     // not like a stampede.
@@ -260,9 +300,9 @@ async function shootPages(context, theme, pages, dir) {
     const file = `${OUT}/${dir}/${theme}/${spec.name}.png`;
     ensureDir(file);
     try {
+      if (spec.workspace === "client") await selectWorkspace(page, 1);
       await page.goto(`${BASE}${spec.path}`, { waitUntil: "domcontentloaded" });
       await settle(page, spec.wait);
-      if (spec.live) await pumpLive(page);
       await fitViewport(page);
       await page.screenshot({ path: file });
       console.log(`  ${theme}/${spec.name}`);
@@ -270,9 +310,35 @@ async function shootPages(context, theme, pages, dir) {
       console.warn(`  ! ${theme}/${spec.name}: ${error.message.split("\n")[0]}`);
     }
     await page.setViewportSize({ width: WIDTH, height: VIEWPORT_HEIGHT });
+    // Leave the active workspace as it was found, or every subsequent shot is
+    // taken against the wrong tenant.
+    if (spec.workspace === "client") await selectWorkspace(page, 0);
   }
 
   await page.close();
+}
+
+/**
+ * Choose a workspace by its position in the switcher menu.
+ *
+ * The active workspace is stored per *account*, server-side — not in a cookie
+ * — so it survives sign-out and leaks between runs. A previous session left on
+ * the client workspace makes every `/p/<slug>` in this script 404, since a
+ * slug is unique per organization. Every run therefore sets it explicitly
+ * rather than assuming the default.
+ */
+async function selectWorkspace(page, index) {
+  await page.goto(`${BASE}/`, { waitUntil: "domcontentloaded" });
+  await page.waitForLoadState("networkidle").catch(() => {});
+
+  const trigger = page.locator('button[aria-haspopup="menu"]:not([data-next-mark])');
+  if ((await trigger.count()) === 0) return; // single-workspace account
+  await trigger.click();
+
+  const items = page.locator('[role="menuitem"]');
+  await items.first().waitFor({ state: "visible", timeout: 5_000 });
+  await items.nth(index).click();
+  await page.waitForTimeout(1_500);
 }
 
 async function shootCards(context, theme) {
@@ -302,7 +368,11 @@ async function shootCards(context, theme) {
       const file = `${OUT}/cards/${theme}/${card.name}.png`;
       ensureDir(file);
       try {
-        const target = card.strip ? bodyChild(page, card.strip) : panel(page, card.title);
+        const target = card.selector
+          ? page.locator(card.selector).first()
+          : card.strip
+            ? bodyChild(page, card.strip)
+            : panel(page, card.title);
         await target.waitFor({ state: "visible", timeout: 8_000 });
         await target.scrollIntoViewIfNeeded();
         await page.waitForTimeout(250);
@@ -317,12 +387,101 @@ async function shootCards(context, theme) {
   await page.close();
 }
 
+/**
+ * The live screen, and everything on it.
+ *
+ * Runs after every other capture, and that ordering is not cosmetic. Filling
+ * the live window means writing a few hundred events timestamped *now*, which
+ * lands entirely in today's bucket — on a 30-day trend that is a spike on the
+ * final point, and it inflates the session count and cross-product counts on
+ * every screen shot afterwards. Doing it last confines the distortion to the
+ * one screen whose subject is that traffic.
+ */
+async function shootLive(context, theme) {
+  const page = await context.newPage();
+  await page.setViewportSize({ width: WIDTH, height: 1400 });
+
+  const cards = [
+    { name: "live-kpis", selector: ".falorb-scroll > div > div > div:nth-child(1)" },
+    { name: "live-feed", title: "Event feed" },
+    { name: "live-pages", title: "Pages right now" },
+    { name: "live-countries", title: "Countries right now" },
+    { name: "live-longest", title: "Longest on site" },
+  ];
+
+  try {
+    await page.goto(`${BASE}/p/beacon/live`, { waitUntil: "domcontentloaded" });
+    await settle(page, "text=On site now");
+    await pumpLive(page);
+    await fitViewport(page);
+
+    const full = `${OUT}/full/${theme}/03-live.png`;
+    ensureDir(full);
+    await page.screenshot({ path: full });
+    console.log(`  ${theme}/03-live`);
+
+    for (const card of cards) {
+      const file = `${OUT}/cards/${theme}/${card.name}.png`;
+      ensureDir(file);
+      try {
+        const target = card.selector
+          ? page.locator(card.selector).first()
+          : card.strip
+            ? bodyChild(page, card.strip)
+            : panel(page, card.title);
+        await target.waitFor({ state: "visible", timeout: 6_000 });
+        await target.scrollIntoViewIfNeeded();
+        await page.waitForTimeout(200);
+        await target.screenshot({ path: file });
+        console.log(`  ${theme}/cards/${card.name}`);
+      } catch (error) {
+        console.warn(`  ! ${theme}/cards/${card.name}: ${error.message.split("\n")[0]}`);
+      }
+    }
+  } catch (error) {
+    console.warn(`  ! ${theme} live: ${error.message.split("\n")[0]}`);
+  }
+
+  await page.close();
+}
+
+/** The workspace switcher, open — it only exists on multi-workspace accounts. */
+async function shootSwitcher(context, theme) {
+  const page = await context.newPage();
+  await page.setViewportSize({ width: WIDTH, height: VIEWPORT_HEIGHT });
+
+  try {
+    await page.goto(`${BASE}/`, { waitUntil: "domcontentloaded" });
+    await settle(page, "text=Properties");
+
+    // The trigger is the only button in the sidebar header.
+    const trigger = page.locator('button[aria-haspopup="menu"]:not([data-next-mark])');
+    await trigger.click();
+    await page.locator('[role="menuitem"]').first().waitFor({ state: "visible", timeout: 5_000 });
+    await page.waitForTimeout(400);
+
+    const full = `${OUT}/full/${theme}/30-workspace-switcher.png`;
+    ensureDir(full);
+    await page.screenshot({ path: full });
+
+    // Cropped to the sidebar, which is where the control actually lives.
+    const card = `${OUT}/cards/${theme}/workspace-switcher.png`;
+    ensureDir(card);
+    await page.screenshot({ path: card, clip: { x: 0, y: 0, width: 320, height: 260 } });
+    console.log(`  ${theme}/30-workspace-switcher`);
+  } catch (error) {
+    console.warn(`  ! ${theme} workspace switcher: ${error.message.split("\n")[0]}`);
+  }
+
+  await page.close();
+}
+
 async function shootPerson(context, theme) {
   const page = await context.newPage();
   await page.setViewportSize({ width: WIDTH, height: 1400 });
 
   try {
-    await page.goto(`${BASE}/p/linkbry/people`, { waitUntil: "domcontentloaded" });
+    await page.goto(`${BASE}/p/beacon/people`, { waitUntil: "domcontentloaded" });
     await settle(page, "text=Identified only");
 
     // The first row belonging to somebody with an email — an anonymous profile
@@ -343,7 +502,11 @@ async function shootPerson(context, theme) {
       const file = `${OUT}/cards/${theme}/${card.name}.png`;
       ensureDir(file);
       try {
-        const target = card.strip ? bodyChild(page, card.strip) : panel(page, card.title);
+        const target = card.selector
+          ? page.locator(card.selector).first()
+          : card.strip
+            ? bodyChild(page, card.strip)
+            : panel(page, card.title);
         await target.waitFor({ state: "visible", timeout: 6_000 });
         await target.scrollIntoViewIfNeeded();
         await page.waitForTimeout(200);
@@ -361,7 +524,11 @@ async function shootPerson(context, theme) {
 }
 
 async function main() {
-  if (existsSync(OUT)) rmSync(OUT, { recursive: true, force: true });
+  // `SHOTS_ONLY=live` retakes just the live screen — the one capture that
+  // depends on traffic generated while the page is open, and so the one most
+  // likely to need a second attempt.
+  const onlyLive = process.env.SHOTS_ONLY === "live";
+  if (!onlyLive && existsSync(OUT)) rmSync(OUT, { recursive: true, force: true });
 
   const browser = await chromium.launch();
   const origin = new URL(BASE).origin;
@@ -374,24 +541,31 @@ async function main() {
   await auth.fill('input[name="password"]', PASSWORD);
   await auth.click('button[type="submit"]');
   await auth.waitForURL((url) => !url.pathname.startsWith("/sign-in"), { timeout: 30_000 });
+  // Reset the account to its primary workspace before anything is captured.
+  await selectWorkspace(auth, 0);
+
   const state = await signIn.storageState();
   await signIn.close();
   console.log(`signed in as ${EMAIL}`);
 
-  for (const theme of THEMES) {
-    console.log(`\n${theme}:`);
-
+  const signedIn = async (theme) => {
     const context = await browser.newContext({
       storageState: state,
       viewport: { width: WIDTH, height: VIEWPORT_HEIGHT },
       deviceScaleFactor: 2,
       colorScheme: theme,
     });
-    await context.addCookies([
-      { name: "falorb-theme", value: theme, url: origin },
-    ]);
+    await context.addCookies([{ name: "falorb-theme", value: theme, url: origin }]);
+    await hideDevChrome(context);
+    return context;
+  };
 
+  for (const theme of onlyLive ? [] : THEMES) {
+    console.log(`\n${theme}:`);
+
+    const context = await signedIn(theme);
     await shootPages(context, theme, PAGES, "full");
+    await shootSwitcher(context, theme);
     await shootPerson(context, theme);
     await shootCards(context, theme);
     await context.close();
@@ -403,8 +577,17 @@ async function main() {
       colorScheme: theme,
     });
     await anon.addCookies([{ name: "falorb-theme", value: theme, url: origin }]);
+    await hideDevChrome(anon);
     await shootPages(anon, theme, PUBLIC_PAGES, "full");
     await anon.close();
+  }
+
+  // Live last, for both themes — see the note on shootLive.
+  for (const theme of THEMES) {
+    console.log(`\n${theme} (live):`);
+    const context = await signedIn(theme);
+    await shootLive(context, theme);
+    await context.close();
   }
 
   await browser.close();

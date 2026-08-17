@@ -20,7 +20,7 @@ import { ensurePersons } from "./jobs/identity-resolver";
  *
  *   npx tsx apps/worker/src/backfill.ts              # everything
  *   npx tsx apps/worker/src/backfill.ts --days 90
- *   npx tsx apps/worker/src/backfill.ts --project linkbry
+ *   npx tsx apps/worker/src/backfill.ts --project beacon
  */
 
 interface Options {

@@ -34,12 +34,12 @@ loadRootEnv();
  *   SEED_LIVE_SPREAD_MS=1500 pnpm --filter @falorb/db seed:live   # for the feed
  */
 
-const ORG_SLUG = process.env.SEED_LIVE_ORG ?? "obhox-demo";
+const ORG_SLUG = process.env.SEED_LIVE_ORG ?? "acme-demo";
 
 /** Pages worth showing in a feed, per property host. */
 const PAGES: Record<string, Array<[string, string]>> = {
-  "linkbry.com": [
-    ["/", "Linkbry — short links that report back"],
+  "beacon.example": [
+    ["/", "Beacon — short links that report back"],
     ["/pricing", "Pricing"],
     ["/docs/api", "API reference"],
     ["/signup", "Create your workspace"],
@@ -47,31 +47,31 @@ const PAGES: Record<string, Array<[string, string]>> = {
     ["/dashboard", "Dashboard"],
     ["/integrations", "Integrations"],
   ],
-  "letternerd.com": [
-    ["/", "Letternerd"],
+  "notewell.example": [
+    ["/", "Notewell"],
     ["/archive", "Archive"],
     ["/issues/the-quiet-web", "The quiet web"],
     ["/subscribe", "Subscribe"],
     ["/issues/typography-debt", "Typography debt"],
   ],
-  "spendtab.com": [
-    ["/", "Spendtab — spend, in one place"],
+  "ledgerly.example": [
+    ["/", "Ledgerly — spend, in one place"],
     ["/features", "Features"],
     ["/pricing", "Pricing"],
     ["/security", "Security"],
     ["/connect", "Connect an account"],
   ],
-  "usebund.com": [
-    ["/", "Bund AI"],
+  "usefintra.example": [
+    ["/", "Fintra AI"],
     ["/product", "Product"],
     ["/playground", "Playground"],
     ["/docs/quickstart", "Quickstart"],
     ["/pricing", "Pricing"],
   ],
-  "obhox.com": [
-    ["/", "Obhox — product engineering studio"],
+  "acme.example": [
+    ["/", "Acme — product engineering studio"],
     ["/work", "Work"],
-    ["/work/spendtab", "Case study — Spendtab"],
+    ["/work/ledgerly", "Case study — Ledgerly"],
     ["/contact", "Contact"],
   ],
 };

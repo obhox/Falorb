@@ -1,5 +1,6 @@
 {
   "name": "falorb",
+  "license": "MIT",
   "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@10.30.0",

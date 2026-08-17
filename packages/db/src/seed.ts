@@ -15,11 +15,11 @@ loadRootEnv();
  */
 
 const PROJECTS: Array<{ name: string; slug: string; domains: string[] }> = [
-  { name: "Obhox", slug: "obhox", domains: ["obhox.com", "localhost"] },
-  { name: "Linkbry", slug: "linkbry", domains: ["linkbry.com", "api.linkbry.com"] },
-  { name: "Letternerd", slug: "letternerd", domains: ["letternerd.com"] },
-  { name: "Spendtab", slug: "spendtab", domains: ["spendtab.com", "dashboard.spendtab.com"] },
-  { name: "Bund AI", slug: "bund", domains: ["usebund.com", "app.usebund.com"] },
+  { name: "Acme", slug: "acme", domains: ["acme.example", "localhost"] },
+  { name: "Beacon", slug: "beacon", domains: ["beacon.example", "api.beacon.example"] },
+  { name: "Notewell", slug: "notewell", domains: ["notewell.example"] },
+  { name: "Ledgerly", slug: "ledgerly", domains: ["ledgerly.example", "dashboard.ledgerly.example"] },
+  { name: "Fintra AI", slug: "fintra", domains: ["usefintra.example", "app.usefintra.example"] },
 ];
 
 function publicKey(): string {
@@ -32,13 +32,13 @@ async function main(): Promise<void> {
   let [org] = await db
     .select()
     .from(schema.organizations)
-    .where(eq(schema.organizations.slug, "obhox"))
+    .where(eq(schema.organizations.slug, "acme"))
     .limit(1);
 
   if (!org) {
     [org] = await db
       .insert(schema.organizations)
-      .values({ name: "Obhox", slug: "obhox" })
+      .values({ name: "Acme", slug: "acme" })
       .returning();
     console.log(`created organization ${org!.name}`);
   }

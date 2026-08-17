@@ -120,8 +120,7 @@ export default async function EventsPage({
                 ? `Most recent sessions containing ${eventLabel(selected)}`
                 : "Most recent sessions"
             }
-            padding={0}
-            bodyStyle={{ padding: 0 }}
+            bodyStyle={{ padding: "var(--space-5) 0 0" }}
           >
             <SessionTable
               sessions={sessions.map((row) => ({

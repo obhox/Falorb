@@ -18,6 +18,13 @@ import { clockTime, countryLabel, duration, eventLabel, num, prettyPath } from "
 
 const FEED_LIMIT = 60;
 
+/**
+ * How many event keys to remember for duplicate suppression. Comfortably more
+ * than the feed holds, so a redelivery after a reconnect is still caught, and
+ * small enough that a tab left open for days cannot grow it without limit.
+ */
+const SEEN_LIMIT = 500;
+
 interface LiveVisitor {
   person_id: string;
   current_path: string;
@@ -64,20 +71,43 @@ export function LiveView({ slug }: { slug: string }) {
       const payload = JSON.parse((event as MessageEvent).data) as Tick;
       setTick(payload);
 
-      if (payload.events.length > 0) {
-        setFeed((current) => {
-          // The server advances its cursor, but a reconnect restarts it, so
-          // dedupe here as well rather than trusting the transport.
-          const fresh = payload.events.filter((e) => {
-            const key = `${e.timestamp}:${e.person_id}:${e.name}:${e.path}`;
-            if (seen.current.has(key)) return false;
-            seen.current.add(key);
-            return true;
-          });
-          if (fresh.length === 0) return current;
-          return [...fresh.reverse(), ...current].slice(0, FEED_LIMIT);
-        });
+      if (payload.events.length === 0) return;
+
+      /**
+       * Dedupe here, in the event handler — not inside the `setFeed` updater.
+       *
+       * The server advances its cursor, but a reconnect restarts it, so the
+       * same event can be delivered twice and the transport cannot be trusted
+       * on its own. The check itself is therefore necessary; where it runs is
+       * what matters. Recording a key mutates `seen`, and a state updater has
+       * to be a pure function of its argument. React is allowed to invoke one
+       * more than once for a single update, and in StrictMode it deliberately
+       * does — so the first run marked every event as seen, the second run
+       * found all of them already recorded, concluded there was nothing new
+       * and returned the list untouched. Every batch cancelled itself out and
+       * the feed stayed on "Waiting for events" while events were arriving.
+       */
+      const fresh = payload.events.filter((e) => {
+        const key = `${e.timestamp}:${e.person_id}:${e.name}:${e.path}`;
+        if (seen.current.has(key)) return false;
+        seen.current.add(key);
+        return true;
+      });
+
+      if (fresh.length === 0) return;
+
+      /**
+       * The key set is bounded for the same reason the feed is. This screen is
+       * built to be left open — on a spare monitor, for days — and an
+       * unbounded Set on a busy property is a leak that grows for as long as
+       * nobody closes the tab. Anything evicted is far older than the deepest
+       * row still rendered, so it cannot reappear as a duplicate.
+       */
+      if (seen.current.size > SEEN_LIMIT) {
+        seen.current = new Set([...seen.current].slice(-FEED_LIMIT));
       }
+
+      setFeed((current) => [...fresh].reverse().concat(current).slice(0, FEED_LIMIT));
     });
 
     // EventSource reconnects on its own; this only reflects that in the UI.
@@ -128,11 +158,18 @@ export function LiveView({ slug }: { slug: string }) {
           alignItems: "start",
         }}
       >
+        {/*
+          The body is flush so a row's separator can run the full width of the
+          card, but the *header* keeps the normal card padding — passing
+          `padding={0}` alone zeroes both, and the title then sits hard against
+          the border with its ascenders touching the edge. The gap below the
+          header is the body's own, so the first row does not collide with the
+          subtitle.
+        */}
         <Card
           title="Event feed"
           subtitle="Newest first, as it arrives"
-          padding={0}
-          bodyStyle={{ padding: 0 }}
+          bodyStyle={{ padding: "var(--space-5) 0 0" }}
         >
           {feed.length === 0 ? (
             <Empty

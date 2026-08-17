@@ -4,8 +4,22 @@
     {
       "name": "falorb-web",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "@falorb/web", "dev"],
+      "runtimeArgs": [
+        "--filter",
+        "@falorb/web",
+        "dev"
+      ],
       "port": 3000
+    },
+    {
+      "name": "falorb-site",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--dir",
+        "/Users/obhox/Projects/falorb-site",
+        "dev"
+      ],
+      "port": 3004
     }
   ]
 }

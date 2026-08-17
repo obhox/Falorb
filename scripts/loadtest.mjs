@@ -63,7 +63,7 @@ async function project() {
   if (process.env.FALORB_PROJECT_KEY) {
     return {
       key: process.env.FALORB_PROJECT_KEY,
-      origin: process.env.FALORB_ORIGIN ?? "https://obhox.com",
+      origin: process.env.FALORB_ORIGIN ?? "https://example.com",
     };
   }
 

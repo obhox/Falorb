@@ -3,8 +3,13 @@
 Self-hosted, first-party product analytics for a portfolio of sites. Built for
 small-to-medium traffic, person-level detail, and one view across every project.
 
-**Status:** backend, workers and data layer are complete and verified. The
-dashboard UI is not built yet.
+**Status:** the collection pipeline, storage layer, identity graph, query
+layer, background workers, self-serve account system and MCP server are
+complete and verified. The dashboard is built — 24 routes, light and dark,
+role-enforced, driven end to end by Playwright. It does not yet cover the
+whole backend; see [FEATURES.md](FEATURES.md) for the gaps.
+
+![All properties overview](docs/screenshots/portfolio.png)
 
 ## What it does
 
@@ -14,6 +19,7 @@ dashboard UI is not built yet.
 - **Drop-off** — funnels with per-step loss, exit-rate ranking, page-to-page flows, rage clicks.
 - **Enrichment** — acquisition chains, on-site interest profiles, B2B company identification.
 - **Privacy-first** — no raw IP stored anywhere, GDPR export/erasure, per-project retention.
+- **AI-native** — an MCP server (25 tools) so an assistant can query the platform directly, and a dashboard panel tracking what AI crawlers read on your sites.
 
 ### Scope boundary
 
@@ -34,12 +40,22 @@ Browser ──▶ apps/ingest ──▶ Redis Stream ──▶ apps/worker ─�
             (Bun + Hono)                                   └──▶ Postgres     (profiles)
             p99 <10ms                                              ▲
                                           packages/queries ────────┘
+                                                 ▲
+                          ┌──────────────────────┼──────────────────────┐
+                     apps/web                apps/api                apps/mcp
+                  (dashboard, Next.js)   (accounts, Bun + Hono)   (MCP server, stdio/HTTP)
+                          └──────────────┬───────────┘
+                                    packages/auth
+                              (better-auth, shared config)
 ```
 
 Events are immutable and high-volume, so they live in ClickHouse. Person
 profiles mutate constantly (merges, traits, interest scores), so they live in
 Postgres. Redis sits between ingest and storage so a slow or restarting
-ClickHouse never becomes a slow response on someone's website.
+ClickHouse never becomes a slow response on someone's website. `apps/web` and
+`apps/api` both read through `packages/queries` — no HTTP hop between the
+dashboard and the query layer — and share one `better-auth` config from
+`packages/auth`, so a session cookie from either mints the same scopes.
 
 | Package | Purpose |
 |---|---|
@@ -47,8 +63,16 @@ ClickHouse never becomes a slow response on someone's website.
 | `packages/tracker` | Browser script — 2.9 KB gzip, zero dependencies |
 | `packages/db` | Drizzle (Postgres) + ClickHouse DDL, migrations, API keys |
 | `packages/queries` | Parameterized ClickHouse query builders |
+| `packages/auth` | Shared `better-auth` config — sessions, API keys, roles |
+| `packages/mailer` | Transactional email (verification, reset, invites, alerts) — Resend or SMTP |
+| `packages/ui` | Design system — 32 components, light/dark tokens |
+| `packages/sdk-node` | Server-side SDK — non-blocking, never throws, batches by identity |
+| `packages/sdk-react` | `<FalorbProvider>`, `useFalorb`, `usePageview`, `useIdentify` |
 | `apps/ingest` | Collector: validate, enrich, hash IP, publish |
 | `apps/worker` | Stream writer + 11 scheduled derivation jobs |
+| `apps/api` | Self-serve accounts — signup, sessions, projects, API keys, team invites |
+| `apps/web` | The dashboard — 24 routes, role-enforced, light and dark |
+| `apps/mcp` | MCP server — 25 tools, 2 resources, 3 prompts for AI assistants |
 
 ## Getting started
 
@@ -72,10 +96,24 @@ bun apps/ingest/src/index.ts
 pnpm --filter @falorb/worker start
 ```
 
+Run the API and the dashboard, then sign up at `localhost:3000`:
+
+```bash
+pnpm --filter @falorb/api dev     # accounts API — port 3003
+pnpm --filter @falorb/web dev     # dashboard — port 3000
+```
+
+Point an assistant at it over MCP:
+
+```bash
+pnpm --filter @falorb/mcp start        # stdio, for Claude Desktop / Claude Code
+pnpm --filter @falorb/mcp start:http   # streamable HTTP, bearer API key
+```
+
 Install on a site:
 
 ```html
-<script defer src="https://a.obhox.com/t.js" data-project="prj_..."></script>
+<script defer src="https://a.example.com/t.js" data-project="prj_..."></script>
 ```
 
 ```js
@@ -83,6 +121,100 @@ falorb.identify(user.id, { email: user.email, plan: user.plan })
 falorb.track('checkout_started', { plan: 'pro', seats: 3 })
 falorb.revenue(99, 'USD')
 ```
+
+## Demo workspace
+
+`seed.ts` gives a developer something non-empty to build against. The demo seed
+is for showing the product: named people at named companies, saved funnels,
+alert history, two workspaces, and enough shape in the data that a trend line
+has a trend in it.
+
+```bash
+# sign up in the dashboard first, then:
+SEED_DEMO_OWNER_EMAIL=you@example.com pnpm --filter @falorb/db seed:demo
+```
+
+It builds its own organizations (`acme-demo`, `kestrel-demo`) and is
+destructive only to those, so re-running never disturbs the development seed or
+a real workspace. Postgres profiles and ClickHouse events are generated from
+one model, so a figure on a person's profile is counted from the events its own
+timeline renders.
+
+The account ends up a member of two workspaces, which is what makes the
+workspace switcher appear at all — it renders as a plain label below that.
+
+The live screen reads a short trailing window, so it is empty within minutes of
+any seed. Top it up immediately before looking:
+
+```bash
+pnpm --filter @falorb/db seed:live
+```
+
+### Screenshots
+
+```bash
+pnpm --filter @falorb/web shots
+```
+
+Writes `shots/full/{dark,light}` (whole screens) and `shots/cards/{dark,light}`
+(single panels, cropped to their own bounds) at 2× against a running dashboard.
+The live screen is captured last, because filling its window writes several
+hundred events timestamped *now* — which would otherwise appear as a spike on
+the final bucket of every trend shot taken afterwards.
+
+## Tour
+
+A walk through the dashboard against a real deployment.
+
+**All properties** — one deployment, every property in one place: unique
+visitors, sessions and a per-property sparkline with trend, sorted by traffic.
+
+![All properties](docs/screenshots/portfolio.png)
+
+**Live** — who's on a site right now, and the event feed filling as traffic
+arrives. Backed by a 3-second SSE poll, cursor-advanced, self-closing after 30
+minutes idle.
+
+![Realtime visitors and event feed](docs/screenshots/live.png)
+
+**People** — every visitor, identified or anonymous, searchable, with company
+and lead score where enrichment resolved one.
+
+![Person list](docs/screenshots/people.png)
+
+**Person profile** — the payoff of the identity graph: one human's full
+timeline across every property they've touched, with acquisition chain,
+interests, aliases and devices in one view.
+
+![Cross-property person profile](docs/screenshots/person-profile.png)
+
+**Funnels** — a URL-encoded builder with a per-step drop-off waterfall, so a
+falling conversion rate points at the exact step losing people.
+
+![Funnel builder and drop-off waterfall](docs/screenshots/funnels.png)
+
+**Paths** — page-to-page flows in and out of any page, plus entry, exit and
+rage-click reports.
+
+![Page-to-page paths](docs/screenshots/paths.png)
+
+**AI & crawlers** — what ChatGPT, Claude and Perplexity read on your sites,
+and what traffic they send back.
+
+![AI crawler traffic](docs/screenshots/ai-crawlers.png)
+
+**Goals** — conversions, revenue and three attribution models, without
+leaving the dashboard for a spreadsheet.
+
+![Goals, revenue and attribution](docs/screenshots/goals.png)
+
+**Insights** — the cross-project view: pick a metric and a dimension, and see
+who used more than one of your products.
+
+![Cross-project insights](docs/screenshots/insights.png)
+
+More screens — retention cohorts, alerts, team and role management, the MCP
+connection panel, public share links — are in [FEATURES.md](FEATURES.md#14-dashboard--appsweb).
 
 ## Workers
 
@@ -135,7 +267,7 @@ pnpm --filter @falorb/worker backfill --days 90
 ## Verification
 
 ```bash
-pnpm -r typecheck              # 6 packages
+pnpm -r typecheck              # 15 packages
 pnpm -r test                   # 101 unit tests
 pnpm --filter @falorb/tracker size    # fails the build over 3 KB gzip
 pnpm --filter @falorb/queries smoke   # 32 queries against live ClickHouse

@@ -1,9 +1,14 @@
-# Shared image for the Node services: worker, api and mcp.
+# Shared image for the tsx-runtime services: worker, api, mcp and the migration
+# runner.
 #
-# One Dockerfile with an APP argument rather than three near-identical files.
+# One Dockerfile with an APP argument rather than four near-identical files.
 # They share every dependency and differ only in entrypoint, so separate files
-# would triplicate the pnpm plumbing and drift apart the first time one is
+# would quadruplicate the pnpm plumbing and drift apart the first time one is
 # edited.
+#
+# The dashboard is deliberately not one of them. It is compiled by Next rather
+# than run from source, so it has a different build model and lives in
+# Dockerfile.web.
 #
 # Multi-stage so the runtime image carries no build toolchain and no dev
 # dependencies. `pnpm deploy` produces a self-contained node_modules with the

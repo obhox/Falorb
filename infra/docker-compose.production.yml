@@ -17,6 +17,21 @@
 #   SERVICE_FQDN_<NAME>_<PORT>  publish a service at a domain
 #   SERVICE_PASSWORD_<NAME>     generate and persist a random password
 #   SERVICE_BASE64_64_<NAME>    generate a 64-byte base64 secret
+#
+# Nothing here is built. Every image is built and pushed by .github/workflows/ci.yml,
+# gated on the test suite, and this file only pulls. That is deliberate: while the
+# services carried `build:` sections, the production server compiled the whole
+# workspace on every deploy, and the artifact that ended up serving traffic had
+# never been through CI.
+#
+#   FALORB_IMAGE_TAG     which tag to run. Defaults to `latest`, which is the head
+#                        of main. Set it to a commit SHA to pin, and to roll back:
+#                        an older SHA is a redeploy away, with no rebuild.
+#   FALORB_IMAGE_PREFIX  registry namespace. Only needs setting in a fork.
+#
+# `pull_policy: always` is load-bearing when running `latest`: without it compose
+# keeps using the tag it already has locally and a redeploy silently changes
+# nothing.
 
 services:
   postgres:
@@ -53,13 +68,12 @@ services:
       retries: 10
 
   clickhouse:
-    # Built rather than pulled: the server config is baked into the image. It used
+    # Not the stock clickhouse-server image: the server config is baked in. It used
     # to arrive as bind mounts of infra/clickhouse/{config.d,users.d}, but Coolify
     # rewrites relative bind mounts into empty directories it manages, so the
     # overrides silently never reached the server. See Dockerfile.clickhouse.
-    build:
-      context: .
-      dockerfile: infra/docker/Dockerfile.clickhouse
+    image: ${FALORB_IMAGE_PREFIX:-ghcr.io/obhox/falorb}-clickhouse:${FALORB_IMAGE_TAG:-latest}
+    pull_policy: always
     restart: unless-stopped
     environment:
       CLICKHOUSE_USER: falorb
@@ -88,11 +102,8 @@ services:
   # Runs to completion before the apps start, so no service ever queries a
   # schema that does not exist yet.
   migrate:
-    build:
-      context: .
-      dockerfile: infra/docker/Dockerfile.node
-      args:
-        APP: db
+    image: ${FALORB_IMAGE_PREFIX:-ghcr.io/obhox/falorb}-db:${FALORB_IMAGE_TAG:-latest}
+    pull_policy: always
     restart: "no"
     command: ["sh", "-c", "tsx src/migrate-all.ts"]
     environment:
@@ -107,9 +118,8 @@ services:
 
   # --- collector --------------------------------------------------------------
   ingest:
-    build:
-      context: .
-      dockerfile: infra/docker/Dockerfile.ingest
+    image: ${FALORB_IMAGE_PREFIX:-ghcr.io/obhox/falorb}-ingest:${FALORB_IMAGE_TAG:-latest}
+    pull_policy: always
     restart: unless-stopped
     environment:
       # Own subdomain so an ad-blocker rule against the collector cannot take
@@ -128,11 +138,8 @@ services:
 
   # --- background jobs --------------------------------------------------------
   worker:
-    build:
-      context: .
-      dockerfile: infra/docker/Dockerfile.node
-      args:
-        APP: worker
+    image: ${FALORB_IMAGE_PREFIX:-ghcr.io/obhox/falorb}-worker:${FALORB_IMAGE_TAG:-latest}
+    pull_policy: always
     restart: unless-stopped
     # No domain: the worker serves no HTTP and must not be reachable.
     environment:
@@ -158,11 +165,8 @@ services:
     # Dockerfile.ingest has EXPOSE 3001, which is why ingest alone routed.
     expose:
       - "3003"
-    build:
-      context: .
-      dockerfile: infra/docker/Dockerfile.node
-      args:
-        APP: api
+    image: ${FALORB_IMAGE_PREFIX:-ghcr.io/obhox/falorb}-api:${FALORB_IMAGE_TAG:-latest}
+    pull_policy: always
     restart: unless-stopped
     command: ["sh", "-c", "tsx src/index.ts"]
     environment:
@@ -193,17 +197,20 @@ services:
   # the app itself (`apps/web/next.config.mjs` and `src/middleware.ts`), so they
   # hold whichever proxy is in front.
   web:
-    # Same reason as api and mcp: Dockerfile.node carries no EXPOSE, so without
-    # this the proxy has no port to route to and answers "no available server".
+    # Redundant with Dockerfile.web's own EXPOSE, but kept explicit: this is the
+    # port the proxy routes to, and the api and mcp services above have to
+    # declare theirs for exactly that reason.
     expose:
       - "3000"
-    # Its own Dockerfile: a Next app needs a build step, and the runtime stage of
-    # Dockerfile.node carries no pnpm to run `pnpm --filter @falorb/web start`
-    # with -- so this service could never have started from the shared image.
-    build:
-      context: .
-      dockerfile: infra/docker/Dockerfile.web
+    # Built from its own Dockerfile.web rather than the shared Dockerfile.node:
+    # a Next app needs a build step, and Dockerfile.node's runtime stage carries
+    # no pnpm to run `pnpm --filter @falorb/web start` with — so this service
+    # could never have started from the shared image.
+    image: ${FALORB_IMAGE_PREFIX:-ghcr.io/obhox/falorb}-web:${FALORB_IMAGE_TAG:-latest}
+    pull_policy: always
     restart: unless-stopped
+    # No `command:` — the image's own CMD runs `next start`. The override that
+    # used to be here exited immediately with "pnpm: not found".
     environment:
       SERVICE_FQDN_WEB_3000: /
       PORT: 3000
@@ -235,11 +242,8 @@ services:
     # Dockerfile.ingest has EXPOSE 3001, which is why ingest alone routed.
     expose:
       - "3002"
-    build:
-      context: .
-      dockerfile: infra/docker/Dockerfile.node
-      args:
-        APP: mcp
+    image: ${FALORB_IMAGE_PREFIX:-ghcr.io/obhox/falorb}-mcp:${FALORB_IMAGE_TAG:-latest}
+    pull_policy: always
     restart: unless-stopped
     command: ["sh", "-c", "tsx src/index.ts --http"]
     environment:

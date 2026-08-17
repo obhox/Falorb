@@ -390,3 +390,57 @@ export function personInterests(
 ): Promise<InterestRow[]> {
   return runQuery<InterestRow>(client, buildPersonInterests(options));
 }
+
+export interface PersonTotalsRow {
+  person_id: string;
+  sessions: number;
+  pageviews: number;
+  events: number;
+  revenue: number;
+}
+
+/**
+ * Lifetime totals for a set of people, straight from the event store.
+ *
+ * The profile totals in Postgres used to be accumulated — each sessionizer run
+ * added its batch to whatever was already there. That is only correct if every
+ * session is folded in exactly once, which nothing guaranteed: the run window
+ * deliberately overlaps so a session closing on the boundary is not missed, and
+ * a crash between the ClickHouse read and the Postgres write replays the batch.
+ * Both double-count, and an accumulator never recovers from either.
+ *
+ * Recomputing makes the totals a projection of the event store rather than a
+ * running tally. It costs one grouped scan per batch, it is idempotent, and it
+ * repairs any drift that has already occurred on the next run.
+ *
+ * Bots are excluded, matching every other metric in the product.
+ */
+export function buildPersonTotals(options: {
+  personIds: string[];
+  projectIds: number[];
+}): BuiltQuery {
+  return {
+    sql: `
+      SELECT
+          toString(person_id)                     AS person_id,
+          uniqCombined64(session_id)              AS sessions,
+          countIf(name = '$pageview')             AS pageviews,
+          count()                                 AS events,
+          round(sum(ifNull(toFloat64(revenue), 0)), 4) AS revenue
+      FROM ${EVENTS}
+      WHERE has({projectIds:Array(UInt32)}, project_id)
+        AND has({personIds:Array(UUID)}, person_id)
+        AND is_bot = 0
+      GROUP BY person_id
+    `,
+    params: { personIds: options.personIds, projectIds: options.projectIds },
+  };
+}
+
+export function personTotals(
+  client: ClickHouseClient,
+  options: { personIds: string[]; projectIds: number[] },
+): Promise<PersonTotalsRow[]> {
+  if (!options.personIds.length) return Promise.resolve([]);
+  return runQuery<PersonTotalsRow>(client, buildPersonTotals(options));
+}

@@ -1,5 +1,5 @@
 import { eq, sql } from "drizzle-orm";
-import { closedSessions } from "@falorb/queries";
+import { closedSessions, personTotals } from "@falorb/queries";
 import { SESSION_TIMEOUT_MS } from "@falorb/core";
 import { schema, type WorkerContext } from "../context";
 import { ensurePersons } from "./identity-resolver";
@@ -30,9 +30,20 @@ export async function sessionize(
   const idleSince = now - SESSION_TIMEOUT_MS;
   const lastRun = await watermarks.get(WATERMARK, 2 * 86_400_000);
 
-  // Look back a little further than the last run so a session that closed just
-  // inside the previous boundary is not skipped.
-  const notBefore = Math.min(lastRun - SESSION_TIMEOUT_MS, idleSince - 86_400_000);
+  /**
+   * Start just before the last run, but never reach back more than a day.
+   *
+   * `Math.max`, not `Math.min`. With `min` this took the *earlier* of the two
+   * bounds, which is always the 24-hour floor — so every run re-processed a
+   * full day of closed sessions. The profile totals below accumulate with `+`,
+   * so each five-minute pass re-added the same sessions: a person with one
+   * real session and three events was reported as 31 sessions and 93 events
+   * after a few hours, and every lead score saturated at 100.
+   *
+   * The overlap is deliberate and small — a session that closed just inside
+   * the previous boundary would otherwise be skipped entirely.
+   */
+  const notBefore = Math.max(lastRun - SESSION_TIMEOUT_MS, idleSince - 86_400_000);
 
   const sessions = await closedSessions(context.clickhouse, {
     projectIds: context.projectIds,
@@ -68,12 +79,31 @@ export async function sessionize(
     else byPerson.set(s.person_id, [s]);
   }
 
+  /**
+   * Lifetime totals, recomputed rather than accumulated.
+   *
+   * One grouped scan for the whole batch, so this is a single extra query per
+   * run regardless of how many people it touches.
+   */
+  const lifetime = new Map<string, { sessions: number; pageviews: number; events: number; revenue: number }>();
+  for (const row of await personTotals(context.clickhouse, {
+    personIds: [...byPerson.keys()],
+    projectIds: context.projectIds,
+  })) {
+    lifetime.set(row.person_id, {
+      sessions: Number(row.sessions),
+      pageviews: Number(row.pageviews),
+      events: Number(row.events),
+      revenue: Number(row.revenue),
+    });
+  }
+
   let updated = 0;
   for (const [personId, list] of byPerson) {
     const latest = list.reduce((a, b) => (a.ended_at > b.ended_at ? a : b));
     const earliest = list.reduce((a, b) => (a.started_at < b.started_at ? a : b));
 
-    const totals = list.reduce(
+    const batch = list.reduce(
       (acc, s) => {
         acc.sessions += 1;
         acc.pageviews += Number(s.pageviews);
@@ -83,6 +113,10 @@ export async function sessionize(
       },
       { sessions: 0, pageviews: 0, events: 0, revenue: 0 },
     );
+
+    // ClickHouse is the source of truth; the batch is the fallback for a
+    // person whose raw events have already aged out of retention.
+    const authoritative = lifetime.get(personId) ?? batch;
 
     try {
       const result = await context.db
@@ -105,11 +139,14 @@ export async function sessionize(
           lastDeviceType: latest.device_type,
           lastBrowser: latest.browser,
           lastOs: latest.os,
-          totalSessions: sql`${schema.persons.totalSessions} + ${totals.sessions}`,
-          totalEvents: sql`${schema.persons.totalEvents} + ${totals.events}`,
-          totalPageviews: sql`${schema.persons.totalPageviews} + ${totals.pageviews}`,
-          totalRevenue: sql`${schema.persons.totalRevenue} + ${totals.revenue}`,
-          leadScore: sql`${scoreExpr(totals)}`,
+          // Set, not add. `totals` (this batch) is used only where a lifetime
+          // figure is unavailable — a person whose events have aged past the
+          // retention window still has closed sessions to report.
+          totalSessions: authoritative.sessions,
+          totalEvents: authoritative.events,
+          totalPageviews: authoritative.pageviews,
+          totalRevenue: String(authoritative.revenue),
+          leadScore: score(authoritative),
           projectIds: sql`(SELECT array_agg(DISTINCT x) FROM unnest(${schema.persons.projectIds} || ARRAY[${latest.project_id}]::integer[]) AS x)`,
           updatedAt: new Date(),
         })
@@ -135,16 +172,20 @@ export async function sessionize(
  * "who is worth looking at", not to be a calibrated model. Revenue dominates,
  * then repeat visits, then depth.
  */
-function scoreExpr(totals: {
+function score(totals: {
   sessions: number;
   pageviews: number;
   events: number;
   revenue: number;
-}): ReturnType<typeof sql> {
-  const base =
+}): number {
+  // A pure function of lifetime totals. It used to add to the stored score on
+  // every run, so given enough runs every person reached 100 and the column
+  // stopped distinguishing anyone from anyone else.
+  return Math.min(
+    100,
     Math.min(40, totals.revenue > 0 ? 40 : 0) +
-    Math.min(25, totals.sessions * 5) +
-    Math.min(20, Math.floor(totals.pageviews * 1.5)) +
-    Math.min(15, Math.floor(totals.events / 2));
-  return sql`least(100, ${schema.persons.leadScore} + ${base})`;
+      Math.min(25, totals.sessions * 5) +
+      Math.min(20, Math.floor(totals.pageviews * 1.5)) +
+      Math.min(15, Math.floor(totals.events / 2)),
+  );
 }

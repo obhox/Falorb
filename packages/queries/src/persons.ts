@@ -420,23 +420,33 @@ export function buildPersonTotals(options: {
   projectIds: number[];
 }): BuiltQuery {
   return {
+    // Suffixed inner aliases, renamed outside — the same hazard sessions.ts
+    // documents. `toString(person_id) AS person_id` shadows the real column, so
+    // the WHERE clause resolves person_id to the String alias and comparing it
+    // against a UUID array fails with "no supertype for types UUID, String".
     sql: `
       SELECT
-          toString(person_id)                     AS person_id,
-          uniqCombined64(session_id)              AS sessions,
-          countIf(name = '$pageview')             AS pageviews,
-          count()                                 AS events,
-          round(sum(ifNull(toFloat64(revenue), 0)), 4) AS revenue
-      FROM ${EVENTS}
-      WHERE has({projectIds:Array(UInt32)}, project_id)
-        -- Mapped to UUID rather than declared Array(UUID): the ids arrive as
-        -- JS strings, and comparing a UUID column against a String array is a
-        -- type error ("no supertype for types UUID, String") rather than a
-        -- silent miss. Converting the parameter once keeps the comparison
-        -- UUID-to-UUID, so the column's index is still usable.
-        AND has(arrayMap(x -> toUUID(x), {personIds:Array(String)}), person_id)
-        AND is_bot = 0
-      GROUP BY person_id
+          person_id_a  AS person_id,
+          sessions_a   AS sessions,
+          pageviews_a  AS pageviews,
+          events_a     AS events,
+          revenue_a    AS revenue
+      FROM (
+          SELECT
+              toString(person_id)                          AS person_id_a,
+              uniqCombined64(session_id)                   AS sessions_a,
+              countIf(name = '$pageview')                  AS pageviews_a,
+              count()                                      AS events_a,
+              round(sum(ifNull(toFloat64(revenue), 0)), 4) AS revenue_a
+          FROM ${EVENTS}
+          WHERE has({projectIds:Array(UInt32)}, project_id)
+            -- Mapped through toUUID rather than declared Array(UUID): the ids
+            -- arrive as JS strings, and this keeps the comparison
+            -- UUID-to-UUID so the column's index stays usable.
+            AND has(arrayMap(x -> toUUID(x), {personIds:Array(String)}), person_id)
+            AND is_bot = 0
+          GROUP BY person_id
+      )
     `,
     params: { personIds: options.personIds, projectIds: options.projectIds },
   };

@@ -8,7 +8,7 @@ const project: CachedProject = {
   id: 1,
   organizationId: "org-1",
   publicKey: "prj_test",
-  domains: ["obhox.com", "linkbry.com"],
+  domains: ["acme.example", "beacon.example"],
   consentMode: "off",
   cookieless: false,
   identityScope: "org",
@@ -43,12 +43,12 @@ function batch(events: WireBatch["e"], extra: Partial<WireBatch> = {}): WireBatc
 describe("decodeBatch", () => {
   it("maps a pageview into canonical columns", () => {
     const [e] = decodeBatch(
-      batch([{ n: "$pageview", t: NOW - 1000, u: "https://obhox.com/Blog/Post/?a=1", ti: "Post" }]),
+      batch([{ n: "$pageview", t: NOW - 1000, u: "https://acme.example/Blog/Post/?a=1", ti: "Post" }]),
       ctx(),
     );
     expect(e!.name).toBe("$pageview");
     expect(e!.path).toBe("/blog/post");
-    expect(e!.host).toBe("obhox.com");
+    expect(e!.host).toBe("acme.example");
     expect(e!.browser).toBe("Chrome");
     expect(e!.deviceType).toBe("desktop");
     expect(e!.country).toBe("NG");
@@ -57,7 +57,7 @@ describe("decodeBatch", () => {
 
   it("classifies acquisition from the referrer", () => {
     const [e] = decodeBatch(
-      batch([{ n: "$pageview", t: NOW, u: "https://obhox.com/", r: "https://www.google.com/" }]),
+      batch([{ n: "$pageview", t: NOW, u: "https://acme.example/", r: "https://www.google.com/" }]),
       ctx(),
     );
     expect(e!.channel).toBe("organic_search");
@@ -66,7 +66,7 @@ describe("decodeBatch", () => {
 
   it("treats a sibling project domain as internal traffic", () => {
     const [e] = decodeBatch(
-      batch([{ n: "$pageview", t: NOW, u: "https://obhox.com/", r: "https://linkbry.com/" }]),
+      batch([{ n: "$pageview", t: NOW, u: "https://acme.example/", r: "https://beacon.example/" }]),
       ctx(),
     );
     expect(e!.channel).toBe("internal");
@@ -78,7 +78,7 @@ describe("decodeBatch", () => {
         {
           n: "checkout",
           t: NOW,
-          u: "https://obhox.com/buy",
+          u: "https://acme.example/buy",
           p: { plan: "pro", seats: 3, trial: true },
         },
       ]),
@@ -92,8 +92,8 @@ describe("decodeBatch", () => {
   it("gives every event in a batch the same person and session", () => {
     const events = decodeBatch(
       batch([
-        { n: "$pageview", t: NOW - 200, u: "https://obhox.com/" },
-        { n: "$pageview", t: NOW - 100, u: "https://obhox.com/pricing" },
+        { n: "$pageview", t: NOW - 200, u: "https://acme.example/" },
+        { n: "$pageview", t: NOW - 100, u: "https://acme.example/pricing" },
       ]),
       ctx(),
     );
@@ -103,7 +103,7 @@ describe("decodeBatch", () => {
 
   it("flags bot traffic so it can be excluded from visitor metrics", () => {
     const [e] = decodeBatch(
-      batch([{ n: "$pageview", t: NOW, u: "https://obhox.com/" }]),
+      batch([{ n: "$pageview", t: NOW, u: "https://acme.example/" }]),
       ctx({ userAgent: "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)" }),
     );
     expect(e!.isBot).toBe(true);
@@ -112,7 +112,7 @@ describe("decodeBatch", () => {
 
   it("carries the identified id on $identify for the resolver", () => {
     const [e] = decodeBatch(
-      batch([{ n: "$identify", t: NOW, u: "https://obhox.com/app" }], { i: "user_42" }),
+      batch([{ n: "$identify", t: NOW, u: "https://acme.example/app" }], { i: "user_42" }),
       ctx(),
     );
     expect(e!.propsStr.identified_id).toBe("user_42");
@@ -121,7 +121,7 @@ describe("decodeBatch", () => {
   });
 
   it("never carries a raw IP into the event", () => {
-    const [e] = decodeBatch(batch([{ n: "$pageview", t: NOW, u: "https://obhox.com/" }]), ctx());
+    const [e] = decodeBatch(batch([{ n: "$pageview", t: NOW, u: "https://acme.example/" }]), ctx());
     expect(JSON.stringify(e)).not.toContain("203.0.113.9");
     expect(e!.ipHash).toMatch(/^[0-9a-f]{32}$/);
   });
@@ -143,11 +143,11 @@ describe("clampTimestamp", () => {
 
 describe("originAllowed", () => {
   it("accepts a configured domain", () => {
-    expect(originAllowed(project, "https://obhox.com")).toBe(true);
+    expect(originAllowed(project, "https://acme.example")).toBe(true);
   });
 
   it("accepts a subdomain of a configured domain", () => {
-    expect(originAllowed(project, "https://app.obhox.com")).toBe(true);
+    expect(originAllowed(project, "https://app.acme.example")).toBe(true);
   });
 
   it("rejects an unrelated origin, so a leaked public key cannot poison data", () => {
@@ -177,7 +177,7 @@ describe("PII masking", () => {
     const e = masked({}, {
       n: "$pageview",
       t: NOW,
-      u: "https://obhox.com/welcome?email=ada@example.com&token=abc123&page=2",
+      u: "https://acme.example/welcome?email=ada@example.com&token=abc123&page=2",
     });
     expect(e.url).not.toContain("ada@example.com");
     expect(e.url).not.toContain("abc123");
@@ -189,7 +189,7 @@ describe("PII masking", () => {
     const e = masked({}, {
       n: "$pageview",
       t: NOW,
-      u: "https://obhox.com/?ref=ada@example.com",
+      u: "https://acme.example/?ref=ada@example.com",
     });
     expect(e.url).not.toContain("ada@example.com");
     expect(e.url).toContain("redacted");
@@ -199,7 +199,7 @@ describe("PII masking", () => {
     const e = masked({}, {
       n: "$pageview",
       t: NOW,
-      u: "https://obhox.com/order",
+      u: "https://acme.example/order",
       ti: "Order for ada@example.com",
     });
     expect(e.title).not.toContain("ada@example.com");
@@ -209,7 +209,7 @@ describe("PII masking", () => {
     const e = masked({}, {
       n: "$pageview",
       t: NOW,
-      u: "https://obhox.com/",
+      u: "https://acme.example/",
       r: "https://partner.example/landing?email=ada@example.com",
     });
     expect(e.referrer).not.toContain("ada@example.com");
@@ -219,7 +219,7 @@ describe("PII masking", () => {
     const e = masked({ masking: { redactProps: ["customer_email"] } }, {
       n: "signup",
       t: NOW,
-      u: "https://obhox.com/",
+      u: "https://acme.example/",
       p: { customer_email: "ada@example.com", plan: "pro" },
     });
     expect(e.propsStr.customer_email).toBe("[redacted]");
@@ -232,20 +232,20 @@ describe("PII masking", () => {
     const e = masked({ masking: { redactProps: ["customer_email"] } }, {
       n: "signup",
       t: NOW,
-      u: "https://obhox.com/",
+      u: "https://acme.example/",
       p: { customer_email: "ada@example.com" },
     });
     expect(e.propsRaw).not.toContain("ada@example.com");
   });
 
   it("normalises id path segments only when enabled", () => {
-    const off = masked({}, { n: "$pageview", t: NOW, u: "https://obhox.com/orders/8412" });
+    const off = masked({}, { n: "$pageview", t: NOW, u: "https://acme.example/orders/8412" });
     expect(off.path).toBe("/orders/8412");
 
     const on = masked({ masking: { normalizeIds: true } }, {
       n: "$pageview",
       t: NOW,
-      u: "https://obhox.com/orders/8412",
+      u: "https://acme.example/orders/8412",
     });
     expect(on.path).toBe("/orders/:id");
   });
@@ -254,7 +254,7 @@ describe("PII masking", () => {
     const e = masked({}, {
       n: "checkout",
       t: NOW,
-      u: "https://obhox.com/",
+      u: "https://acme.example/",
       p: { sku: "SKU-4821", card: "4111111111111111" },
     });
     // Short product codes must survive; a 16-digit number must not.

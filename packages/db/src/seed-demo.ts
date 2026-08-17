@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { createDatabase } from "./index";
 import { createClickHouse } from "./clickhouse/client";
 import { toEventRow } from "./clickhouse/rows";
@@ -34,8 +34,20 @@ loadRootEnv();
  *   SEED_DEMO_OWNER_EMAIL=you@example.com pnpm --filter @falorb/db seed:demo
  */
 
-const ORG_NAME = "Obhox";
-const ORG_SLUG = "obhox-demo";
+const ORG_NAME = "Acme";
+const ORG_SLUG = "acme-demo";
+
+/**
+ * A second workspace the same account belongs to.
+ *
+ * The workspace switcher renders as a plain label until an account is a member
+ * of two, so a one-workspace demo can never show the control at all — and
+ * multi-workspace membership is exactly what a studio running client work
+ * looks like. It is deliberately smaller than the main portfolio: a second
+ * workspace of equal size reads as a duplicate rather than as a second client.
+ */
+const CLIENT_ORG_NAME = "Kestrel Bioworks";
+const CLIENT_ORG_SLUG = "kestrel-demo";
 
 /** Days of history. Long enough for the 90d ranges to have shape. */
 const DAYS = 120;
@@ -107,6 +119,12 @@ interface ProjectSpec {
   name: string;
   slug: string;
   domains: string[];
+  /**
+   * Which workspace owns this property. People are never unified across
+   * workspaces — a person belongs to one organization — so this also bounds
+   * which projects a visitor can appear on.
+   */
+  org?: "primary" | "client";
   /** Relative traffic weight across the portfolio. */
   scale: number;
   journey: Stage[];
@@ -119,13 +137,13 @@ interface ProjectSpec {
 
 const PROJECTS: ProjectSpec[] = [
   {
-    name: "Linkbry",
-    slug: "linkbry",
-    domains: ["linkbry.com", "api.linkbry.com"],
+    name: "Beacon",
+    slug: "beacon",
+    domains: ["beacon.example", "api.beacon.example"],
     scale: 1,
     identifiedRate: 0.34,
     journey: [
-      { path: "/", keep: 1, title: "Linkbry — short links that report back" },
+      { path: "/", keep: 1, title: "Beacon — short links that report back" },
       { path: "/pricing", keep: 0.47, title: "Pricing" },
       { path: "/signup", keep: 0.23, title: "Create your workspace", event: "signup_started" },
       { path: "/onboarding", keep: 0.16, title: "Onboarding", event: "account_created" },
@@ -149,13 +167,13 @@ const PROJECTS: ProjectSpec[] = [
     topics: ["docs", "growth", "product", "pricing", "api"],
   },
   {
-    name: "Letternerd",
-    slug: "letternerd",
-    domains: ["letternerd.com"],
+    name: "Notewell",
+    slug: "notewell",
+    domains: ["notewell.example"],
     scale: 0.72,
     identifiedRate: 0.21,
     journey: [
-      { path: "/", keep: 1, title: "Letternerd" },
+      { path: "/", keep: 1, title: "Notewell" },
       { path: "/archive", keep: 0.58, title: "Archive" },
       { path: "/subscribe", keep: 0.26, title: "Subscribe", event: "subscribe_started" },
       {
@@ -175,13 +193,13 @@ const PROJECTS: ProjectSpec[] = [
     topics: ["writing", "design", "newsletter", "seo", "email"],
   },
   {
-    name: "Spendtab",
-    slug: "spendtab",
-    domains: ["spendtab.com", "dashboard.spendtab.com"],
+    name: "Ledgerly",
+    slug: "ledgerly",
+    domains: ["ledgerly.example", "dashboard.ledgerly.example"],
     scale: 0.55,
     identifiedRate: 0.41,
     journey: [
-      { path: "/", keep: 1, title: "Spendtab — spend, in one place" },
+      { path: "/", keep: 1, title: "Ledgerly — spend, in one place" },
       { path: "/features", keep: 0.51, title: "Features" },
       { path: "/pricing", keep: 0.33, title: "Pricing" },
       { path: "/signup", keep: 0.19, title: "Start a trial", event: "trial_started" },
@@ -203,13 +221,13 @@ const PROJECTS: ProjectSpec[] = [
     topics: ["finance", "security", "docs", "pricing", "product"],
   },
   {
-    name: "Bund AI",
-    slug: "bund",
-    domains: ["usebund.com", "app.usebund.com"],
+    name: "Fintra AI",
+    slug: "fintra",
+    domains: ["usefintra.example", "app.usefintra.example"],
     scale: 0.61,
     identifiedRate: 0.29,
     journey: [
-      { path: "/", keep: 1, title: "Bund AI" },
+      { path: "/", keep: 1, title: "Fintra AI" },
       { path: "/product", keep: 0.54, title: "Product" },
       { path: "/pricing", keep: 0.3, title: "Pricing" },
       { path: "/signup", keep: 0.17, title: "Sign up", event: "signup_started" },
@@ -232,13 +250,13 @@ const PROJECTS: ProjectSpec[] = [
     topics: ["docs", "ai", "engineering", "product", "pricing"],
   },
   {
-    name: "Obhox",
-    slug: "obhox",
-    domains: ["obhox.com"],
+    name: "Acme",
+    slug: "acme",
+    domains: ["acme.example"],
     scale: 0.33,
     identifiedRate: 0.12,
     journey: [
-      { path: "/", keep: 1, title: "Obhox — product engineering studio" },
+      { path: "/", keep: 1, title: "Acme — product engineering studio" },
       { path: "/work", keep: 0.55, title: "Work" },
       { path: "/contact", keep: 0.21, title: "Contact", event: "contact_started" },
       // No `revenue` here on purpose. A submitted enquiry is not money
@@ -249,12 +267,37 @@ const PROJECTS: ProjectSpec[] = [
       { path: "/contact/sent", keep: 0.11, title: "Message sent", event: "contact_submitted" },
     ],
     browse: [
-      { path: "/work/spendtab", title: "Case study — Spendtab", tag: "case-study" },
-      { path: "/work/linkbry", title: "Case study — Linkbry", tag: "case-study" },
+      { path: "/work/ledgerly", title: "Case study — Ledgerly", tag: "case-study" },
+      { path: "/work/beacon", title: "Case study — Beacon", tag: "case-study" },
       { path: "/about", title: "About", tag: "about" },
       { path: "/writing/shipping-small", title: "Shipping small", tag: "engineering" },
     ],
     topics: ["case-study", "engineering", "consulting", "design"],
+  },
+
+  // The client workspace. One property, its own audience, no overlap with the
+  // portfolio above — which is the point: switching workspaces changes the
+  // whole picture, it does not filter the current one.
+  {
+    name: "Kestrel Bioworks",
+    slug: "kestrel",
+    org: "client",
+    domains: ["kestrelbioworks.com"],
+    scale: 0.4,
+    identifiedRate: 0.24,
+    journey: [
+      { path: "/", keep: 1, title: "Kestrel Bioworks" },
+      { path: "/platform", keep: 0.49, title: "Platform" },
+      { path: "/request-access", keep: 0.22, title: "Request access", event: "access_requested" },
+      { path: "/request-access/sent", keep: 0.14, title: "Request received", event: "access_granted" },
+    ],
+    browse: [
+      { path: "/science", title: "The science", tag: "research" },
+      { path: "/publications", title: "Publications", tag: "research" },
+      { path: "/careers", title: "Careers", tag: "careers" },
+      { path: "/news/series-b", title: "Series B", tag: "company" },
+    ],
+    topics: ["research", "careers", "company", "platform"],
   },
 ];
 
@@ -674,17 +717,33 @@ function buildPeople(): PersonModel[] {
   // Cross-project people: the identity graph's whole reason for existing.
   // Only identified people cross, because only a shared identify() id is a
   // deterministic signal — anonymous visitors are never joined across domains.
+  //
+  // Crossing is bounded to the person's own workspace. A person row carries a
+  // single `organization_id`, so a visitor spanning two workspaces is not a
+  // richer demo, it is an unrepresentable state — and it would make the
+  // cross-product panel claim an identity link the product does not make.
   const identifiedPeople = people.filter((p) => p.identified);
   for (const person of identifiedPeople) {
     if (!chance(0.28)) continue;
+
+    const home = orgOf(PROJECTS[person.projectIndexes[0]!]!);
+    const siblings = PROJECTS.map((project, index) => ({ project, index }))
+      .filter(({ project }) => orgOf(project) === home)
+      .map(({ index }) => index);
+    if (siblings.length < 2) continue;
+
     const extra = chance(0.25) ? 2 : 1;
     for (let i = 0; i < extra; i++) {
-      const candidate = int(0, PROJECTS.length - 1);
+      const candidate = pick(siblings);
       if (!person.projectIndexes.includes(candidate)) person.projectIndexes.push(candidate);
     }
   }
 
   return people;
+}
+
+function orgOf(project: ProjectSpec): "primary" | "client" {
+  return project.org ?? "primary";
 }
 
 /** Generate every session and event for one person. */
@@ -1134,13 +1193,12 @@ async function main(): Promise<void> {
   console.log("building the demo dataset...");
 
   // -- Wipe any previous run -------------------------------------------------
-  const [previous] = await db
+  const previousOrgs = await db
     .select()
     .from(schema.organizations)
-    .where(eq(schema.organizations.slug, ORG_SLUG))
-    .limit(1);
+    .where(inArray(schema.organizations.slug, [ORG_SLUG, CLIENT_ORG_SLUG]));
 
-  if (previous) {
+  for (const previous of previousOrgs) {
     const oldProjects = await db
       .select({ id: schema.projects.id })
       .from(schema.projects)
@@ -1169,18 +1227,25 @@ async function main(): Promise<void> {
     console.log("  removed the previous demo workspace");
   }
 
-  // -- Organization and projects --------------------------------------------
+  // -- Organizations and projects -------------------------------------------
   const [org] = await db
     .insert(schema.organizations)
     .values({ name: ORG_NAME, slug: ORG_SLUG })
     .returning();
+
+  const [clientOrg] = await db
+    .insert(schema.organizations)
+    .values({ name: CLIENT_ORG_NAME, slug: CLIENT_ORG_SLUG })
+    .returning();
+
+  const orgIdFor = (spec: ProjectSpec) => (orgOf(spec) === "client" ? clientOrg!.id : org!.id);
 
   const projectRows = [];
   for (const spec of PROJECTS) {
     const [row] = await db
       .insert(schema.projects)
       .values({
-        organizationId: org!.id,
+        organizationId: orgIdFor(spec),
         name: spec.name,
         slug: spec.slug,
         domains: spec.domains,
@@ -1188,8 +1253,8 @@ async function main(): Promise<void> {
         secretKeyHash: sha256(`secret:${spec.slug}`),
         timezone: "UTC",
         identityScope: "org",
-        consentMode: spec.slug === "spendtab" ? "opt_in" : "off",
-        retentionDays: spec.slug === "obhox" ? 400 : 760,
+        consentMode: spec.slug === "ledgerly" ? "opt_in" : "off",
+        retentionDays: spec.slug === "acme" ? 400 : 760,
       })
       .returning();
     projectRows.push(row!);
@@ -1299,7 +1364,9 @@ async function main(): Promise<void> {
 
     return {
       id: person.id,
-      organizationId: org!.id,
+      // A person belongs to the workspace that owns the property they were
+      // first seen on; cross-project linking above never leaves it.
+      organizationId: orgIdFor(PROJECTS[person.projectIndexes[0]!]!),
       projectIds,
       identifiedId: person.identifiedId,
       email: person.email,
@@ -1358,7 +1425,7 @@ async function main(): Promise<void> {
   if (merged.length > 0) {
     await db.insert(schema.personMerges).values(
       merged.map((person) => ({
-        organizationId: org!.id,
+        organizationId: orgIdFor(PROJECTS[person.projectIndexes[0]!]!),
         survivorId: person.id,
         mergedId: uuidFrom(`merged:${person.id}`),
         reason: "identify" as const,
@@ -1386,7 +1453,7 @@ async function main(): Promise<void> {
 
   await seedAnalysis(db, org!.id, projectRows);
   await seedOps(db, org!.id, projectRows);
-  await attachOwner(db, org!.id, projectRows);
+  await attachOwner(db, org!.id, clientOrg!.id, projectRows);
 
   await ch.close();
   console.log("\ndone.\n");
@@ -1405,15 +1472,15 @@ async function seedAnalysis(
   projects: ProjectRow[],
 ): Promise<void> {
   const bySlug = new Map(projects.map((p) => [p.slug, p]));
-  const linkbry = bySlug.get("linkbry")!;
-  const spendtab = bySlug.get("spendtab")!;
-  const bund = bySlug.get("bund")!;
-  const letternerd = bySlug.get("letternerd")!;
-  const obhox = bySlug.get("obhox")!;
+  const beacon = bySlug.get("beacon")!;
+  const ledgerly = bySlug.get("ledgerly")!;
+  const fintra = bySlug.get("fintra")!;
+  const notewell = bySlug.get("notewell")!;
+  const acme = bySlug.get("acme")!;
 
   await db.insert(schema.funnels).values([
     {
-      projectId: linkbry.id,
+      projectId: beacon.id,
       name: "Visitor to paying workspace",
       description: "The full acquisition path, from landing to a workspace that has been paid for.",
       steps: [
@@ -1426,7 +1493,7 @@ async function seedAnalysis(
       windowHours: 168,
     },
     {
-      projectId: linkbry.id,
+      projectId: beacon.id,
       name: "Docs to signup",
       description: "Do the people who read the API reference ever sign up?",
       steps: [
@@ -1437,7 +1504,7 @@ async function seedAnalysis(
       windowHours: 336,
     },
     {
-      projectId: spendtab.id,
+      projectId: ledgerly.id,
       name: "Trial to subscription",
       description: "Where finance teams stall between starting a trial and connecting an account.",
       steps: [
@@ -1450,7 +1517,7 @@ async function seedAnalysis(
       windowHours: 336,
     },
     {
-      projectId: bund.id,
+      projectId: fintra.id,
       name: "Signup to first prompt",
       description: "Activation: an account is worth nothing until a prompt has run.",
       steps: [
@@ -1462,7 +1529,7 @@ async function seedAnalysis(
       windowHours: 168,
     },
     {
-      projectId: letternerd.id,
+      projectId: notewell.id,
       name: "Reader to subscriber",
       steps: [
         { label: "Read an issue", event: "$pageview", filters: [{ field: "path", op: "starts_with", value: "/issues" }] },
@@ -1474,17 +1541,17 @@ async function seedAnalysis(
   ]);
 
   await db.insert(schema.goals).values([
-    { projectId: linkbry.id, name: "Workspace created", kind: "event", matcher: "workspace_created", value: "49.0000", currency: "USD" },
-    { projectId: linkbry.id, name: "Signup started", kind: "event", matcher: "signup_started", currency: "USD" },
-    { projectId: linkbry.id, name: "Reached the dashboard", kind: "path", matcher: "/dashboard*", currency: "USD" },
-    { projectId: linkbry.id, name: "Newsletter referral", kind: "event", matcher: "referral_shared", currency: "USD", active: false },
-    { projectId: spendtab.id, name: "Subscription started", kind: "event", matcher: "subscription_started", value: "99.0000", currency: "USD" },
-    { projectId: spendtab.id, name: "Bank connected", kind: "event", matcher: "bank_connected", currency: "USD" },
-    { projectId: spendtab.id, name: "Trial started", kind: "event", matcher: "trial_started", value: "25.0000", currency: "USD" },
-    { projectId: bund.id, name: "Plan upgraded", kind: "event", matcher: "plan_upgraded", value: "99.0000", currency: "USD" },
-    { projectId: bund.id, name: "First prompt run", kind: "event", matcher: "first_prompt_run", currency: "USD" },
-    { projectId: letternerd.id, name: "Subscription confirmed", kind: "event", matcher: "subscription_confirmed", value: "4.0000", currency: "USD" },
-    { projectId: obhox.id, name: "Enquiry submitted", kind: "event", matcher: "contact_submitted", value: "4000.0000", currency: "USD" },
+    { projectId: beacon.id, name: "Workspace created", kind: "event", matcher: "workspace_created", value: "49.0000", currency: "USD" },
+    { projectId: beacon.id, name: "Signup started", kind: "event", matcher: "signup_started", currency: "USD" },
+    { projectId: beacon.id, name: "Reached the dashboard", kind: "path", matcher: "/dashboard*", currency: "USD" },
+    { projectId: beacon.id, name: "Newsletter referral", kind: "event", matcher: "referral_shared", currency: "USD", active: false },
+    { projectId: ledgerly.id, name: "Subscription started", kind: "event", matcher: "subscription_started", value: "99.0000", currency: "USD" },
+    { projectId: ledgerly.id, name: "Bank connected", kind: "event", matcher: "bank_connected", currency: "USD" },
+    { projectId: ledgerly.id, name: "Trial started", kind: "event", matcher: "trial_started", value: "25.0000", currency: "USD" },
+    { projectId: fintra.id, name: "Plan upgraded", kind: "event", matcher: "plan_upgraded", value: "99.0000", currency: "USD" },
+    { projectId: fintra.id, name: "First prompt run", kind: "event", matcher: "first_prompt_run", currency: "USD" },
+    { projectId: notewell.id, name: "Subscription confirmed", kind: "event", matcher: "subscription_confirmed", value: "4.0000", currency: "USD" },
+    { projectId: acme.id, name: "Enquiry submitted", kind: "event", matcher: "contact_submitted", value: "4000.0000", currency: "USD" },
   ]);
 
   await db.insert(schema.segments).values([
@@ -1499,7 +1566,7 @@ async function seedAnalysis(
     },
     {
       organizationId,
-      projectId: linkbry.id,
+      projectId: beacon.id,
       name: "Read the docs, never signed up",
       description: "High intent, no conversion — the cheapest audience there is.",
       definition: {
@@ -1522,7 +1589,7 @@ async function seedAnalysis(
     },
     {
       organizationId,
-      projectId: spendtab.id,
+      projectId: ledgerly.id,
       name: "Finance teams in the EU",
       description: "Named accounts in EU countries that reached pricing.",
       definition: {
@@ -1566,7 +1633,7 @@ async function seedAnalysis(
       },
       {
         organizationId,
-        projectId: linkbry.id,
+        projectId: beacon.id,
         name: "Signups by country",
         kind: "breakdown",
         query: { metric: "visitors", dimension: "country", range: "30d", event: "signup_started" },
@@ -1582,7 +1649,7 @@ async function seedAnalysis(
       },
       {
         organizationId,
-        projectId: spendtab.id,
+        projectId: ledgerly.id,
         name: "Weekly retention",
         kind: "retention",
         query: { period: "week", periods: 8, range: "90d" },
@@ -1598,7 +1665,7 @@ async function seedAnalysis(
    * with a null `projectId` — the portfolio view — has nothing to join to and
    * its token can never resolve. That is the intended boundary: a public link
    * exposes exactly one property, never the whole portfolio. The shared one is
-   * therefore scoped to Linkbry.
+   * therefore scoped to Beacon.
    */
   const [dashboard] = await db
     .insert(schema.dashboards)
@@ -1617,8 +1684,8 @@ async function seedAnalysis(
 
   await db.insert(schema.dashboards).values({
     organizationId,
-    projectId: linkbry.id,
-    name: "Linkbry — public summary",
+    projectId: beacon.id,
+    name: "Beacon — public summary",
     layout: {},
     publicToken: SHARE_TOKEN,
   });
@@ -1647,16 +1714,16 @@ async function seedOps(
 ): Promise<void> {
   const now = Date.now();
   const bySlug = new Map(projects.map((p) => [p.slug, p]));
-  const linkbry = bySlug.get("linkbry")!;
-  const spendtab = bySlug.get("spendtab")!;
-  const bund = bySlug.get("bund")!;
+  const beacon = bySlug.get("beacon")!;
+  const ledgerly = bySlug.get("ledgerly")!;
+  const fintra = bySlug.get("fintra")!;
 
   const channels = await db
     .insert(schema.alertChannels)
     .values([
       { organizationId, name: "#analytics", kind: "slack", config: { webhookUrl: "encrypted:slack", channel: "#analytics" } },
-      { organizationId, name: "Growth team", kind: "email", config: { recipients: ["growth@obhox.com", "joy@obhox.com"] } },
-      { organizationId, name: "On-call webhook", kind: "webhook", config: { url: "https://hooks.obhox.com/falorb" } },
+      { organizationId, name: "Growth team", kind: "email", config: { recipients: ["growth@acme.example", "owner@acme.example"] } },
+      { organizationId, name: "On-call webhook", kind: "webhook", config: { url: "https://hooks.acme.example/falorb" } },
     ])
     .returning();
 
@@ -1665,7 +1732,7 @@ async function seedOps(
     .values([
       {
         organizationId,
-        projectId: linkbry.id,
+        projectId: beacon.id,
         channelId: channels[0]!.id,
         name: "Signups fell against last week",
         kind: "anomaly",
@@ -1688,7 +1755,7 @@ async function seedOps(
       },
       {
         organizationId,
-        projectId: spendtab.id,
+        projectId: ledgerly.id,
         channelId: channels[2]!.id,
         name: "Errors spiking on connect",
         kind: "error_spike",
@@ -1700,7 +1767,7 @@ async function seedOps(
       },
       {
         organizationId,
-        projectId: bund.id,
+        projectId: fintra.id,
         channelId: channels[0]!.id,
         name: "No events received",
         kind: "no_data",
@@ -1711,7 +1778,7 @@ async function seedOps(
       },
       {
         organizationId,
-        projectId: spendtab.id,
+        projectId: ledgerly.id,
         channelId: channels[1]!.id,
         name: "Revenue below weekly target",
         kind: "threshold",
@@ -1730,7 +1797,7 @@ async function seedOps(
       status: "fired",
       observedValue: "412",
       expectedValue: "≥ 690",
-      message: "Sessions on Linkbry fell 40.3% against the same window last week.",
+      message: "Sessions on Beacon fell 40.3% against the same window last week.",
       deliveredAt: new Date(now - 2 * 86_400_000),
       createdAt: new Date(now - 2 * 86_400_000),
     },
@@ -1755,7 +1822,7 @@ async function seedOps(
     {
       alertId: alertRows[2]!.id,
       status: "error",
-      message: "Webhook delivery failed: 503 from hooks.obhox.com",
+      message: "Webhook delivery failed: 503 from hooks.acme.example",
       deliveryError: "503 Service Unavailable",
       createdAt: new Date(now - 8 * 3_600_000),
     },
@@ -1772,8 +1839,8 @@ async function seedOps(
   await db.insert(schema.webhooks).values([
     {
       organizationId,
-      projectId: linkbry.id,
-      url: "https://hooks.obhox.com/falorb/conversions",
+      projectId: beacon.id,
+      url: "https://hooks.acme.example/falorb/conversions",
       triggers: ["workspace_created", "plan_upgraded"],
       secret: randomBytes(24).toString("hex"),
       lastDeliveryAt: new Date(now - 41 * 60_000),
@@ -1781,7 +1848,7 @@ async function seedOps(
     {
       organizationId,
       projectId: null,
-      url: "https://api.obhox.com/internal/analytics-events",
+      url: "https://api.acme.example/internal/analytics-events",
       triggers: ["$revenue"],
       secret: randomBytes(24).toString("hex"),
       failureCount: 2,
@@ -1801,9 +1868,9 @@ async function seedOps(
     },
     {
       organizationId,
-      projectId: linkbry.id,
-      name: "Linkbry server SDK",
-      keyHash: sha256("demo-key-linkbry"),
+      projectId: beacon.id,
+      name: "Beacon server SDK",
+      keyHash: sha256("demo-key-beacon"),
       keyPrefix: "flb_sk_Qm71",
       scopes: ["write:events"],
       lastUsedAt: new Date(now - 9 * 60_000),
@@ -1830,6 +1897,7 @@ async function seedOps(
 async function attachOwner(
   db: ReturnType<typeof createDatabase>,
   organizationId: string,
+  clientOrganizationId: string,
   projects: ProjectRow[],
 ): Promise<void> {
   const email = process.env.SEED_DEMO_OWNER_EMAIL?.trim();
@@ -1837,10 +1905,10 @@ async function attachOwner(
   // Teammates. These are accounts, not visitors — the people who use the
   // dashboard, which is a different population from the people it reports on.
   const TEAM = [
-    { name: "Daniel Whitfield", email: "daniel@obhox.com", role: "admin" as const, joinedDaysAgo: 318 },
-    { name: "Amara Okafor", email: "amara@obhox.com", role: "member" as const, joinedDaysAgo: 204 },
-    { name: "Priya Iyer", email: "priya@obhox.com", role: "member" as const, joinedDaysAgo: 96 },
-    { name: "Jonas Bergmann", email: "jonas@obhox.com", role: "viewer" as const, joinedDaysAgo: 34 },
+    { name: "Daniel Whitfield", email: "daniel@acme.example", role: "admin" as const, joinedDaysAgo: 318 },
+    { name: "Amara Okafor", email: "amara@acme.example", role: "member" as const, joinedDaysAgo: 204 },
+    { name: "Priya Iyer", email: "priya@acme.example", role: "member" as const, joinedDaysAgo: 96 },
+    { name: "Jonas Bergmann", email: "jonas@acme.example", role: "viewer" as const, joinedDaysAgo: 34 },
   ];
 
   const memberIds: string[] = [];
@@ -1874,7 +1942,7 @@ async function attachOwner(
   await db.insert(schema.invitations).values([
     {
       organizationId,
-      email: "rebecca.holloway@obhox.com",
+      email: "rebecca.holloway@acme.example",
       role: "member",
       tokenHash: sha256(INVITE_TOKEN),
       invitedBy: memberIds[0] ?? null,
@@ -1882,7 +1950,7 @@ async function attachOwner(
     },
     {
       organizationId,
-      email: "samuel.osei@obhox.com",
+      email: "samuel.osei@acme.example",
       role: "viewer",
       tokenHash: sha256(randomBytes(16).toString("hex")),
       invitedBy: memberIds[0] ?? null,
@@ -1895,7 +1963,7 @@ async function attachOwner(
     { organizationId, actorId: memberIds[0] ?? null, action: "api_key.created", targetType: "api_key", targetId: "flb_rp_8Kd2", metadata: { scopes: ["read:events"] }, createdAt: new Date(Date.now() - 14 * 86_400_000) },
     { organizationId, actorId: memberIds[1] ?? null, action: "funnel.created", targetType: "funnel", targetId: "visitor-to-paying", metadata: { steps: 5 }, createdAt: new Date(Date.now() - 9 * 86_400_000) },
     { organizationId, actorId: memberIds[0] ?? null, action: "dashboard.shared", targetType: "dashboard", targetId: "portfolio-weekly", metadata: { public: true }, createdAt: new Date(Date.now() - 5 * 86_400_000) },
-    { organizationId, actorId: memberIds[0] ?? null, action: "member.invited", targetType: "invitation", targetId: "rebecca.holloway@obhox.com", metadata: { role: "member" }, createdAt: new Date(Date.now() - 2 * 86_400_000) },
+    { organizationId, actorId: memberIds[0] ?? null, action: "member.invited", targetType: "invitation", targetId: "rebecca.holloway@acme.example", metadata: { role: "member" }, createdAt: new Date(Date.now() - 2 * 86_400_000) },
     { organizationId, actorId: memberIds[2] ?? null, action: "api_key.revoked", targetType: "api_key", targetId: "flb_sk_Zx40", metadata: {}, createdAt: new Date(Date.now() - 21 * 86_400_000) },
   ]);
 
@@ -1929,7 +1997,25 @@ async function attachOwner(
     })
     .onConflictDoNothing();
 
-  console.log(`\n  ${email} owns the demo workspace.`);
+  /**
+   * The second membership, which is what makes the workspace switcher appear.
+   *
+   * Deliberately younger than the first and at a lower role. `ensureWorkspace`
+   * resolves the *oldest* membership as the default, so the account still
+   * lands on the main portfolio on sign-in — the switcher offers the client
+   * workspace rather than silently becoming it.
+   */
+  await db
+    .insert(schema.memberships)
+    .values({
+      organizationId: clientOrganizationId,
+      userId: user.id,
+      role: "admin",
+      createdAt: new Date(Date.now() - 96 * 86_400_000),
+    })
+    .onConflictDoNothing();
+
+  console.log(`\n  ${email} owns the demo workspace, and is an admin on ${CLIENT_ORG_NAME}.`);
   console.log(`  Shared dashboard:  /share/${SHARE_TOKEN}`);
   console.log(`  Pending invite:    /invite/${INVITE_TOKEN}`);
 }

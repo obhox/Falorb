@@ -27,7 +27,7 @@ import { createDatabase, schema } from "@falorb/db";
 const AUTH_STATE = resolve(import.meta.dirname, ".auth/state.json");
 
 /** The organization the dev seed creates. */
-const SEEDED_ORG_SLUG = "obhox";
+const SEEDED_ORG_SLUG = "acme";
 
 export interface E2EAccount {
   email: string;

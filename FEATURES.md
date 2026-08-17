@@ -101,7 +101,7 @@ Verified end to end: one person, two devices, two products, both stores agreeing
 | ✅ | Cross-project unification | Same `identify()` id across projects → one person |
 | ✅ | Merge audit + snapshot | `person_merges` allows a bad merge to be reversed |
 | ✅ | Alias → override consistency | Postgres and ClickHouse kept in agreement |
-| ✅ | **Cross-domain link stitching** | Token validated at ingest (where the freshness window is meaningful), then stitched by the resolver. Verified: an anonymous visitor clicking obhox→linkbry becomes one person across both |
+| ✅ | **Cross-domain link stitching** | Token validated at ingest (where the freshness window is meaningful), then stitched by the resolver. Verified: an anonymous visitor clicking acme→beacon becomes one person across both |
 | ✅ | Manual merge / unmerge API | `POST /api/people/merge` and `/unmerge/:id`; reversible from the audit snapshot. Absent from MCP by design |
 | ❌ | Cross-site tracking | **Out of scope permanently.** See [README](README.md#scope-boundary) |
 
@@ -407,7 +407,7 @@ Answers what ChatGPT, Claude, Perplexity and the rest do with a property.
 | 🟡 | Coolify deployment | Dockerfiles, production compose and [DEPLOY.md](infra/DEPLOY.md) built and verified locally; the Coolify MCP is read-only so the console steps are manual |
 | ✅ | Caddy config | `infra/Caddyfile` — `a.` / `dashboard.` / `mcp.` on separate hostnames |
 | ✅ | Backups | `infra/backup.sh` — incremental ClickHouse, verified gzip for Postgres |
-| ⬜ | Rollout to the 10 live sites | obhox, linkbry, letternerd, spendtab, usebund, patrio, wardrobe, falorb |
+| ⬜ | Rollout to the operator's own live sites | one deployment instrumenting every property in the portfolio |
 
 ---
 
@@ -484,4 +484,4 @@ and correctly have no UI.
 3. Audit log and consent log viewers — both are written today and readable only
    in Postgres, which is the wrong place to look during an incident.
 4. Webhook management, then the custom-view widget builder.
-5. Coolify deploy, then instrument obhox.com first.
+5. Coolify deploy, then instrument the primary site first.

@@ -4,7 +4,7 @@ import { parseUtm } from "./url";
 
 const noUtm = parseUtm(undefined);
 
-function classify(referrer: string | undefined, url?: string, selfHost = "obhox.com") {
+function classify(referrer: string | undefined, url?: string, selfHost = "acme.example") {
   return classifyReferrer({ referrer, utm: parseUtm(url), selfHost });
 }
 
@@ -49,15 +49,15 @@ describe("classifyReferrer", () => {
   });
 
   it("marks same-host navigation as internal", () => {
-    expect(classify("https://obhox.com/about").channel).toBe("internal");
+    expect(classify("https://acme.example/about").channel).toBe("internal");
   });
 
   it("marks a sibling project domain as internal", () => {
     const r = classifyReferrer({
-      referrer: "https://linkbry.com/",
+      referrer: "https://beacon.example/",
       utm: noUtm,
-      selfHost: "obhox.com",
-      ownHosts: ["linkbry.com", "letternerd.com"],
+      selfHost: "acme.example",
+      ownHosts: ["beacon.example", "notewell.example"],
     });
     expect(r.channel).toBe("internal");
   });
@@ -70,7 +70,7 @@ describe("classifyReferrer", () => {
     it("lets utm_medium=cpc override an organic referrer", () => {
       const r = classify(
         "https://www.google.com/",
-        "https://obhox.com/?utm_source=google&utm_medium=cpc",
+        "https://acme.example/?utm_source=google&utm_medium=cpc",
       );
       expect(r.channel).toBe("paid_search");
     });
@@ -78,20 +78,20 @@ describe("classifyReferrer", () => {
     it("routes paid traffic from a social source to paid_social", () => {
       const r = classify(
         undefined,
-        "https://obhox.com/?utm_source=facebook&utm_medium=cpc",
+        "https://acme.example/?utm_source=facebook&utm_medium=cpc",
       );
       expect(r.channel).toBe("paid_social");
       expect(r.source).toBe("Facebook");
     });
 
     it("classifies newsletter medium as email", () => {
-      const r = classify(undefined, "https://obhox.com/?utm_medium=newsletter&utm_source=beehiiv");
+      const r = classify(undefined, "https://acme.example/?utm_medium=newsletter&utm_source=beehiiv");
       expect(r.channel).toBe("email");
       expect(r.source).toBe("Beehiiv");
     });
 
     it("uses a bare utm_source when there is no referrer", () => {
-      const r = classify(undefined, "https://obhox.com/?utm_source=partnersite");
+      const r = classify(undefined, "https://acme.example/?utm_source=partnersite");
       expect(r.channel).toBe("referral");
       expect(r.source).toBe("Partnersite");
     });

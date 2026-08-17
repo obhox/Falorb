@@ -64,14 +64,14 @@ await call("describe_filters");
 
 console.log("\nanalytics");
 await call("get_overview", { range: "30d" });
-await call("get_stats", { project: "linkbry", range: "30d" });
-await call("get_trend", { project: "linkbry", range: "30d", metric: "visitors" });
+await call("get_stats", { project: "beacon", range: "30d" });
+await call("get_trend", { project: "beacon", range: "30d", metric: "visitors" });
 await call("get_trend", { range: "30d", metric: "visitors", breakdown: "channel" });
 await call("get_breakdown", { range: "30d", field: "path", limit: 5 });
 await call("get_breakdown", { range: "30d", field: "prop:content_tag", limit: 5 });
 await call("get_retention", { range: "60d", granularity: "week", periods: 4 });
 await call("get_stickiness", { range: "30d" });
-await call("get_dropoff", { project: "linkbry", range: "30d", min_pageviews: 1 });
+await call("get_dropoff", { project: "beacon", range: "30d", min_pageviews: 1 });
 await call("get_user_flows", { range: "30d", limit: 5 });
 
 console.log("\nfunnels");
@@ -80,8 +80,8 @@ const steps = [
   { label: "Pricing", event: "$pageview", filters: [{ field: "path", op: "eq", value: "/pricing" }] },
   { label: "Signup", event: "$pageview", filters: [{ field: "path", op: "eq", value: "/signup" }] },
 ];
-await call("run_funnel", { project: "linkbry", range: "30d", steps });
-await call("get_funnel_dropoffs", { project: "linkbry", range: "30d", steps, at_step: 2, limit: 5 });
+await call("run_funnel", { project: "beacon", range: "30d", steps });
+await call("get_funnel_dropoffs", { project: "beacon", range: "30d", steps, at_step: 2, limit: 5 });
 
 console.log("\npeople");
 await call("list_people", { range: "30d", limit: 5 });
@@ -94,7 +94,7 @@ await call("get_live_visitors", { window_minutes: 60 });
 await call("get_event_stream", { window_minutes: 1440, limit: 5 });
 await call("get_platform_health", { window_hours: 168 });
 await call("list_alerts");
-await call("get_install_snippet", { project: "obhox" });
+await call("get_install_snippet", { project: "acme" });
 
 console.log("\nnegative cases (these SHOULD be rejected)");
 async function expectError(name: string, args: Record<string, unknown>, why: string): Promise<void> {

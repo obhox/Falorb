@@ -57,7 +57,7 @@ interface ProjectSpec {
 const PROJECTS: ProjectSpec[] = [
   {
     id: 1,
-    host: "obhox.com",
+    host: "acme.example",
     funnel: [
       { path: "/", keep: 1 },
       { path: "/work", keep: 0.55 },
@@ -68,7 +68,7 @@ const PROJECTS: ProjectSpec[] = [
   },
   {
     id: 2,
-    host: "linkbry.com",
+    host: "beacon.example",
     funnel: [
       { path: "/", keep: 1 },
       { path: "/pricing", keep: 0.62 },
@@ -79,7 +79,7 @@ const PROJECTS: ProjectSpec[] = [
   },
   {
     id: 3,
-    host: "letternerd.com",
+    host: "notewell.example",
     funnel: [
       { path: "/", keep: 1 },
       { path: "/blog", keep: 0.7 },

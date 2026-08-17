@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Republish the images without pushing a commit — for rebuilding on a new
+  # base image, or recovering from a failed publish.
+  workflow_dispatch:
 
 concurrency:
   # A newer push supersedes an in-flight run on the same branch.
@@ -154,3 +157,107 @@ jobs:
 
       - name: MCP server answers a real client
         run: pnpm --filter @falorb/mcp smoke
+
+  # Images are built here rather than on the deployment server. Coolify used to
+  # build them itself from `build:` sections in the production compose file,
+  # which meant a production box compiling the whole workspace seven times on
+  # every deploy, and meant the artifact that shipped had never been through
+  # this pipeline. Now CI is the only thing that builds them, `needs` makes a
+  # red test suite unpublishable, and the deploy is a pull.
+  images:
+    name: Publish ${{ matrix.image }}
+    # Never from a pull request: a fork's PR must not be able to push an image
+    # that Coolify would then pull.
+    if: github.event_name != 'pull_request'
+    needs: [static, integration]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # The one permission that lets GITHUB_TOKEN push to GHCR. Without it the
+      # push fails on authentication even though the login succeeded.
+      packages: write
+    strategy:
+      # One broken image should not cancel the six that would have succeeded —
+      # a partial publish is easier to finish than to restart.
+      fail-fast: false
+      matrix:
+        include:
+          - image: falorb-ingest
+            dockerfile: infra/docker/Dockerfile.ingest
+          - image: falorb-clickhouse
+            dockerfile: infra/docker/Dockerfile.clickhouse
+          - image: falorb-web
+            dockerfile: infra/docker/Dockerfile.web
+          # The remaining four share Dockerfile.node and differ only in APP,
+          # which selects the workspace package `pnpm deploy` prunes to. Same
+          # file, four images — they cannot be one image with a runtime switch,
+          # because the pruning happens at build time.
+          - image: falorb-db
+            dockerfile: infra/docker/Dockerfile.node
+            app: db
+          - image: falorb-api
+            dockerfile: infra/docker/Dockerfile.node
+            app: api
+          - image: falorb-worker
+            dockerfile: infra/docker/Dockerfile.node
+            app: worker
+          - image: falorb-mcp
+            dockerfile: infra/docker/Dockerfile.node
+            app: mcp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          # Lowercased for us — GHCR rejects an uppercase path, and the
+          # repository is `obhox/Falorb`.
+          images: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+          tags: |
+            type=raw,value=latest
+            type=sha,format=long,prefix=
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          build-args: ${{ matrix.app && format('APP={0}', matrix.app) || '' }}
+          # amd64 only. The target server is x86, and cross-building seven
+          # images under QEMU costs more than the arm64 tags are worth.
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Scoped per image, or the seven parallel jobs overwrite each other's
+          # cache and every build starts from a cold pnpm install.
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+  # Coolify pulls; it no longer builds. This is what tells it there is
+  # something new to pull.
+  deploy:
+    name: Trigger Coolify deployment
+    if: github.event_name != 'pull_request'
+    needs: images
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call the Coolify deploy webhook
+        env:
+          WEBHOOK: ${{ secrets.COOLIFY_WEBHOOK_URL }}
+          TOKEN: ${{ secrets.COOLIFY_TOKEN }}
+        # Absent secrets are not a failure. A fork, or this repository before
+        # anyone has wired up a server, still publishes usable images — it just
+        # has nothing to redeploy.
+        run: |
+          if [ -z "$WEBHOOK" ]; then
+            echo "COOLIFY_WEBHOOK_URL is unset — images are published, nothing was redeployed."
+            exit 0
+          fi
+          curl -fsS -X GET "$WEBHOOK" -H "Authorization: Bearer $TOKEN"

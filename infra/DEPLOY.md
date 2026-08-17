@@ -2,10 +2,14 @@
 
 Target: `falorb.com` on the existing Coolify server (`YOUR_SERVER_IP`).
 
-Everything here has been built and run locally — the four images build, the
-migration container applies both schemas against empty databases, and the
-collector serves the tracker. What remains genuinely needs your Coolify
-console and your DNS registrar.
+**Coolify does not build anything.** GitHub Actions builds every image and
+pushes it to GHCR; Coolify pulls. The production compose file has no `build:`
+sections, so a deploy is a `docker compose pull` and a restart — roughly a
+minute, not the five to ten a from-source build took. It also means the
+container serving traffic is bit-for-bit the one CI tested, and that a
+rollback is a tag change rather than a rebuild.
+
+What remains genuinely needs your Coolify console and your DNS registrar.
 
 ---
 
@@ -37,23 +41,54 @@ dig +short a.falorb.com dashboard.falorb.com api.falorb.com mcp.falorb.com
 
 ---
 
-## 2. Create the Coolify resource
+## 2. Images
+
+Seven images, all built by `.github/workflows/ci.yml` and published to GHCR:
+
+| Image | Built from | Service |
+|---|---|---|
+| `ghcr.io/obhox/falorb-ingest` | `Dockerfile.ingest` | `ingest` |
+| `ghcr.io/obhox/falorb-clickhouse` | `Dockerfile.clickhouse` | `clickhouse` |
+| `ghcr.io/obhox/falorb-web` | `Dockerfile.web` | `web` |
+| `ghcr.io/obhox/falorb-db` | `Dockerfile.node` (`APP=db`) | `migrate` |
+| `ghcr.io/obhox/falorb-api` | `Dockerfile.node` (`APP=api`) | `api` |
+| `ghcr.io/obhox/falorb-worker` | `Dockerfile.node` (`APP=worker`) | `worker` |
+| `ghcr.io/obhox/falorb-mcp` | `Dockerfile.node` (`APP=mcp`) | `mcp` |
+
+Each is tagged `latest` and with the full commit SHA. The publish job `needs`
+both test jobs, so a red suite cannot produce a `latest` — the worst case is
+that `latest` is one commit stale, never that it is broken.
+
+**Make the packages public** the first time each one is published:
+GitHub → your profile → **Packages** → *package* → **Package settings** →
+**Change visibility → Public**. Otherwise every pull needs credentials.
+
+If you would rather keep them private, add a registry credential in Coolify
+(**Servers → *your server* → **Docker Registries**) using a GitHub personal
+access token with `read:packages`. Nothing in the compose file changes.
+
+---
+
+## 3. Create the Coolify resource
 
 1. **Projects → + New → Project**, name it `falorb`.
 2. Inside it: **+ New Resource → Docker Compose**.
 3. Source: **GitHub**, repository `<your-github-org>/falorb`, branch `main`.
+
+   Coolify still reads the repository, because the compose file lives there
+   and the `SERVICE_FQDN_*` magic variables are resolved from it. It no
+   longer builds from it.
 4. **Compose file path**: `infra/docker-compose.production.yml`
 
    Not `infra/docker-compose.yml`. That one is for local development and
    publishes Postgres, Redis and ClickHouse on host ports with the password
    `falorb`. Deploying it would put three unauthenticated databases on the
    public internet.
-5. **Base directory**: `/` (the build context is the repository root — the
-   Dockerfiles need the workspace manifests).
+5. **Base directory**: `/` — the compose file path above is relative to it.
 
 ---
 
-## 3. Environment variables
+## 4. Environment variables
 
 Coolify generates anything named `SERVICE_PASSWORD_*` or `SERVICE_BASE64_*`
 itself, and persists it across redeploys. You only set these:
@@ -65,12 +100,15 @@ itself, and persists it across redeploys. You only set these:
 | `EMAIL_FROM` | `Falorb <noreply@falorb.com>` |
 | `IPINFO_TOKEN` | *(optional)* enables B2B company identification |
 | `FALORB_RATE_LIMIT` | *(optional)* default `600` events/min per IP hash |
+| `FALORB_IMAGE_TAG` | *(optional)* default `latest`; a commit SHA pins the deploy |
+| `FALORB_IMAGE_PREFIX` | *(optional)* default `ghcr.io/obhox/falorb`; only for forks |
 
 Then set each service's domain under **Configuration → Domains**:
 
 | Service | Domain |
 |---|---|
 | `ingest` | `https://a.falorb.com` |
+| `web` | `https://dashboard.falorb.com` |
 | `api` | `https://api.falorb.com` |
 | `mcp` | `https://mcp.falorb.com` |
 
@@ -85,19 +123,34 @@ Verify the domain in Resend before relying on it.
 
 ---
 
-## 4. Deploy
+## 5. Deploy
 
-Hit **Deploy**. First build takes roughly 5–10 minutes — four images, and pnpm
-installs the whole workspace once per Dockerfile.
+Hit **Deploy**. It pulls seven images and starts them — around a minute,
+and no compilation on the server.
 
 Order is enforced by the compose file: databases become healthy, `migrate`
 runs to completion, then the apps start. If `migrate` fails, the apps do not
 start against a missing schema — that is intentional, so check its logs first
 when a deploy stalls.
 
+### Deploying automatically on every green build
+
+Optional, and the reason CI has a `deploy` job. Set two GitHub repository
+secrets (**Settings → Secrets and variables → Actions**):
+
+| Secret | Value |
+|---|---|
+| `COOLIFY_WEBHOOK_URL` | the resource's **Webhooks → Deploy** URL |
+| `COOLIFY_TOKEN` | a Coolify API token with deploy permission |
+
+With both set, a merge to `main` builds the images and then tells Coolify to
+pull them. With neither, CI still publishes and you press **Deploy** yourself;
+the job reports that it had nothing to call and passes. It is written that way
+so a fork's build does not fail on secrets it cannot have.
+
 ---
 
-## 5. Verify
+## 6. Verify
 
 ```bash
 curl https://a.falorb.com/health
@@ -111,13 +164,17 @@ curl https://api.falorb.com/health
 
 curl https://mcp.falorb.com/health
 # {"ok":true,"server":"falorb-analytics","version":"0.1.0"}
+
+curl -sI https://dashboard.falorb.com/sign-in | head -1
+# 200 — and the response carries X-Frame-Options, HSTS and the rest,
+# which is how you know it is the app answering and not the proxy.
 ```
 
-`"geo":false` is expected until step 7.
+`"geo":false` is expected until step 8.
 
 ---
 
-## 6. Create your account
+## 7. Create your account
 
 The first account to sign up gets its own workspace — there is no seeded
 admin.
@@ -138,7 +195,7 @@ curl -X POST https://api.falorb.com/api/projects \
 
 ---
 
-## 7. GeoIP (optional)
+## 8. GeoIP (optional)
 
 Country, region and city stay empty without it. Collection is unaffected.
 
@@ -154,7 +211,7 @@ MAXMIND_LICENSE_KEY=... MAXMIND_DB_DIR=/geoip node scripts/download-geoip.mjs
 
 ---
 
-## 8. Instrument the sites
+## 9. Instrument the sites
 
 ```html
 <script defer src="https://a.falorb.com/t.js" data-project="prj_..."></script>
@@ -178,7 +235,7 @@ To link anonymous click-throughs between your own domains, add:
 
 ---
 
-## 9. Backups
+## 10. Backups
 
 `infra/backup.sh` handles both stores. Add it as a Coolify **Scheduled Task**:
 
@@ -199,13 +256,17 @@ and the Postgres dump still runs.
 
 ## Notes
 
-**The dashboard is not in this compose file.** `apps/web` has no Dockerfile
-yet — it is being built in a separate session. Add a `web` service pointing at
-`dashboard.falorb.com` once it does.
-
 **Redeploys are safe.** Migrations are idempotent, and Coolify keeps the
 generated passwords, so the volumes stay readable.
 
-**Rolling back** means redeploying an older commit. Schema migrations do not
-roll back automatically — the ClickHouse ones are additive, but a Postgres
-migration would need reverting by hand.
+**Rolling back** is setting `FALORB_IMAGE_TAG` to an older commit SHA and
+redeploying. The image already exists, so it takes as long as a pull. Schema
+migrations do not roll back with it — the ClickHouse ones are additive, but a
+Postgres migration would need reverting by hand, and rolling the code back
+past one leaves the app running against a newer schema.
+
+**A hotfix still goes through CI.** There is no path that builds on the
+server any more, and that is the point — pushing a branch and merging is the
+only way to produce an image. To rebuild the current commit without changing
+it (a patched base image, say), run the CI workflow manually:
+**Actions → CI → Run workflow**.

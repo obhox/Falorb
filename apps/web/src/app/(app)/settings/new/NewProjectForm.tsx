@@ -26,10 +26,22 @@ export function NewProjectForm() {
     data.set("domains", domains);
 
     // On success the action redirects to the new property's settings, so the
-    // only thing that comes back here is a failure.
+    // only thing that comes back here is a failure. We can't hook a client-side
+    // success callback into a server-side redirect, so a marker is set here,
+    // right before the attempt, and consumed on mount by the destination page.
+    // If the action fails below, no redirect happens and the marker is cleared.
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem("falorb_pending_project_created", "1");
+    }
+
     startTransition(async () => {
       const result = await createProjectAction(data);
-      if (result && !result.ok) setError(result.message ?? "That property could not be created.");
+      if (result && !result.ok) {
+        setError(result.message ?? "That property could not be created.");
+        if (typeof window !== "undefined") {
+          sessionStorage.removeItem("falorb_pending_project_created");
+        }
+      }
     });
   }
 

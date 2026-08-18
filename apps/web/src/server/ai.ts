@@ -1,4 +1,5 @@
 import "server-only";
+import { stripMarkdown } from "@/lib/strip-markdown";
 
 /**
  * The platform's first LLM integration, via OpenRouter rather than a single
@@ -110,5 +111,5 @@ export async function generateSignal(kind: SignalKind, contextData: unknown): Pr
   if (!text) {
     throw new AiSignalError("OpenRouter returned an empty response.");
   }
-  return text;
+  return stripMarkdown(text);
 }

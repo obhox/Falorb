@@ -1,5 +1,5 @@
 import "server-only";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@falorb/db";
 import type { SignalKind } from "./ai";
 
@@ -14,14 +14,27 @@ import type { SignalKind } from "./ai";
 
 export type AiSignalRow = typeof schema.aiSignals.$inferSelect;
 
+/**
+ * `projectId: null` reads a portfolio-wide signal (currently only the "sales"
+ * kind's portfolio scope) — same nullable-scope shape as `dashboards`, and the
+ * same reason `eq()` can't be used for it: SQL's `= NULL` is never true, so
+ * the null case needs its own `isNull()` branch.
+ */
 export async function getLatestSignal(
-  projectId: number,
+  projectId: number | null,
   kind: SignalKind,
 ): Promise<AiSignalRow | null> {
   const [row] = await db()
     .select()
     .from(schema.aiSignals)
-    .where(and(eq(schema.aiSignals.projectId, projectId), eq(schema.aiSignals.kind, kind)))
+    .where(
+      and(
+        projectId == null
+          ? isNull(schema.aiSignals.projectId)
+          : eq(schema.aiSignals.projectId, projectId),
+        eq(schema.aiSignals.kind, kind),
+      ),
+    )
     .orderBy(desc(schema.aiSignals.generatedAt))
     .limit(1);
 

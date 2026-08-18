@@ -43,6 +43,13 @@
       "when": 1787089715560,
       "tag": "0005_silly_rogue",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1787091103060,
+      "tag": "0006_lonely_sentinel",
+      "breakpoints": true
     }
   ]
 }

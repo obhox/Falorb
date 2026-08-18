@@ -15,6 +15,17 @@ import "server-only";
 
 export type SignalKind = "content" | "sales" | "marketing" | "product";
 
+/**
+ * Appended to every prompt below. Without it, models routinely reach for
+ * markdown (headers, `**bold**`, bullet dashes) since that's the dominant
+ * style in their training data for "advice" text — but the panel renders
+ * `body` as plain text, so unrendered markdown syntax shows up as literal
+ * asterisks and hashes on screen rather than formatting.
+ */
+const PLAIN_TEXT_INSTRUCTION =
+  " Write in plain prose only — no markdown, no headers, no numbered or " +
+  "bulleted lists, no bold or italic asterisks. Just sentences.";
+
 const SYSTEM_PROMPTS: Record<SignalKind, string> = {
   content:
     "You are a growth advisor for someone who personally operates several " +
@@ -24,19 +35,23 @@ const SYSTEM_PROMPTS: Record<SignalKind, string> = {
     "what content to prioritize next, and mention anything currently working " +
     "well that is worth reinforcing. Do not restate the numbers back as " +
     "prose; the reader already sees the numbers next to your answer. Say " +
-    "what to do and why, citing specific pages or topics from the data.",
+    "what to do and why, citing specific pages or topics from the data." +
+    PLAIN_TEXT_INSTRUCTION,
   sales:
     "You are a sales advisor helping someone prioritize outreach across " +
     "their own businesses. Given cross-property visitor and lead activity, " +
-    "recommend who to contact next and why, in three to five sentences.",
+    "recommend who to contact next and why, in three to five sentences." +
+    PLAIN_TEXT_INSTRUCTION,
   marketing:
     "You are a marketing advisor. Given channel and campaign performance " +
     "data, recommend what to double down on or cut, in three to five " +
-    "sentences.",
+    "sentences." +
+    PLAIN_TEXT_INSTRUCTION,
   product:
     "You are a product advisor. Given audience interest data set against " +
     "what the property currently offers, identify the most notable gap " +
-    "between what people want and what exists, in three to five sentences.",
+    "between what people want and what exists, in three to five sentences." +
+    PLAIN_TEXT_INSTRUCTION,
 };
 
 export class AiSignalError extends Error {}

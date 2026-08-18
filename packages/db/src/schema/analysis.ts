@@ -187,9 +187,16 @@ export const aiSignals = pgTable(
   "ai_signals",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    projectId: integer("project_id")
+    organizationId: uuid("organization_id")
       .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    /**
+     * Null for a signal that spans the whole portfolio rather than one
+     * property — same reasoning as `dashboards.projectId` above. A sales
+     * signal scoped to "across your portfolio" has no single project to
+     * belong to; `organizationId` is what scopes it instead.
+     */
+    projectId: integer("project_id").references(() => projects.id, { onDelete: "cascade" }),
     /** "content" | "sales" | "marketing" | "product" */
     kind: text("kind").notNull(),
     body: text("body").notNull(),
@@ -197,7 +204,10 @@ export const aiSignals = pgTable(
     basedOnRange: jsonb("based_on_range").notNull().default({}),
     generatedAt: timestamp("generated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("ai_signals_project_kind_idx").on(t.projectId, t.kind)],
+  (t) => [
+    index("ai_signals_project_kind_idx").on(t.projectId, t.kind),
+    index("ai_signals_org_kind_idx").on(t.organizationId, t.kind),
+  ],
 );
 
 export const dashboardWidgets = pgTable(

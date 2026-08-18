@@ -10,6 +10,20 @@
         "dev"
       ],
       "port": 3000
+    },
+    {
+      "name": "falorb-web-responsive-check",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "@falorb/web",
+        "exec",
+        "next",
+        "dev",
+        "--port",
+        "3010"
+      ],
+      "port": 3010
     }
   ]
 }

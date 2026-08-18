@@ -172,6 +172,7 @@ export default async function GoalsPage({
             }
           />
         ) : (
+          <div className="falorb-scroll-x">
           <div style={{ display: "grid", gap: 1 }}>
             <div style={head}>
               <span>Channel</span>
@@ -201,6 +202,7 @@ export default async function GoalsPage({
                 <span style={{ ...figure, color: "var(--text-muted)" }}>{pct(row.share)}</span>
               </div>
             ))}
+          </div>
           </div>
         )}
       </Card>

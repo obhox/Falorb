@@ -111,6 +111,7 @@ export function KeysPanel({
             }
           />
         ) : (
+          <div className="falorb-scroll-x">
           <div style={{ display: "grid", gap: 1 }}>
             <div style={head}>
               <span>Name</span>
@@ -192,6 +193,7 @@ export function KeysPanel({
                 </div>
               );
             })}
+          </div>
           </div>
         )}
 

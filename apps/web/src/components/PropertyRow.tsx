@@ -36,6 +36,7 @@ export function PropertyRow({
       href={href}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
+      className="falorb-row-collapse property-row-grid"
       style={{
         display: "grid",
         gridTemplateColumns: "1.5fr 120px 1fr 96px 88px 24px",

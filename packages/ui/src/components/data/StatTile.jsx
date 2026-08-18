@@ -18,7 +18,7 @@ export function StatTile({ label, value, unit, delta, invertDelta = false, serie
         ...style
       }}
     >
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
         <span
           style={{
             fontSize: "var(--size-micro)", textTransform: "uppercase",

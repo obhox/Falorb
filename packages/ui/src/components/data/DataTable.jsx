@@ -10,6 +10,7 @@ export function DataTable({ columns = [], rows = [], dense = false, onRowClick, 
   const h = dense ? "var(--row-height-dense)" : "var(--row-height)";
   const grid = columns.map((c) => c.width || "1fr").join(" ");
   return (
+    <div className="falorb-scroll-x">
     <div style={{ display: "grid", ...style }}>
       <div
         style={{
@@ -73,6 +74,7 @@ export function DataTable({ columns = [], rows = [], dense = false, onRowClick, 
           </div>
         );
       })}
+    </div>
     </div>
   );
 }

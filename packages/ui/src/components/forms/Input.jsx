@@ -21,7 +21,7 @@ export function Input({
   const [focus, setFocus] = React.useState(false);
   const h = size === "sm" ? 28 : size === "lg" ? 42 : 34;
   return (
-    <label style={{ display: "grid", gap: 6, ...style }}>
+    <label style={{ display: "grid", gap: 6, minWidth: 0, ...style }}>
       {label && (
         <span style={{ fontSize: "var(--size-label)", color: "var(--text-secondary)", fontWeight: "var(--wt-medium)" }}>
           {label}
@@ -33,6 +33,7 @@ export function Input({
           alignItems: "center",
           gap: 7,
           height: h,
+          minWidth: 0,
           padding: "0 10px",
           borderRadius: "var(--radius-control)",
           background: "var(--surface-inset)",

@@ -3,6 +3,7 @@ export function Table({ head, rows }: { head: string[]; rows: string[][] }) {
   const grid = `minmax(0, 1.7fr) repeat(${head.length - 1}, 92px)`;
 
   return (
+    <div className="falorb-scroll-x">
     <div style={{ display: "grid", gap: 1 }}>
       <div
         style={{
@@ -58,6 +59,7 @@ export function Table({ head, rows }: { head: string[]; rows: string[][] }) {
           ))}
         </div>
       ))}
+    </div>
     </div>
   );
 }

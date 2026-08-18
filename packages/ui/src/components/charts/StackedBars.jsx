@@ -12,8 +12,8 @@ export function StackedBars({ data = [], series = [], height = 200, showAxis = t
   const max = Math.max(...totals, 1);
   const active = hover ?? selected;
   return (
-    <div style={{ display: "flex", flexDirection: "column", flex: 1, ...style }}>
-      <div style={{ position: "relative", flex: 1, minHeight: height, display: "flex", alignItems: "flex-end", gap: 5 }}>
+    <div style={{ display: "flex", flexDirection: "column", flex: 1, minWidth: 0, ...style }}>
+      <div style={{ position: "relative", flex: 1, minWidth: 0, minHeight: height, display: "flex", alignItems: "flex-end", gap: 5 }}>
         {showAxis && [0, 0.25, 0.5, 0.75, 1].map((t) => (
           <span key={t} style={{ position: "absolute", left: 0, right: 0, bottom: `${t * 100}%`, height: 1, background: "var(--grid-line)" }} />
         ))}
@@ -26,7 +26,7 @@ export function StackedBars({ data = [], series = [], height = 200, showAxis = t
               onMouseLeave={() => setHover(null)}
               onClick={() => onSelect && onSelect(d.label)}
               style={{
-                position: "relative", flex: 1, height: `${(totals[i] / max) * 100}%`,
+                position: "relative", flex: 1, minWidth: 0, height: `${(totals[i] / max) * 100}%`,
                 display: "flex", flexDirection: "column-reverse",
                 borderRadius: "var(--radius-2)", overflow: "hidden",
                 cursor: onSelect ? "pointer" : "default",
@@ -48,13 +48,15 @@ export function StackedBars({ data = [], series = [], height = 200, showAxis = t
           );
         })}
       </div>
-      <div style={{ display: "flex", gap: 5, marginTop: 7 }}>
+      <div style={{ display: "flex", gap: 5, marginTop: 7, minWidth: 0 }}>
         {data.map((d) => (
           <span
             key={d.label}
+            title={d.label}
             style={{
-              flex: 1, textAlign: "center", fontFamily: "var(--font-mono)", fontSize: "var(--size-micro)",
-              color: active === d.label ? "var(--text-primary)" : "var(--text-muted)"
+              flex: 1, minWidth: 0, textAlign: "center", fontFamily: "var(--font-mono)", fontSize: "var(--size-micro)",
+              color: active === d.label ? "var(--text-primary)" : "var(--text-muted)",
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap"
             }}
           >
             {d.label}

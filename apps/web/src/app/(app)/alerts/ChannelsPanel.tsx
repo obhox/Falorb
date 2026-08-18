@@ -95,6 +95,7 @@ export function ChannelsPanel({
             }
           />
         ) : (
+          <div className="falorb-scroll-x">
           <div style={{ display: "grid", gap: 8 }}>
             {channels.map((channel) => (
               <div
@@ -164,6 +165,7 @@ export function ChannelsPanel({
                 )}
               </div>
             ))}
+          </div>
           </div>
         )}
 

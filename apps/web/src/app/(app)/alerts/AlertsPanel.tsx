@@ -132,6 +132,7 @@ export function AlertsPanel({
             }
           />
         ) : (
+          <div className="falorb-scroll-x">
           <div style={{ display: "grid", gap: 8 }}>
             {alerts.map((alert) => (
               <div
@@ -220,6 +221,7 @@ export function AlertsPanel({
                 />
               </div>
             ))}
+          </div>
           </div>
         )}
       </Card>

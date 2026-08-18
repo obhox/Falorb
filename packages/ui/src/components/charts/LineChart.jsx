@@ -101,13 +101,15 @@ export function LineChart({
         </div>
       </div>
       {labels.length > 0 && (
-        <div style={{ display: "flex", marginTop: 7, paddingLeft: 34 }}>
+        <div style={{ display: "flex", marginTop: 7, paddingLeft: 34, minWidth: 0 }}>
           {labels.map((l, i) => (
             <span
               key={i}
+              title={l}
               style={{
-                flex: 1, textAlign: "center", fontFamily: "var(--font-mono)", fontSize: "var(--size-micro)",
-                color: idx === i ? "var(--text-primary)" : "var(--text-muted)"
+                flex: 1, minWidth: 0, textAlign: "center", fontFamily: "var(--font-mono)", fontSize: "var(--size-micro)",
+                color: idx === i ? "var(--text-primary)" : "var(--text-muted)",
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap"
               }}
             >
               {l}

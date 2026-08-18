@@ -6,14 +6,22 @@ import React from "react";
 export function FunnelChart({ steps = [], height, style }) {
   const first = steps[0]?.value || 1;
   return (
-    <div style={{ display: "grid", gap: 6, flex: 1, alignContent: "start", minHeight: height, ...style }}>
+    <div style={{ display: "grid", gap: 6, flex: 1, minWidth: 0, alignContent: "start", minHeight: height, ...style }}>
       {steps.map((s, i) => {
         const pct = (s.value / first) * 100;
         const drop = i ? ((steps[i - 1].value - s.value) / steps[i - 1].value) * 100 : 0;
         return (
           <div key={s.label} style={{ display: "grid", gap: 4 }}>
             <div style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-              <span style={{ flex: 1, fontSize: "var(--size-body-sm)", color: "var(--text-body)" }}>{s.label}</span>
+              <span
+                title={s.label}
+                style={{
+                  flex: 1, minWidth: 0, fontSize: "var(--size-body-sm)", color: "var(--text-body)",
+                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap"
+                }}
+              >
+                {s.label}
+              </span>
               {i > 0 && (
                 <span style={{ fontFamily: "var(--font-mono)", fontSize: "var(--size-micro)", color: "var(--signal-down)" }}>
                   −{drop.toFixed(1)}%

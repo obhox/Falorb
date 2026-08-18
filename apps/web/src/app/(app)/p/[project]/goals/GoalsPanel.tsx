@@ -101,6 +101,7 @@ export function GoalsPanel({ slug, goals }: { slug: string; goals: GoalView[] })
             }
           />
         ) : (
+          <div className="falorb-scroll-x">
           <div style={{ display: "grid", gap: 1 }}>
             <div style={{ ...headerRow }}>
               <span>Goal</span>
@@ -168,6 +169,7 @@ export function GoalsPanel({ slug, goals }: { slug: string; goals: GoalView[] })
                 />
               </div>
             ))}
+          </div>
           </div>
         )}
       </Card>

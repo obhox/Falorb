@@ -25,7 +25,7 @@ export function ChartFrame({ title, subtitle, actions, legend, height, tone = "c
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8, flex: "0 0 auto" }}>{actions}</div>
         </header>
       )}
-      <div style={{ flex: 1, minHeight: height, display: "flex", flexDirection: "column" }}>{children}</div>
+      <div style={{ flex: 1, minWidth: 0, minHeight: height, display: "flex", flexDirection: "column" }}>{children}</div>
       {legend && <div style={{ marginTop: 10 }}>{legend}</div>}
     </section>
   );

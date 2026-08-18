@@ -1,12 +1,10 @@
 import { requireSession } from "@/server/session";
 import { liveCounts } from "@/server/analytics";
-import { NavRail, type NavSection } from "@/components/shell/NavRail";
-import { AccountFooter } from "@/components/shell/AccountFooter";
-import { Wordmark } from "@/components/shell/Wordmark";
-import { WorkspaceSwitcher } from "@/components/shell/WorkspaceSwitcher";
+import { type NavSection } from "@/components/shell/NavRail";
+import { ShellNav } from "@/components/shell/ShellNav";
+import { MobileNav } from "@/components/shell/MobileNav";
 import { num } from "@/lib/format";
 import { getTheme } from "@/server/theme";
-import { ThemeToggle } from "@/components/ThemeToggle";
 import { ToastProvider } from "@/components/Toast";
 
 /**
@@ -18,6 +16,13 @@ import { ToastProvider } from "@/components/Toast";
  * and answers the question people actually open the dashboard for. It is
  * deliberately *not* a 30-day visitor total: that would be a full scan on every
  * page load to render a number nobody navigates by.
+ *
+ * Below 1024px the rail gives way to `MobileNav`'s hamburger + drawer.
+ * `ShellNav` holds the actual rail contents so both renderings — the fixed
+ * desktop `<aside>` and the drawer — share identical, once-rendered markup;
+ * CSS alone decides which one is visible at a given width (see
+ * `.falorb-shell-aside` in responsive.css), so there is no client-side
+ * duplication or hydration mismatch.
  */
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await requireSession();
@@ -65,9 +70,26 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     },
   ];
 
+  const accountMeta = `self-hosted · ${session.projects.length} ${
+    session.projects.length === 1 ? "property" : "properties"
+  }`;
+
   return (
     <ToastProvider>
+    <MobileNav>
+      <ShellNav
+        sections={sections}
+        theme={theme}
+        currentWorkspace={session.workspace.organizationId}
+        workspaces={session.workspaces}
+        accountName={session.user.name}
+        accountEmail={session.user.email}
+        accountOrganization={session.workspace.organizationName}
+        accountMeta={accountMeta}
+      />
+    </MobileNav>
     <div
+      className="falorb-shell-row"
       style={{
         height: "100%",
         display: "flex",
@@ -78,6 +100,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       }}
     >
       <aside
+        className="falorb-shell-aside"
         style={{
           flex: "0 0 224px",
           display: "flex",
@@ -89,32 +112,20 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           boxShadow: "var(--shadow-2)",
         }}
       >
-        <Wordmark />
-        <WorkspaceSwitcher
-          current={session.workspace.organizationId}
+        <ShellNav
+          sections={sections}
+          theme={theme}
+          currentWorkspace={session.workspace.organizationId}
           workspaces={session.workspaces}
-        />
-        <NavRail sections={sections} />
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "center",
-            padding: "0 0 10px",
-          }}
-        >
-          <ThemeToggle current={theme} />
-        </div>
-        <AccountFooter
-          name={session.user.name}
-          email={session.user.email}
-          organization={session.workspace.organizationName}
-          meta={`self-hosted · ${session.projects.length} ${
-            session.projects.length === 1 ? "property" : "properties"
-          }`}
+          accountName={session.user.name}
+          accountEmail={session.user.email}
+          accountOrganization={session.workspace.organizationName}
+          accountMeta={accountMeta}
         />
       </aside>
 
       <main
+        className="falorb-main"
         style={{
           flex: 1,
           minWidth: 0,

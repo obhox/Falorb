@@ -1,0 +1,245 @@
+/* Every @media rule in the app lives here. Inline `style={{...}}` stays the
+ * desktop baseline (>=1024px, today's design, untouched); a `className`
+ * alongside it opts a component into the overrides below. Breakpoints are
+ * literal px — see tokens/breakpoints.css for the documented reference.
+ *
+ * desktop >= 1024px | tablet 768-1023px | mobile <= 767px
+ */
+
+/* ---------------------------------------------------------------------- */
+/* Shell navigation                                                       */
+/* ---------------------------------------------------------------------- */
+
+/* Desktop rail: hidden below 1024px, replaced by the mobile drawer. */
+@media (max-width: 1023px) {
+  .falorb-shell-aside {
+    display: none !important;
+  }
+
+  .falorb-shell-row {
+    padding-top: 0 !important;
+  }
+
+  .falorb-main {
+    margin-top: 48px;
+  }
+}
+
+/* Mobile nav (hamburger + drawer): irrelevant on desktop, never shown. */
+.falorb-mobile-nav-bar {
+  display: none;
+}
+
+@media (max-width: 1023px) {
+  .falorb-mobile-nav-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    position: fixed;
+    top: var(--shell-pad);
+    left: var(--shell-pad);
+    right: var(--shell-pad);
+    height: 44px;
+    padding: 0 12px;
+    z-index: 40;
+    background: var(--surface-panel);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-2);
+  }
+}
+
+.falorb-mobile-nav-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(5, 6, 7, 0.62);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  animation: falorb-mobile-scrim-in var(--dur-2) var(--ease-out);
+}
+
+@keyframes falorb-mobile-scrim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.falorb-mobile-nav-drawer {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 51;
+  width: min(84vw, 300px);
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+  background: var(--surface-panel);
+  border-right: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-4);
+  animation: falorb-mobile-drawer-in var(--dur-3) var(--ease-emphasis);
+}
+
+@keyframes falorb-mobile-drawer-in {
+  from {
+    transform: translateX(-12px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .falorb-mobile-nav-scrim,
+  .falorb-mobile-nav-drawer {
+    animation: none;
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+/* Scroll model — below 768px the fixed-viewport / internal-scroll shell   */
+/* becomes normal document flow. Nested fixed-height scroll regions are   */
+/* fragile on mobile browsers (URL bar show/hide, on-screen keyboard).    */
+/* ---------------------------------------------------------------------- */
+@media (max-width: 767px) {
+  /* !important because @import must precede globals.css's own rules, so
+     source order alone can't be relied on to win this override. */
+  html,
+  body {
+    height: auto !important;
+    min-height: 100%;
+    overflow: auto !important;
+  }
+
+  body > div:first-of-type,
+  #__next {
+    height: auto !important;
+    min-height: 100%;
+  }
+
+  .falorb-shell-row {
+    height: auto !important;
+    min-height: 100%;
+    flex-direction: column;
+  }
+
+  .falorb-main {
+    overflow: visible !important;
+    height: auto !important;
+  }
+
+  .falorb-scroll {
+    overflow-y: visible !important;
+    height: auto !important;
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+/* Tables — wrap in a scroll wrapper instead of squeezing columns to      */
+/* unreadable widths. `min-width: max-content` on the direct child stops  */
+/* `minmax(0, 1fr)` tracks from collapsing, so the wrapper actually       */
+/* scrolls rather than silently cramming everything into place.          */
+/* ---------------------------------------------------------------------- */
+@media (max-width: 1023px) {
+  .falorb-scroll-x {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .falorb-scroll-x > * {
+    min-width: max-content;
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+/* Property tab strip — scroll instead of clipping past the panel edge.   */
+/* ---------------------------------------------------------------------- */
+@media (max-width: 1023px) {
+  .falorb-tabs-scroll {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .falorb-tabs-scroll::-webkit-scrollbar {
+    display: none;
+  }
+
+  .falorb-tabs-scroll > a {
+    flex: 0 0 auto;
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+/* Page header — actions wrap instead of clipping; fixed height relaxes   */
+/* to a minimum so a second line of controls has room.                   */
+/* ---------------------------------------------------------------------- */
+@media (max-width: 767px) {
+  .falorb-page-header {
+    height: auto !important;
+    min-height: 52px;
+    flex-wrap: wrap;
+    padding-top: 10px !important;
+    padding-bottom: 10px !important;
+  }
+
+  .falorb-page-header-actions {
+    margin-left: 0 !important;
+    flex-wrap: wrap;
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+/* Stat strips — StatStrip and every ad hoc `repeat(N, 1fr)` stat grid.   */
+/* ---------------------------------------------------------------------- */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .falorb-grid-stats {
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)) !important;
+  }
+}
+
+@media (max-width: 767px) {
+  .falorb-grid-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+/* Two-pane panels — side-by-side content stacks below tablet.            */
+/* ---------------------------------------------------------------------- */
+@media (max-width: 1023px) {
+  .falorb-grid-2pane {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}
+
+/* ---------------------------------------------------------------------- */
+/* Card-style rows with mixed content (icon, sparkline, delta, chevron) — */
+/* stack top to bottom instead of trying to hold N fixed columns.         */
+/* ---------------------------------------------------------------------- */
+@media (max-width: 767px) {
+  .falorb-row-collapse {
+    grid-template-columns: 1fr !important;
+    justify-items: start !important;
+    gap: 4px !important;
+  }
+
+  .falorb-row-collapse > * {
+    text-align: left !important;
+    justify-content: flex-start !important;
+    justify-self: start !important;
+  }
+
+  /* The sparkline canvas is decorative and redundant with the visitors
+     figure right above it once the row is a single stacked column. */
+  .property-row-grid > svg,
+  .property-row-grid > canvas {
+    display: none;
+  }
+}

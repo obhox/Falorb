@@ -1,4 +1,10 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { isNotNull } from "drizzle-orm";
+import { db, schema } from "@falorb/db";
+
+// Needs real Postgres access (the `postgres` driver uses raw TCP sockets),
+// which the default Edge runtime cannot provide — see `isConfiguredLinkDomain`.
+export const runtime = "nodejs";
 
 /**
  * Content Security Policy, per request, with a fresh nonce.
@@ -49,7 +55,53 @@ function buildCsp(nonce: string): string {
   ].join("; ");
 }
 
-export function middleware(request: NextRequest) {
+/**
+ * Which hosts are configured as a project's branded referral-link domain.
+ *
+ * A plain `Set` of hostnames is enough — the middleware only needs to decide
+ * *whether* a Host is a link domain at all, not which project it belongs to.
+ * `/r/[code]`'s own lookup resolves the code to a project independently of
+ * which domain the visitor arrived on, since a referral code is already
+ * globally unique.
+ *
+ * Cached in-memory rather than queried per request: this runs in front of
+ * every page view, and the set of configured link domains (bounded by the
+ * number of properties, not by traffic) changes rarely enough that a
+ * short-lived cache costs nothing real in staleness.
+ */
+let linkDomainCache: { fetchedAt: number; domains: Set<string> } | null = null;
+const LINK_DOMAIN_CACHE_TTL_MS = 30_000;
+
+async function isConfiguredLinkDomain(host: string): Promise<boolean> {
+  const now = Date.now();
+  if (!linkDomainCache || now - linkDomainCache.fetchedAt > LINK_DOMAIN_CACHE_TTL_MS) {
+    const rows = await db()
+      .select({ linkDomain: schema.projects.linkDomain })
+      .from(schema.projects)
+      .where(isNotNull(schema.projects.linkDomain));
+    linkDomainCache = {
+      fetchedAt: now,
+      domains: new Set(rows.map((row) => row.linkDomain!.toLowerCase())),
+    };
+  }
+  return linkDomainCache.domains.has(host.toLowerCase());
+}
+
+export async function middleware(request: NextRequest) {
+  const host = request.headers.get("host")?.split(":")[0] ?? "";
+
+  // A branded link domain's whole purpose is `<domain>/<code>` reading as a
+  // short link, so a non-root path on a configured host is treated as a
+  // referral code and rewritten to the real route — the visitor's URL bar
+  // keeps showing their own domain throughout. The bare root path (no code)
+  // falls through to the ordinary app, which is an acceptable edge case:
+  // nobody is expected to visit the bare go-domain with nothing appended.
+  if (host && request.nextUrl.pathname !== "/" && (await isConfiguredLinkDomain(host))) {
+    const url = request.nextUrl.clone();
+    url.pathname = `/r${request.nextUrl.pathname}`;
+    return NextResponse.rewrite(url);
+  }
+
   const nonce = crypto.randomUUID().replace(/-/g, "");
   const csp = buildCsp(nonce);
 

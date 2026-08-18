@@ -3,8 +3,10 @@ import Link from "next/link";
 import { Badge, Button, Card, Icon } from "@falorb/ui";
 import { can, ROLE_LABELS, type MemberRole } from "@falorb/db";
 import { requireSession } from "@/server/session";
+import { getDomainStatuses } from "@/server/connection";
 import { PageBody, PageHeader } from "@/components/shell/PageHeader";
 import { CopyField } from "@/components/CopyField";
+import { DomainTestChips } from "@/components/DomainTest";
 import { Empty } from "@/components/Empty";
 import { num, shortDate } from "@/lib/format";
 
@@ -20,6 +22,12 @@ export const dynamic = "force-dynamic";
 export default async function InstanceSettingsPage() {
   const session = await requireSession();
   const now = Date.now();
+
+  // One query for every property's domains, so the list can say which of them
+  // are reporting — and offer a test for each — without a round-trip per row.
+  const domainStatuses = await getDomainStatuses(
+    session.projects.map((p) => ({ id: p.id, domains: p.domains })),
+  );
 
   const ingest = process.env.FALORB_INGEST_URL ?? "http://localhost:3001";
   const app = process.env.FALORB_APP_URL ?? "http://localhost:3000";
@@ -54,7 +62,14 @@ export default async function InstanceSettingsPage() {
       />
 
       <PageBody>
-        <Card title="Properties" subtitle={`${session.projects.length} tracked`}>
+        <Card
+          title="Properties"
+          subtitle={
+            session.projects.length === 0
+              ? "0 tracked"
+              : `${session.projects.length} tracked · press a domain to test its connection`
+          }
+        >
           {session.projects.length === 0 ? (
             <Empty
               dense
@@ -78,12 +93,23 @@ export default async function InstanceSettingsPage() {
               </div>
 
               {session.projects.map((project) => (
-                <Link
-                  key={project.id}
-                  href={`/p/${project.slug}/settings`}
-                  data-plain
-                  style={{ ...body, textDecoration: "none" }}
-                >
+                <div key={project.id} style={{ ...body, position: "relative" }}>
+                  {/* The row is still a link — opening three properties in
+                      three tabs is what someone with ten sites does — but the
+                      link is now an overlay rather than the row's container.
+                      A <button> inside an <a> is invalid HTML, and the domain
+                      tests below are buttons. */}
+                  <Link
+                    href={`/p/${project.slug}/settings`}
+                    data-plain
+                    aria-label={`${project.name} settings`}
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      zIndex: 1,
+                      textDecoration: "none",
+                    }}
+                  />
                   <span style={{ display: "grid", gap: 2, minWidth: 0 }}>
                     <span
                       style={{
@@ -107,17 +133,13 @@ export default async function InstanceSettingsPage() {
                     </span>
                   </span>
 
-                  <span
-                    style={{
-                      fontFamily: "var(--font-mono)",
-                      fontSize: "var(--size-micro)",
-                      color: "var(--text-secondary)",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {project.domains.join(", ") || "none set — events are rejected"}
+                  {/* Above the overlay link, because these are buttons and a
+                      test is not a navigation. */}
+                  <span style={{ position: "relative", zIndex: 2, minWidth: 0 }}>
+                    <DomainTestChips
+                      slug={project.slug}
+                      domains={domainStatuses.get(project.id) ?? []}
+                    />
                   </span>
 
                   <span style={figure}>{num(project.retentionDays)}d</span>
@@ -129,7 +151,7 @@ export default async function InstanceSettingsPage() {
                     {project.cookieless === 1 && <Badge tone="accent">cookieless</Badge>}
                     {project.identityScope === "org" && <Badge tone="neutral">portfolio</Badge>}
                   </span>
-                </Link>
+                </div>
               ))}
             </div>
           )}

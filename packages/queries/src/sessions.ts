@@ -207,6 +207,7 @@ export function buildClosedSessions(options: {
           source_a        AS source,
           referrer_host_a AS referrer_host,
           utm_campaign_a  AS utm_campaign,
+          ref_code_a      AS ref_code,
           country_a       AS country,
           region_a        AS region,
           city_a          AS city,
@@ -233,6 +234,10 @@ export function buildClosedSessions(options: {
               argMin(source, timestamp)                          AS source_a,
               argMin(referrer_host, timestamp)                   AS referrer_host_a,
               argMin(utm_campaign, timestamp)                    AS utm_campaign_a,
+              -- Not a materialized column like the acquisition fields above —
+              -- ref_code rides in the free-form props map, the same way the
+              -- interest-graph queries read content_tag.
+              argMin(props_str['ref_code'], timestamp)           AS ref_code_a,
               argMax(country, timestamp)                         AS country_a,
               argMax(region, timestamp)                          AS region_a,
               argMax(city, timestamp)                            AS city_a,
@@ -275,6 +280,7 @@ export interface ClosedSessionRow {
   source: string;
   referrer_host: string;
   utm_campaign: string;
+  ref_code: string;
   country: string;
   region: string;
   city: string;

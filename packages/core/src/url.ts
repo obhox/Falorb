@@ -113,6 +113,25 @@ export function parseUtm(raw: string | undefined): Utm {
 }
 
 /**
+ * The referral-program code from a landing URL, if any.
+ *
+ * Deliberately its own function rather than an alias inside `parseUtm`:
+ * `parseUtm` already treats a bare `ref` param as a `utm_source` alias for
+ * Plausible-style setups (see the `get("utm_source", "ref", "source")` call
+ * above), so reusing that name here would silently muddy existing UTM
+ * attribution with referral-link codes. `ref_code` is the distinct param the
+ * `/r/<code>` redirect route appends.
+ */
+export function parseRefCode(raw: string | undefined): string {
+  if (!raw) return "";
+  try {
+    return (new URL(raw).searchParams.get("ref_code") ?? "").slice(0, 255).toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+/**
  * Detect a likely file download from a URL. Used by the tracker to classify
  * clicks and by ingest to sanity-check the tracker's classification.
  */

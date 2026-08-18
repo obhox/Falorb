@@ -98,6 +98,35 @@ export const goals = pgTable(
   (t) => [index("goals_project_idx").on(t.projectId)],
 );
 
+/**
+ * A shareable acquisition link. `code` is the public slug in `/r/<code>` —
+ * deliberately not a secret (unlike `dashboards.publicToken`): it is meant to
+ * be printed on a business card or read out on a podcast, so it is
+ * owner-chosen rather than random, and there is nothing to protect by hashing
+ * it. Revocation is soft (`revokedAt` set, row kept) so a link's historical
+ * performance survives it being taken out of circulation.
+ */
+export const referralLinks = pgTable(
+  "referral_links",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: integer("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    code: text("code").notNull(),
+    label: text("label").notNull(),
+    /** Null resolves to the project's primary domain at redirect time. */
+    destinationUrl: text("destination_url"),
+    createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("referral_links_code_uq").on(t.code),
+    index("referral_links_project_idx").on(t.projectId),
+  ],
+);
+
 export const dashboards = pgTable(
   "dashboards",
   {
@@ -146,6 +175,29 @@ export const insights = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("insights_org_idx").on(t.organizationId)],
+);
+
+/**
+ * A generated AI recommendation, cached rather than produced on every page
+ * load — the underlying data (page performance, interest graph, and eventually
+ * lead/channel data) only meaningfully changes over hours, not per request.
+ * Regenerated on demand via a server action, not on a schedule.
+ */
+export const aiSignals = pgTable(
+  "ai_signals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: integer("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    /** "content" | "sales" | "marketing" | "product" */
+    kind: text("kind").notNull(),
+    body: text("body").notNull(),
+    /** The date range (and any other inputs) this recommendation was generated from. */
+    basedOnRange: jsonb("based_on_range").notNull().default({}),
+    generatedAt: timestamp("generated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("ai_signals_project_kind_idx").on(t.projectId, t.kind)],
 );
 
 export const dashboardWidgets = pgTable(

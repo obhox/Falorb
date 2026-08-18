@@ -131,6 +131,7 @@ export async function sessionize(
           firstReferrerHost: sql`coalesce(${schema.persons.firstReferrerHost}, ${earliest.referrer_host})`,
           firstUtmCampaign: sql`coalesce(${schema.persons.firstUtmCampaign}, ${earliest.utm_campaign})`,
           firstLandingPath: sql`coalesce(${schema.persons.firstLandingPath}, ${earliest.entry_path})`,
+          firstReferralCode: sql`coalesce(${schema.persons.firstReferralCode}, ${earliest.ref_code})`,
           lastChannel: latest.channel,
           lastSource: latest.source,
           lastCountry: latest.country,

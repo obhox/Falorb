@@ -133,7 +133,7 @@ export function LiveView({ slug }: { slug: string }) {
           label="On site now"
           value={tick ? num(tick.visitors) : "—"}
           size="lg"
-          footnote={<ConnectionState status={status} at={tick?.at} />}
+          footnote={<ConnectionState status={status} />}
         />
         <StatTile
           label="Pages being viewed"
@@ -291,16 +291,10 @@ export function LiveView({ slug }: { slug: string }) {
   );
 }
 
-function ConnectionState({ status, at }: { status: Status; at?: number }) {
+function ConnectionState({ status }: { status: Status }) {
   const tone = status === "live" ? "up" : status === "reconnecting" ? "warn" : "neutral";
   const label =
-    status === "live"
-      ? at
-        ? `live · ${clockTime(new Date(at))}`
-        : "live"
-      : status === "reconnecting"
-        ? "reconnecting"
-        : "connecting";
+    status === "live" ? "live" : status === "reconnecting" ? "reconnecting" : "connecting";
 
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>

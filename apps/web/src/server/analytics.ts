@@ -22,6 +22,7 @@ export type {
   AttributionModel,
   AttributionRow,
   BreakdownRow,
+  ContentInterestRow,
   DateRange,
   Filter,
   FunnelOptions,
@@ -32,6 +33,7 @@ export type {
   Interval,
   Metric,
   QueryScope,
+  ReferralClickRow,
   RetentionRow,
   SessionRow,
   TotalsRow,
@@ -77,6 +79,10 @@ export const exitPages = (o: q.QueryScope & { limit?: number; minPageviews?: num
   q.exitPages(ch(), o);
 export const entryPages = (o: q.QueryScope & { limit?: number }) => q.entryPages(ch(), o);
 export const frustration = (o: q.QueryScope & { limit?: number }) => q.frustration(ch(), o);
+export const contentInterests = (o: q.QueryScope & { limit?: number }) =>
+  q.contentInterests(ch(), o);
+export const referralClicks = (o: q.QueryScope & { limit?: number }) =>
+  q.referralClicks(ch(), o);
 
 // ---- People ----------------------------------------------------------------
 
@@ -123,6 +129,9 @@ export const liveFeed = (o: {
 
 export const installStatus = (o: { projectIds: number[]; now?: number }) =>
   q.installStatus(ch(), o);
+
+export const hostStatus = (o: { projectIds: number[]; now?: number; limit?: number }) =>
+  q.hostStatus(ch(), o);
 
 export const portfolioOverview = (o: { projectIds: number[]; range: q.DateRange }) =>
   q.portfolioOverview(ch(), o);

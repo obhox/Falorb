@@ -262,3 +262,63 @@ export function installStatus(
 ): Promise<InstallStatusRow[]> {
   return runQuery<InstallStatusRow>(client, buildInstallStatus(options));
 }
+
+export interface HostStatusRow {
+  project_id: number;
+  host: string;
+  last_event: string;
+  events_24h: number;
+  events_total: number;
+}
+
+/**
+ * The same install question, per host.
+ *
+ * A property is not one site. `evyos.com` and `app.evyos.com` are separate
+ * deployments with separate templates, and a configured apex authorises every
+ * subdomain under it — so the marketing site can be reporting happily while
+ * the app it funnels into has no snippet at all. Rolled up to the property,
+ * that reads as "connected", which is the wrong answer for half the traffic.
+ *
+ * Grouped by the host the event was collected on rather than by the configured
+ * domain, because that is the fact the events carry; matching one to the other
+ * is the caller's job and follows the collector's own rule.
+ *
+ * Bots are included here for the reason they are in `buildInstallStatus`: a
+ * crawler proves the snippet is on the page, which is all this asks.
+ */
+export function buildHostStatus(options: {
+  projectIds: number[];
+  now?: number;
+  limit?: number;
+}): BuiltQuery {
+  const now = options.now ?? Date.now();
+
+  return {
+    sql: `
+      SELECT
+          project_id,
+          host,
+          toString(max(timestamp))                              AS last_event,
+          countIf(timestamp >= {since:DateTime64(3)})           AS events_24h,
+          count()                                               AS events_total
+      FROM ${EVENTS}
+      WHERE has({projectIds:Array(UInt32)}, project_id) AND host != ''
+      GROUP BY project_id, host
+      ORDER BY events_total DESC
+      LIMIT {limit:UInt16}
+    `,
+    params: {
+      projectIds: options.projectIds,
+      since: chDateTime(now - 86_400_000),
+      limit: options.limit ?? 500,
+    },
+  };
+}
+
+export function hostStatus(
+  client: ClickHouseClient,
+  options: { projectIds: number[]; now?: number; limit?: number },
+): Promise<HostStatusRow[]> {
+  return runQuery<HostStatusRow>(client, buildHostStatus(options));
+}

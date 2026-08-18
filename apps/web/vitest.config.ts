@@ -14,10 +14,11 @@ import { defineConfig } from "vitest/config";
  *   pnpm test   unit tests, no services required, runs in CI on every push
  *   pnpm e2e    Playwright against a real server and two live databases
  *
- * There are no unit tests here yet — every screen is server-rendered against
- * ClickHouse and Postgres, so the assertions worth writing need a browser.
- * `--passWithNoTests` covers that; this config means the day someone adds a
- * `src/**\/*.test.ts`, it is picked up and the e2e suite still is not.
+ * Most screens here are server-rendered against ClickHouse and Postgres, so
+ * the assertions worth writing need a browser and live in `e2e/`. What belongs
+ * in this suite is the pure logic those screens depend on — `lib/` — where a
+ * wrong answer is silent rather than a failed render. `--passWithNoTests`
+ * remains so a package with only e2e coverage does not fail the run.
  */
 export default defineConfig({
   test: {

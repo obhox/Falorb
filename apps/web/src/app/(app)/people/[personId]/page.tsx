@@ -116,6 +116,7 @@ export default async function PersonPage({
         />
 
         <div
+          className="falorb-grid-2pane"
           style={{
             display: "grid",
             gridTemplateColumns: "minmax(0, 1.9fr) minmax(260px, 1fr)",
@@ -173,6 +174,7 @@ export default async function PersonPage({
                   body="Their events have aged out of the retention window, or they were only ever seen on a property this workspace no longer tracks."
                 />
               ) : (
+                <div className="falorb-scroll-x">
                 <div style={{ display: "grid", gap: 8 }}>
                   {usage.map((row) => {
                     const project = projectsById.get(row.project_id);
@@ -232,6 +234,7 @@ export default async function PersonPage({
                     );
                   })}
                 </div>
+                </div>
               )}
             </Card>
 
@@ -247,6 +250,7 @@ export default async function PersonPage({
                   body="Every session started without a referrer or campaign — typical of direct traffic and bookmarked visits."
                 />
               ) : (
+                <div className="falorb-scroll-x">
                 <div style={{ display: "grid", gap: 1 }}>
                   {acquisition.map((touch) => (
                     <div
@@ -298,6 +302,7 @@ export default async function PersonPage({
                       </span>
                     </div>
                   ))}
+                </div>
                 </div>
               )}
             </Card>

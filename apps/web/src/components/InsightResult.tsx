@@ -62,6 +62,7 @@ export function InsightResult({
 
   return (
     <ChartFrame title={title} subtitle={subtitle}>
+      <div className="falorb-scroll-x">
       <div style={{ display: "grid", gap: 1 }}>
         <div style={head}>
           <span>{title}</span>
@@ -90,6 +91,7 @@ export function InsightResult({
             </div>
           );
         })}
+      </div>
       </div>
     </ChartFrame>
   );

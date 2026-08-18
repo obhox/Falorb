@@ -114,6 +114,7 @@ export function TeamPanel({
           ) : undefined
         }
       >
+        <div className="falorb-scroll-x">
         <div style={{ display: "grid", gap: 1 }}>
           <div style={{ ...head, gridTemplateColumns: columns(canManage) }}>
             <span>Person</span>
@@ -212,6 +213,7 @@ export function TeamPanel({
             );
           })}
         </div>
+        </div>
       </Card>
 
       <Card
@@ -230,6 +232,7 @@ export function TeamPanel({
             }
           />
         ) : (
+          <div className="falorb-scroll-x">
           <div style={{ display: "grid", gap: 1 }}>
             <div style={{ ...head, gridTemplateColumns: columns(canManage) }}>
               <span>Email</span>
@@ -288,6 +291,7 @@ export function TeamPanel({
                 )}
               </div>
             ))}
+          </div>
           </div>
         )}
       </Card>

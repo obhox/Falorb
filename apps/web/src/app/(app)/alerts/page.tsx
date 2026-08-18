@@ -111,6 +111,7 @@ export default async function AlertsPage() {
               body="Either no rule has breached, or no rule is active yet."
             />
           ) : (
+            <div className="falorb-scroll-x">
             <div style={{ display: "grid", gap: 1 }}>
               {history.map(({ alert, event }) => (
                 <div
@@ -171,6 +172,7 @@ export default async function AlertsPage() {
                   </span>
                 </div>
               ))}
+            </div>
             </div>
           )}
         </Card>

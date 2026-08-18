@@ -72,6 +72,7 @@ export default async function PathsPage({
       </ChartFrame>
 
       <div
+        className="falorb-grid-2pane"
         style={{
           display: "grid",
           gridTemplateColumns: "repeat(2, minmax(0, 1fr))",

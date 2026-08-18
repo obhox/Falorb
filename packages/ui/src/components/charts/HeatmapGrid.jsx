@@ -11,6 +11,7 @@ export function HeatmapGrid({ rows = [], cols = [], values = [], cell = 14, gap 
   const max = Math.max(...values.flat(), 1);
   return (
     <div style={{ display: "grid", gap: 8, flex: 1, alignContent: "start", ...style }}>
+      <div className="falorb-scroll-x">
       <div style={{ display: "grid", gap, gridTemplateColumns: `34px repeat(${cols.length}, minmax(0,1fr))` }}>
         {rows.map((r, ri) => (
           <React.Fragment key={r}>
@@ -42,6 +43,7 @@ export function HeatmapGrid({ rows = [], cols = [], values = [], cell = 14, gap 
             {i % 2 === 0 ? c : ""}
           </span>
         ))}
+      </div>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 7, fontFamily: "var(--font-mono)", fontSize: "var(--size-micro)", color: "var(--text-muted)" }}>
         <span>0</span>

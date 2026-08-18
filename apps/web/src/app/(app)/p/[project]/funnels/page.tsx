@@ -114,6 +114,7 @@ export default async function FunnelsPage({
           </ChartFrame>
 
           <Card title="Drop-off" subtitle="Where people leave, step by step">
+            <div className="falorb-scroll-x">
             <div style={{ display: "grid", gap: 1 }}>
               <div
                 style={{
@@ -191,6 +192,7 @@ export default async function FunnelsPage({
                   </span>
                 </div>
               ))}
+            </div>
             </div>
           </Card>
         </>

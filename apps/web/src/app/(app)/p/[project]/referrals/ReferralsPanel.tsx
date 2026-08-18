@@ -92,6 +92,7 @@ export function ReferralsPanel({ slug, links }: { slug: string; links: ReferralL
             }
           />
         ) : (
+          <div className="falorb-scroll-x">
           <div style={{ display: "grid", gap: 1 }}>
             <div style={headerRow}>
               <span>Link</span>
@@ -152,6 +153,7 @@ export function ReferralsPanel({ slug, links }: { slug: string; links: ReferralL
                 />
               </div>
             ))}
+          </div>
           </div>
         )}
       </Card>

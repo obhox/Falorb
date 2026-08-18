@@ -235,18 +235,11 @@
     justify-content: flex-start !important;
     justify-self: start !important;
   }
-}
 
-/* ---------------------------------------------------------------------- */
-/* Filter toolbars — force the search field onto its own line so the      */
-/* remaining controls wrap cleanly beneath it.                            */
-/* ---------------------------------------------------------------------- */
-@media (max-width: 767px) {
-  .falorb-toolbar-wrap > * {
-    flex: 1 1 auto;
-  }
-
-  .falorb-toolbar-wrap-first {
-    flex-basis: 100% !important;
+  /* The sparkline canvas is decorative and redundant with the visitors
+     figure right above it once the row is a single stacked column. */
+  .property-row-grid > svg,
+  .property-row-grid > canvas {
+    display: none;
   }
 }

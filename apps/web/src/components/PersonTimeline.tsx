@@ -45,6 +45,7 @@ export function PersonTimeline({ events, now }: { events: TimelineEvent[]; now: 
   let lastDay = "";
 
   return (
+    <div className="falorb-scroll-x">
     <div className="falorb-stagger" style={{ display: "grid" }}>
       {events.map((event, index) => {
         const day = shortDate(event.timestamp, now);
@@ -179,6 +180,7 @@ export function PersonTimeline({ events, now }: { events: TimelineEvent[]; now: 
           </div>
         );
       })}
+    </div>
     </div>
   );
 }

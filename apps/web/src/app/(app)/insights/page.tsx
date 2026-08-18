@@ -197,6 +197,7 @@ export default async function InsightsPage({
               body="Cross-product identity needs a shared identify() id or a decorated cross-domain link. With neither, anonymous visitors stay separate by design."
             />
           ) : (
+            <div className="falorb-scroll-x">
             <div style={{ display: "grid", gap: 1 }}>
               <div style={head}>
                 <span>Person</span>
@@ -252,6 +253,7 @@ export default async function InsightsPage({
                   </span>
                 </Link>
               ))}
+            </div>
             </div>
           )}
         </Card>

@@ -83,6 +83,7 @@ export default async function InstanceSettingsPage() {
               }
             />
           ) : (
+            <div className="falorb-scroll-x">
             <div style={{ display: "grid", gap: 1 }}>
               <div style={head}>
                 <span>Property</span>
@@ -153,6 +154,7 @@ export default async function InstanceSettingsPage() {
                   </span>
                 </div>
               ))}
+            </div>
             </div>
           )}
         </Card>

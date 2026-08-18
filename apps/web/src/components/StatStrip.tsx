@@ -23,6 +23,7 @@ export interface Stat {
 export function StatStrip({ stats, columns }: { stats: Stat[]; columns?: number }) {
   return (
     <div
+      className="falorb-grid-stats"
       style={{
         display: "grid",
         gridTemplateColumns: `repeat(${columns ?? stats.length}, minmax(0, 1fr))`,

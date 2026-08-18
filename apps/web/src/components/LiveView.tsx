@@ -123,6 +123,7 @@ export function LiveView({ slug }: { slug: string }) {
   return (
     <div style={{ display: "grid", gap: "var(--space-6)" }}>
       <div
+        className="falorb-grid-stats"
         style={{
           display: "grid",
           gridTemplateColumns: "repeat(4, minmax(0, 1fr))",
@@ -151,6 +152,7 @@ export function LiveView({ slug }: { slug: string }) {
       </div>
 
       <div
+        className="falorb-grid-2pane"
         style={{
           display: "grid",
           gridTemplateColumns: "minmax(0, 1.3fr) minmax(0, 1fr)",
@@ -183,6 +185,7 @@ export function LiveView({ slug }: { slug: string }) {
               }
             />
           ) : (
+            <div className="falorb-scroll-x">
             <div style={{ display: "grid" }}>
               {feed.map((event, index) => (
                 <div
@@ -224,6 +227,7 @@ export function LiveView({ slug }: { slug: string }) {
                   </span>
                 </div>
               ))}
+            </div>
             </div>
           )}
         </Card>

@@ -162,6 +162,7 @@ export default async function CrawlersPage({
             body="No requests from ChatGPT, Claude, Perplexity or the other named assistants in this range."
           />
         ) : (
+          <div className="falorb-scroll-x">
           <div style={{ display: "grid", gap: 1 }}>
             <div style={head}>
               <span>Agent</span>
@@ -218,6 +219,7 @@ export default async function CrawlersPage({
               );
             })}
           </div>
+          </div>
         )}
 
         <div
@@ -259,6 +261,7 @@ export default async function CrawlersPage({
             body="Nobody arrived from ChatGPT, Claude, Perplexity or similar in this range. Assistants that answer inline without a citation link produce no referral, so reading without referral traffic is the normal case."
           />
         ) : (
+          <div className="falorb-scroll-x">
           <div style={{ display: "grid", gap: 1 }}>
             <div style={{ ...head, gridTemplateColumns: referralColumns }}>
               <span>Assistant</span>
@@ -279,6 +282,7 @@ export default async function CrawlersPage({
                 </div>
               ))}
           </div>
+          </div>
         )}
       </Card>
 
@@ -292,6 +296,7 @@ export default async function CrawlersPage({
       )}
 
       <div
+        className="falorb-grid-2pane"
         style={{
           display: "grid",
           gridTemplateColumns: "repeat(2, minmax(0, 1fr))",

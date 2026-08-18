@@ -28,7 +28,7 @@ export function ShellNav({
   theme: ThemeChoice;
   currentWorkspace: string;
   workspaces: WorkspaceOption[];
-  accountName: string;
+  accountName: string | null;
   accountEmail: string;
   accountOrganization: string;
   accountMeta: string;

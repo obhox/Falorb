@@ -1,0 +1,12 @@
+/* Reference only — CSS custom properties can't be used inside `@media()`
+   conditions, so every actual media query in the app repeats these as literal
+   pixel values. Keep this file in sync if the cutoffs ever change.
+
+   desktop: min-width: 1024px  — today's fixed shell, unchanged baseline
+   tablet:  768px – 1023px     — collapsed rail, stacked two-pane panels
+   mobile:  max-width: 767px   — drawer nav, normal document scroll
+*/
+:root {
+  --breakpoint-tablet: 1024px;
+  --breakpoint-mobile: 768px;
+}

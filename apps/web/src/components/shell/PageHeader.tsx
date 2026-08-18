@@ -17,6 +17,7 @@ export function PageHeader({
 }) {
   return (
     <header
+      className="falorb-page-header"
       style={{
         display: "flex",
         alignItems: "center",
@@ -55,7 +56,10 @@ export function PageHeader({
         )}
       </div>
       {actions && (
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+        <div
+          className="falorb-page-header-actions"
+          style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}
+        >
           {actions}
         </div>
       )}

@@ -1,4 +1,5 @@
 @import "@falorb/ui/styles.css";
+@import "./responsive.css";
 
 /* The design system names its families literally ("Instrument Sans"). next/font
    self-hosts them and hands back generated family names on these variables, so

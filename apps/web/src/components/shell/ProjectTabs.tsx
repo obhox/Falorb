@@ -24,6 +24,7 @@ export function ProjectTabs({ tabs }: { tabs: ProjectTab[] }) {
 
   return (
     <div
+      className="falorb-tabs-scroll"
       style={{
         display: "flex",
         alignItems: "stretch",

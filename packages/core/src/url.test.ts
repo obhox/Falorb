@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isDownloadUrl, normalizePath, parseUrl, parseUtm } from "./url";
+import { isDownloadUrl, normalizePath, parseRefCode, parseUrl, parseUtm } from "./url";
 
 describe("normalizePath", () => {
   it("lowercases and strips a trailing slash", () => {
@@ -63,6 +63,24 @@ describe("parseUtm", () => {
       term: "",
       content: "",
     });
+  });
+});
+
+describe("parseRefCode", () => {
+  it("extracts and lowercases ref_code", () => {
+    expect(parseRefCode("https://acme.example/?ref_code=Launch-Party")).toBe("launch-party");
+  });
+
+  it("does not treat the Plausible-style ref alias as a referral code", () => {
+    // parseUtm's `ref` alias and this feature's `ref_code` must stay distinct —
+    // otherwise a referral link would silently corrupt existing UTM attribution.
+    expect(parseRefCode("https://acme.example/?ref=producthunt")).toBe("");
+  });
+
+  it("returns an empty string when untagged or malformed", () => {
+    expect(parseRefCode("https://acme.example/")).toBe("");
+    expect(parseRefCode("not a url")).toBe("");
+    expect(parseRefCode(undefined)).toBe("");
   });
 });
 

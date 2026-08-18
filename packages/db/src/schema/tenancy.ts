@@ -91,6 +91,15 @@ export const projects = pgTable(
      */
     domains: text("domains").array().notNull().default([]),
 
+    /**
+     * Optional subdomain the owner points at this app via CNAME so referral
+     * links (`/r/<code>`) resolve on the property's own domain instead of the
+     * shared Falorb app domain — e.g. `go.acme.example`. Null until the owner
+     * configures and DNS-verifies one; unset referral links fall back to
+     * `FALORB_APP_URL`.
+     */
+    linkDomain: text("link_domain"),
+
     /** Embedded in the tracker snippet. Public by design. */
     publicKey: text("public_key").notNull(),
     /** SHA-256 of the server-side API secret. The secret itself is shown once. */
@@ -123,6 +132,7 @@ export const projects = pgTable(
     uniqueIndex("projects_public_key_uq").on(t.publicKey),
     uniqueIndex("projects_uuid_uq").on(t.uuid),
     uniqueIndex("projects_org_slug_uq").on(t.organizationId, t.slug),
+    uniqueIndex("projects_link_domain_uq").on(t.linkDomain),
     index("projects_org_idx").on(t.organizationId),
   ],
 );

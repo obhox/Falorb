@@ -40,10 +40,13 @@ export default async function ProjectLayout({
     { href: `${base}/people`, label: "People" },
     { href: `${base}/funnels`, label: "Funnels" },
     { href: `${base}/paths`, label: "Paths" },
+    { href: `${base}/content`, label: "Content" },
     { href: `${base}/retention`, label: "Retention" },
     { href: `${base}/events`, label: "Events" },
     { href: `${base}/crawlers`, label: "AI & crawlers" },
     { href: `${base}/goals`, label: "Goals" },
+    { href: `${base}/referrals`, label: "Referrals" },
+    { href: `${base}/signals`, label: "Signals" },
     { href: `${base}/settings`, label: "Settings" },
   ];
 

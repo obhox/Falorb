@@ -5,7 +5,7 @@ small-to-medium traffic, person-level detail, and one view across every project.
 
 **Status:** the collection pipeline, storage layer, identity graph, query
 layer, background workers, self-serve account system and MCP server are
-complete and verified. The dashboard is built — 24 routes, light and dark,
+complete and verified. The dashboard is built — 27 routes, light and dark,
 role-enforced, driven end to end by Playwright. It does not yet cover the
 whole backend; see [FEATURES.md](FEATURES.md) for the gaps.
 
@@ -18,6 +18,8 @@ whole backend; see [FEATURES.md](FEATURES.md) for the gaps.
 - **Cross-project identity** — answers "which of my other products has this person used".
 - **Drop-off** — funnels with per-step loss, exit-rate ranking, page-to-page flows, rage clicks.
 - **Enrichment** — acquisition chains, on-site interest profiles, B2B company identification.
+- **Referral links** — shareable links, attributed from click through to eventual signup, optionally on your own domain via CNAME.
+- **Growth signals** — page-performance and interest-graph insights per property, plus on-demand AI recommendations (via OpenRouter) for content, product gaps, channels, and who to contact.
 - **Privacy-first** — no raw IP stored anywhere, GDPR export/erasure, per-project retention.
 - **AI-native** — an MCP server (25 tools) so an assistant can query the platform directly, and a dashboard panel tracking what AI crawlers read on your sites.
 
@@ -71,7 +73,7 @@ dashboard and the query layer — and share one `better-auth` config from
 | `apps/ingest` | Collector: validate, enrich, hash IP, publish |
 | `apps/worker` | Stream writer + 11 scheduled derivation jobs |
 | `apps/api` | Self-serve accounts — signup, sessions, projects, API keys, team invites |
-| `apps/web` | The dashboard — 24 routes, role-enforced, light and dark |
+| `apps/web` | The dashboard — 27 routes, role-enforced, light and dark |
 | `apps/mcp` | MCP server — 25 tools, 2 resources, 3 prompts for AI assistants |
 
 ## Getting started

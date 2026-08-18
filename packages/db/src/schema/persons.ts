@@ -92,6 +92,8 @@ export const persons = pgTable(
     firstReferrerHost: text("first_referrer_host"),
     firstUtmCampaign: text("first_utm_campaign"),
     firstLandingPath: text("first_landing_path"),
+    /** Referral-program code, frozen at first sighting like the fields above. */
+    firstReferralCode: text("first_referral_code"),
 
     /** Last-touch acquisition, updated on every new session. */
     lastChannel: text("last_channel"),

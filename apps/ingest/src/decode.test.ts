@@ -120,6 +120,25 @@ describe("decodeBatch", () => {
     expect(e!.distinctId).toBe("dev-1");
   });
 
+  it("captures a referral code from the landing URL", () => {
+    const [e] = decodeBatch(
+      batch([{ n: "$pageview", t: NOW, u: "https://acme.example/?ref_code=Launch-Party" }]),
+      ctx(),
+    );
+    expect(e!.propsStr.ref_code).toBe("launch-party");
+  });
+
+  it("does not confuse the Plausible-style ref alias with a referral code", () => {
+    // parseUtm treats ?ref= as a utm_source alias; a referral link's ref_code
+    // must stay a distinct signal or one feature silently corrupts the other.
+    const [e] = decodeBatch(
+      batch([{ n: "$pageview", t: NOW, u: "https://acme.example/?ref=producthunt" }]),
+      ctx(),
+    );
+    expect(e!.propsStr.ref_code).toBeUndefined();
+    expect(e!.utmSource).toBe("producthunt");
+  });
+
   it("never carries a raw IP into the event", () => {
     const [e] = decodeBatch(batch([{ n: "$pageview", t: NOW, u: "https://acme.example/" }]), ctx());
     expect(JSON.stringify(e)).not.toContain("203.0.113.9");

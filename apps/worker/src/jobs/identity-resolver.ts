@@ -432,6 +432,7 @@ async function mergePersons(
         firstReferrerHost: sql`coalesce(${schema.persons.firstReferrerHost}, ${merged.firstReferrerHost})`,
         firstUtmCampaign: sql`coalesce(${schema.persons.firstUtmCampaign}, ${merged.firstUtmCampaign})`,
         firstLandingPath: sql`coalesce(${schema.persons.firstLandingPath}, ${merged.firstLandingPath})`,
+        firstReferralCode: sql`coalesce(${schema.persons.firstReferralCode}, ${merged.firstReferralCode})`,
         companyId: sql`coalesce(${schema.persons.companyId}, ${merged.companyId})`,
         projectIds: sql`(SELECT array_agg(DISTINCT x) FROM unnest(${schema.persons.projectIds} || ${merged.projectIds}) AS x)`,
         updatedAt: new Date(),

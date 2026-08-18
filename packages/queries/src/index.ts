@@ -4,6 +4,8 @@ export * from "./trends";
 export * from "./funnels";
 export * from "./retention";
 export * from "./paths";
+export * from "./interests";
+export * from "./referrals";
 export * from "./goals";
 export * from "./persons";
 export * from "./live";

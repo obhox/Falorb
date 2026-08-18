@@ -3,6 +3,7 @@ import {
   AUTO_EVENTS,
   MAX_CLOCK_SKEW_MS,
   classifyReferrer,
+  parseRefCode,
   parseUrl,
   parseUtm,
   parseUserAgent,
@@ -73,6 +74,7 @@ function decodeEvent(
   const masking = resolveMaskingRules(project.settings);
   const page = parseUrl(maskUrl(raw.u ?? "", masking));
   const utm = parseUtm(raw.u);
+  const refCode = parseRefCode(raw.u);
   const classified = classifyReferrer({
     referrer: raw.r,
     utm,
@@ -91,6 +93,13 @@ function decodeEvent(
   // find it without re-reading the batch envelope.
   if (raw.n === AUTO_EVENTS.identify && batch.i) {
     propsStr.identified_id = batch.i;
+  }
+  // Referral-program code from the landing URL, if this pageview arrived via
+  // an `/r/<code>` link. Read from the unmasked URL, same as UTM parsing above
+  // — a campaign code is not sensitive user data, so it should survive
+  // whatever masking rules a project has configured for other query params.
+  if (refCode) {
+    propsStr.ref_code = refCode;
   }
   // A cross-domain link token is decoded and validated *here*, not stored raw
   // for a worker to interpret later. Its whole security property is a two

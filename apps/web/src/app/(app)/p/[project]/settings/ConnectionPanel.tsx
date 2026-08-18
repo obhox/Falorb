@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Badge, Button, Card, Icon } from "@falorb/ui";
+import { useState } from "react";
+import { Badge, Card, Icon } from "@falorb/ui";
 import { relative } from "@/lib/format";
+import { DomainTestRows, type DomainStatusView } from "@/components/DomainTest";
 import type { ConnectionState } from "@/server/connection";
 
 export interface ConnectionView {
@@ -16,22 +17,20 @@ export interface ConnectionView {
     tracker: boolean;
     geoSource: string;
   };
-  siteUrl: string | null;
+  /** One entry per configured domain, each independently testable. */
+  domains: DomainStatusView[];
 }
 
 /**
  * Whether this property is connected, and a way to prove it.
  *
- * The test is deliberately an observation rather than a simulation. Pressing
- * it does not send a synthetic event — it records the moment, opens the site,
- * and waits for a real event to arrive from a real browser. A synthetic event
- * would prove the dashboard can reach ClickHouse, which was never in doubt;
- * only a real one proves the snippet is on the page, the domain is authorised,
- * and nothing in between is blocking it.
+ * The verdict in the header is the property as a whole; the rows below are
+ * per domain, because that is the granularity the answer actually has. A
+ * property with a marketing site and an app can be half-installed, and rolled
+ * up to the property that reads as "connected" — the wrong answer for half the
+ * traffic. `DomainTest` owns the test itself; this panel owns the diagnostics
+ * around it.
  */
-const POLL_MS = 2_000;
-const GIVE_UP_MS = 90_000;
-
 export function ConnectionPanel({
   slug,
   initial,
@@ -40,72 +39,11 @@ export function ConnectionPanel({
   initial: ConnectionView;
 }) {
   const [status, setStatus] = useState(initial);
-  const [testing, setTesting] = useState(false);
-  const [confirmed, setConfirmed] = useState(false);
-  const [gaveUp, setGaveUp] = useState(false);
-  const startedAt = useRef(0);
-
-  useEffect(() => {
-    if (!testing) return;
-
-    let cancelled = false;
-    const deadline = Date.now() + GIVE_UP_MS;
-
-    const poll = async () => {
-      if (cancelled) return;
-
-      try {
-        const response = await fetch(
-          `/api/p/${encodeURIComponent(slug)}/connection?since=${startedAt.current}`,
-          { cache: "no-store" },
-        );
-        if (response.ok) {
-          const body = (await response.json()) as ConnectionView & {
-            receivedSinceTest: boolean;
-          };
-          if (cancelled) return;
-
-          setStatus(body);
-          if (body.receivedSinceTest) {
-            setConfirmed(true);
-            setTesting(false);
-            return;
-          }
-        }
-      } catch {
-        // A failed poll is not a failed test — the next one may succeed, and
-        // the deadline below is what ends this either way.
-      }
-
-      if (cancelled) return;
-      if (Date.now() > deadline) {
-        setTesting(false);
-        setGaveUp(true);
-        return;
-      }
-      timer = setTimeout(poll, POLL_MS);
-    };
-
-    let timer = setTimeout(poll, POLL_MS);
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [testing, slug]);
-
-  function startTest() {
-    startedAt.current = Date.now();
-    setConfirmed(false);
-    setGaveUp(false);
-    setTesting(true);
-
-    // Opening the site is the whole point: an event can only arrive if someone
-    // actually loads a page carrying the snippet.
-    if (status.siteUrl) window.open(status.siteUrl, "_blank", "noopener");
-  }
+  const [proved, setProved] = useState(false);
+  const [testFailed, setTestFailed] = useState(false);
 
   const tone =
-    confirmed || status.state === "live"
+    proved || status.state === "live"
       ? { label: "Connected", badge: "up" as const, icon: "check" }
       : status.state === "silent"
         ? { label: "No recent events", badge: "warn" as const, icon: "pause" }
@@ -122,42 +60,21 @@ export function ConnectionPanel({
       }
     >
       <div style={{ display: "grid", gap: "var(--space-7)" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-          <Button
-            size="sm"
-            variant="primary"
-            onClick={startTest}
-            disabled={testing || !status.siteUrl}
-            iconLeft={<Icon name={testing ? "loader" : "play"} size={13} />}
-          >
-            {testing ? "Waiting for an event" : "Test connection"}
-          </Button>
-
-          {testing && (
-            <span style={{ fontSize: "var(--size-label)", color: "var(--text-muted)" }}>
-              Your site opened in a new tab. Load a page there — this updates the moment an event
-              arrives.
-            </span>
-          )}
-
-          {confirmed && (
-            <span style={{ fontSize: "var(--size-label)", color: "var(--signal-up)" }}>
-              Event received. The snippet is installed and reporting.
-            </span>
-          )}
-
-          {gaveUp && (
-            <span style={{ fontSize: "var(--size-label)", color: "var(--signal-warn)" }}>
-              Nothing arrived in 90 seconds. See what to check below.
-            </span>
-          )}
-
-          {!status.siteUrl && (
-            <span style={{ fontSize: "var(--size-label)", color: "var(--text-muted)" }}>
-              Add a domain below to enable the test.
-            </span>
-          )}
-        </div>
+        <DomainTestRows
+          slug={slug}
+          domains={status.domains}
+          onPoll={(poll) => {
+            setStatus((prev) => ({ ...prev, ...poll, domains: poll.domains ?? prev.domains }));
+            // A domain that reported during a test proves the property is
+            // connected, even if the 24-hour window the badge reads has not
+            // caught up yet.
+            if (poll.domains?.some((d) => d.receivedSinceTest)) setProved(true);
+          }}
+          // A test that timed out needs the checklist even when the property as
+          // a whole is live — a second domain silently missing the snippet is
+          // exactly the case the property-level verdict hides.
+          onGaveUp={() => setTestFailed(true)}
+        />
 
         <div style={{ display: "grid", gap: 1 }}>
           <Row
@@ -198,7 +115,7 @@ export function ConnectionPanel({
           />
         </div>
 
-        {(status.state !== "live" || gaveUp) && (
+        {(status.state !== "live" || testFailed) && (
           <div
             style={{
               display: "grid",

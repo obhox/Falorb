@@ -2,7 +2,11 @@ import { Card } from "@falorb/ui";
 import { can } from "@falorb/db";
 import { requireProject } from "@/server/session";
 import { getShare } from "@/server/sharing";
-import { getCollectorHealth, getConnectionStatus } from "@/server/connection";
+import {
+  getCollectorHealth,
+  getConnectionStatus,
+  getDomainStatuses,
+} from "@/server/connection";
 import { PageBody } from "@/components/shell/PageHeader";
 import { CopyField } from "@/components/CopyField";
 import { SettingsForm } from "./SettingsForm";
@@ -25,10 +29,11 @@ export default async function ProjectSettingsPage({
 }) {
   const { session, project } = await requireProject((await params).project);
 
-  const [share, connection, collector] = await Promise.all([
+  const [share, connection, collector, domainStatuses] = await Promise.all([
     getShare(session.workspace.organizationId, project.id),
     getConnectionStatus(project.id),
     getCollectorHealth(),
+    getDomainStatuses([{ id: project.id, domains: project.domains }]),
   ]);
   const origin = process.env.FALORB_APP_URL ?? "http://localhost:3000";
 
@@ -46,10 +51,10 @@ export default async function ProjectSettingsPage({
           events24h: connection.events24h,
           eventsTotal: connection.eventsTotal,
           collector,
-          // The first authorised domain is what the test opens. Without one
-          // there is nowhere to send the reader, and events would be rejected
-          // at the edge anyway.
-          siteUrl: project.domains[0] ? `https://${project.domains[0]}` : null,
+          // Every authorised domain is testable on its own. Rolling the test up
+          // to the property would let a pageview from the marketing site vouch
+          // for an app that has no snippet.
+          domains: domainStatuses.get(project.id) ?? [],
         }}
       />
 

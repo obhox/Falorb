@@ -2,7 +2,7 @@
 
 Living record of what exists, what is half-built, and what has not been started.
 
-**Last updated:** 2026-08-16
+**Last updated:** 2026-08-18
 
 | Status | Meaning |
 |---|---|
@@ -13,8 +13,10 @@ Living record of what exists, what is half-built, and what has not been started.
 
 **Where things stand:** the collection pipeline, storage layer, identity graph,
 query layer, background workers, MCP server and self-serve account system are
-complete and verified. The dashboard is built — 24 routes on the Falorb design
-system, light and dark, role-enforced, driven end to end by Playwright. It does
+complete and verified. The dashboard is built — 27 routes on the Falorb design
+system, light and dark, role-enforced. Most routes are driven end to end by
+Playwright; the three newest (§14d/14e below) are verified manually and not
+yet in that suite. It does
 not yet cover the whole backend: see *Backend surface not yet in the dashboard*.
 The integrations layer is design-only. Verification commands are in
 [README.md](README.md).
@@ -131,6 +133,9 @@ Verified end to end: one person, two devices, two products, both stores agreeing
 | ✅ | `crossProjectPeople` | People who used 2+ products |
 | ✅ | Goal conversions | Event- or path-matched, with conversion rate against visitors in scope |
 | ✅ | Revenue attribution | first-touch / last-touch / linear; verified to produce genuinely different answers |
+| ✅ | `contentInterests` | Project-level topic rollup, computed live from `events_v` rather than the cached per-person `interestScores` — the only way to respect the caller's date range and show a trend |
+| ✅ | `referralClicks` | Landing-pageview clicks and visitors per referral code |
+| 🟡 | Query smoke runner coverage | The two rows above are unit-tested (`interests.test.ts`, `referrals.test.ts`) and verified against real seeded data via the browser, but not yet added to `smoke.ts`'s 32-query run |
 
 ## 7. Workers — `apps/worker`
 
@@ -191,7 +196,7 @@ Verified end to end: one person, two devices, two products, both stores agreeing
 
 | | Feature | Notes |
 |---|---|---|
-| ✅ | 101 unit tests | core 45, ingest 28, queries 21, worker 7 |
+| ✅ | 213 unit tests | core 82, ingest 61, queries 30, worker 7, web 21, sdk-node 12 |
 | ✅ | Injection-safety suite | Prototype pollution, wildcard leakage, param binding |
 | ✅ | Query smoke runner | 32 queries against live ClickHouse |
 | ✅ | Job verifier | Runs all 11 jobs once |
@@ -319,9 +324,11 @@ deliberately does not do.
 
 ## 14. Dashboard — `apps/web`
 
-Next.js 15 App Router on React 19, built on the Falorb design system. **24
-routes, production build passing, and an end-to-end suite that drives them in a
-browser** (`pnpm --filter @falorb/web e2e`). Server components call
+Next.js 15 App Router on React 19, built on the Falorb design system. **27
+routes, production build passing, and an end-to-end suite that drives most of
+them in a browser** (`pnpm --filter @falorb/web e2e`, 41 tests — the three
+newest routes are verified manually, not yet in that suite; see §14d/§14e).
+Server components call
 `@falorb/queries` directly — no HTTP hop between the dashboard and the query
 layer.
 
@@ -334,10 +341,14 @@ layer.
 | ✅ | `/people/[personId]` | **Deep profile** — cross-property timeline, products used, acquisition chain, interests, aliases |
 | ✅ | `/p/[project]/funnels` | URL-encoded builder + drop-off waterfall |
 | ✅ | `/p/[project]/paths` | Sankey + entry/exit/frustration reports |
+| ✅ | `/p/[project]/content` | Content & interest insights — needs-attention, top pages, entry/exit, project-level interest rollup with trend |
 | ✅ | `/p/[project]/retention` | Cohort grid + stickiness distribution |
 | ✅ | `/p/[project]/events` | Event explorer with per-event filtering and session list |
 | ✅ | `/p/[project]/crawlers` | **AI & crawlers** — see §14b |
 | ✅ | `/p/[project]/goals` | Goals CRUD + conversions + three attribution models |
+| ✅ | `/p/[project]/referrals` | Referral link CRUD + click/visitor/conversion leaderboard; see §14d |
+| ✅ | `/r/[code]` | Public redirect for a referral link — outside the auth group, same shape as `/share/[token]` |
+| ✅ | `/p/[project]/signals` | AI-generated growth recommendations — content, product, marketing, sales; see §14e |
 | ✅ | `/p/[project]/settings` | Snippet, public link, domains, timezone, identity scope, consent, retention |
 | ✅ | `/settings` | Instance settings — properties, endpoints, workspace |
 | ✅ | `/settings/team` | Members, roles, invitations |
@@ -391,6 +402,38 @@ Answers what ChatGPT, Claude, Perplexity and the rest do with a property.
 | ✅ | Invitations | Hashed tokens, 7-day expiry, acceptance bound to the invited address, membership and consumption in one transaction |
 | ✅ | Last-owner guard | The only owner cannot be demoted or removed |
 
+## 14d. Referral links — `/p/[project]/referrals`
+
+Shareable links attributed from click through to eventual `identify()`.
+Verified end to end against a real ingest → sessionizer → identity-resolver →
+leaderboard pass, not just the UI in isolation.
+
+| | Feature | Notes |
+|---|---|---|
+| ✅ | Link CRUD | Owner-chosen code (not a secret, unlike the share token — no hashing), label, optional destination; soft revoke preserves leaderboard history |
+| ✅ | `ref_code` capture | Parsed server-side from the landing URL at ingest, kept deliberately distinct from `parseUtm`'s existing `ref` alias — reusing that name would have silently corrupted UTM attribution |
+| ✅ | Frozen first-touch attribution | `persons.firstReferralCode`, populated by the sessionizer with the same `coalesce` pattern as `firstUtmCampaign` and its siblings |
+| ✅ | Click/visitor/conversion leaderboard | Clicks derived from `events_v` pageviews (same convention as every other acquisition dimension), never a separate counter that could disagree |
+| ✅ | Public redirect | `/r/[code]`, 302, `Cache-Control: no-store`. Unknown/revoked codes redirect to a fallback rather than 404 — a code gates no private data, so there is no reason to make failure indistinguishable the way the share token does |
+| ✅ | Branded domains | Optional `projects.linkDomain`, DNS-verified via CNAME lookup, middleware rewrites a matching Host header's path to `/r/[code]` internally. Requires Node.js-runtime middleware (`export const runtime = "nodejs"`) for the Postgres lookup — confirmed supported by this Next.js version |
+| 🟡 | Playwright coverage | Verified manually (ingest batch → watermark-reset sessionizer run → Postgres → leaderboard, plus a Host-header-spoofed `curl` for the branded-domain rewrite); no `referrals.spec.ts` yet |
+
+## 14e. AI growth signals — `/p/[project]/signals`
+
+On-demand recommendations generated via OpenRouter from data the platform
+already computes — not a new data source, a synthesis step over the existing
+query layer.
+
+| | Feature | Notes |
+|---|---|---|
+| ✅ | Four signal kinds | Content (page performance + interest graph), product (interest graph, different question — deliberately does not claim funnel/drop-off analysis that does not exist yet), marketing (channel breakdown + referral leaderboard), sales |
+| ✅ | Sales: two independent scopes | "This property" reuses `listPeople` sorted by lead score; "across your portfolio" uses `crossProjectPeople`, which floors `minProjects` at 2 and so cannot be forced into a single-project query — the two scopes are genuinely different code paths, not one query with a parameter |
+| ✅ | Portfolio-scoped caching | `ai_signals.projectId` is nullable, mirroring `dashboards.projectId`'s existing precedent for the same reason; a portfolio-wide signal is scoped by `organizationId` instead and reads the same regardless of which project's page triggered it |
+| ✅ | Cached, not generated per page load | 5-minute regenerate cooldown per `(projectId, kind)` pair, same shape as the rate limiting elsewhere in the dashboard |
+| ✅ | Model selection | Defaults to `"openrouter/auto"` (OpenRouter picks per request) rather than pinning one; `OPENROUTER_MODEL` overrides with a single model or a comma-separated fallback list |
+| ✅ | Plain-text output, guaranteed | A prompt instruction against markdown is not reliable on its own — verified live that models still reach for `**bold**` and `##` headers — so `stripMarkdown` strips it programmatically after generation. Deliberately skips underscore-based emphasis: the context data is full of snake_case field names (`utm_source`, `content_tag`) the model echoes back, and a naive single-underscore rule would merge two unrelated words together |
+| ✅ | Graceful failure | No `OPENROUTER_API_KEY` configured, an unreachable upstream, an empty response, and a real `402` (insufficient OpenRouter credits, hit live during testing) all surface as a clear toast, never a crash |
+| 🟡 | Playwright coverage | Verified manually for all four kinds and both sales scopes, including a real generated recommendation end to end; no automated coverage yet |
 
 ## 15. SDKs
 

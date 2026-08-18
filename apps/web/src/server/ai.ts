@@ -4,8 +4,10 @@ import { stripMarkdown } from "@/lib/strip-markdown";
 /**
  * The platform's first LLM integration, via OpenRouter rather than a single
  * vendor's SDK — OpenRouter exposes an OpenAI-compatible chat-completions API,
- * so the model is just a config string (`OPENROUTER_MODEL`), swappable without
- * a code change.
+ * so the model is just a config string, swappable without a code change. By
+ * default that string is `"openrouter/auto"`: OpenRouter picks whichever
+ * model it judges best for each request rather than this app pinning one.
+ * `OPENROUTER_MODEL` overrides that with a specific model if ever wanted.
  *
  * Deliberately not in `@falorb/core`: that package is documented (see its
  * `net.ts`) as pure and browser-safe, transpiled straight into the web app's
@@ -72,7 +74,10 @@ export async function generateSignal(kind: SignalKind, contextData: unknown): Pr
       "AI recommendations are not configured — OPENROUTER_API_KEY is missing.",
     );
   }
-  const model = process.env.OPENROUTER_MODEL ?? "anthropic/claude-sonnet-4.5";
+  // "openrouter/auto" routes each request to whichever model OpenRouter
+  // judges best for it, rather than pinning one — OPENROUTER_MODEL remains
+  // available as an explicit override if a specific model is ever wanted.
+  const model = process.env.OPENROUTER_MODEL ?? "openrouter/auto";
 
   let response: Response;
   try {
@@ -88,7 +93,13 @@ export async function generateSignal(kind: SignalKind, contextData: unknown): Pr
           { role: "system", content: SYSTEM_PROMPTS[kind] },
           { role: "user", content: JSON.stringify(contextData) },
         ],
-        max_tokens: 400,
+        // Generous relative to the 3-5 sentence prompt: with "openrouter/auto"
+        // picking the model per request, some candidates spend part of this
+        // budget on invisible reasoning tokens before the visible answer —
+        // observed live returning an empty response at 400. A tighter cap
+        // that only worked for one specific model would defeat the point of
+        // not pinning one.
+        max_tokens: 1000,
       }),
       // A stuck upstream call must not hang the server action indefinitely —
       // the caller is a person waiting on a button press, not a background job.

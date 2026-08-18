@@ -1,13 +1,17 @@
 import "server-only";
 import { stripMarkdown } from "@/lib/strip-markdown";
+import { resolveModel } from "@/lib/resolve-model";
 
 /**
  * The platform's first LLM integration, via OpenRouter rather than a single
  * vendor's SDK — OpenRouter exposes an OpenAI-compatible chat-completions API,
- * so the model is just a config string, swappable without a code change. By
- * default that string is `"openrouter/auto"`: OpenRouter picks whichever
- * model it judges best for each request rather than this app pinning one.
- * `OPENROUTER_MODEL` overrides that with a specific model if ever wanted.
+ * so the model is just config, swappable without a code change. By default
+ * that's `"openrouter/auto"`: OpenRouter picks whichever model it judges best
+ * for each request rather than this app pinning one. `OPENROUTER_MODEL`
+ * overrides that — a single model to pin (`anthropic/claude-sonnet-4.5`), or
+ * a comma-separated list (`anthropic/claude-sonnet-4.5,openai/gpt-4o`) to
+ * hand OpenRouter as an ordered fallback list, tried in order if an earlier
+ * one errors or is unavailable. See `resolveModel` in `@/lib/resolve-model`.
  *
  * Deliberately not in `@falorb/core`: that package is documented (see its
  * `net.ts`) as pure and browser-safe, transpiled straight into the web app's
@@ -74,10 +78,6 @@ export async function generateSignal(kind: SignalKind, contextData: unknown): Pr
       "AI recommendations are not configured — OPENROUTER_API_KEY is missing.",
     );
   }
-  // "openrouter/auto" routes each request to whichever model OpenRouter
-  // judges best for it, rather than pinning one — OPENROUTER_MODEL remains
-  // available as an explicit override if a specific model is ever wanted.
-  const model = process.env.OPENROUTER_MODEL ?? "openrouter/auto";
 
   let response: Response;
   try {
@@ -88,7 +88,7 @@ export async function generateSignal(kind: SignalKind, contextData: unknown): Pr
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model,
+        ...resolveModel(process.env.OPENROUTER_MODEL),
         messages: [
           { role: "system", content: SYSTEM_PROMPTS[kind] },
           { role: "user", content: JSON.stringify(contextData) },

@@ -12,7 +12,7 @@ export function BarSeries({ data = [], height = 180, selected, onSelect, color =
   const active = hover ?? selected;
   return (
     <div style={{ display: "grid", gap: 8, ...style }}>
-      <div style={{ position: "relative", height, display: "flex", alignItems: "flex-end", gap: 6 }}>
+      <div style={{ position: "relative", height, display: "flex", alignItems: "flex-end", gap: 6, minWidth: 0 }}>
         {showAxis && [0, 0.5, 1].map((t) => (
           <span key={t} style={{ position: "absolute", left: 0, right: 0, bottom: `${t * 100}%`, height: 1, background: "var(--grid-line)" }} />
         ))}
@@ -24,7 +24,7 @@ export function BarSeries({ data = [], height = 180, selected, onSelect, color =
               onMouseEnter={() => setHover(d.label)}
               onMouseLeave={() => setHover(null)}
               onClick={() => onSelect && onSelect(d.label)}
-              style={{ position: "relative", flex: 1, height: "100%", display: "flex", alignItems: "flex-end", cursor: onSelect ? "pointer" : "default" }}
+              style={{ position: "relative", flex: 1, minWidth: 0, height: "100%", display: "flex", alignItems: "flex-end", cursor: onSelect ? "pointer" : "default" }}
             >
               <div
                 style={{
@@ -41,16 +41,18 @@ export function BarSeries({ data = [], height = 180, selected, onSelect, color =
           );
         })}
       </div>
-      <div style={{ display: "flex", gap: 6 }}>
+      <div style={{ display: "flex", gap: 6, minWidth: 0 }}>
         {data.map((d) => (
           <span
             key={d.label}
+            title={d.label}
             style={{
-              flex: 1, textAlign: "center",
+              flex: 1, minWidth: 0, textAlign: "center",
               fontSize: "var(--size-micro)",
               fontFamily: "var(--font-mono)",
               color: active === d.label ? "var(--text-primary)" : "var(--text-muted)",
               fontWeight: active === d.label ? "var(--wt-medium)" : "var(--wt-regular)",
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
               transition: "color var(--dur-1) var(--ease-out)"
             }}
           >

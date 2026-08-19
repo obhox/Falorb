@@ -13,10 +13,14 @@ Living record of what exists, what is half-built, and what has not been started.
 
 **Where things stand:** the collection pipeline, storage layer, identity graph,
 query layer, background workers, MCP server and self-serve account system are
-complete and verified. The dashboard is built — 27 routes on the Falorb design
+complete and verified. The dashboard is built — 32 routes on the Falorb design
 system, light and dark, role-enforced. Most routes are driven end to end by
-Playwright; the three newest (§14d/14e below) are verified manually and not
-yet in that suite. It does
+Playwright; the eight newest — sales lead actions, the weekly digest, the
+product signal's drop-off data, the public benchmark report, the referral
+incentive layer, content auto-drafting, the embeddable badge and the
+referral-boosted waitlist (§14e–§14j below) — are verified manually
+(typecheck, production build, and live requests against the dev stack) and
+not yet in that suite. It does
 not yet cover the whole backend: see *Backend surface not yet in the dashboard*.
 The integrations layer is design-only. Verification commands are in
 [README.md](README.md).
@@ -139,7 +143,7 @@ Verified end to end: one person, two devices, two products, both stores agreeing
 
 ## 7. Workers — `apps/worker`
 
-**All 11 verified running** (`pnpm --filter @falorb/worker verify:jobs`).
+13 of the 14 below verified running via `pnpm --filter @falorb/worker verify:jobs`; `digest` (new) typechecks and doesn't touch its siblings, but isn't in that runner yet since exercising it live sends real email and makes a real OpenRouter call.
 
 | | Job | Every | Notes |
 |---|---|---|---|
@@ -154,6 +158,7 @@ Verified end to end: one person, two devices, two products, both stores agreeing
 | ✅ | `data-requests` | 2m | GDPR export + erase |
 | ✅ | `retention` | 12h | Per-project + orphan prune |
 | ✅ | `optimize` | 6h | Forces aggregate merges |
+| ✅ | `digest` | 7d, `skipOnBoot` | Regenerates all four AI signals per project and emails one summary per org to its owners/admins; opt-out per org (`organizations.weeklyDigestEnabled`, on by default) |
 | ✅ | Scheduler | — | Redis distributed locks, watermarks, overlap guard |
 | ✅ | `webhooks` | 1m | Fires on goal conversion; HMAC over `timestamp.body`, auto-disables after 20 failures |
 | ✅ | `webhook-revive` | 6h | Re-enables hooks disabled by a transient outage |
@@ -324,11 +329,11 @@ deliberately does not do.
 
 ## 14. Dashboard — `apps/web`
 
-Next.js 15 App Router on React 19, built on the Falorb design system. **27
+Next.js 15 App Router on React 19, built on the Falorb design system. **32
 routes, production build passing, and an end-to-end suite that drives most of
-them in a browser** (`pnpm --filter @falorb/web e2e`, 41 tests — the three
-newest routes are verified manually, not yet in that suite; see §14d/§14e).
-Server components call
+them in a browser** (`pnpm --filter @falorb/web e2e`, 41 tests — the eight
+newest routes are verified manually via typecheck/build/live curl, not yet in
+that suite; see §14d–§14j). Server components call
 `@falorb/queries` directly — no HTTP hop between the dashboard and the query
 layer.
 
@@ -341,22 +346,27 @@ layer.
 | ✅ | `/people/[personId]` | **Deep profile** — cross-property timeline, products used, acquisition chain, interests, aliases |
 | ✅ | `/p/[project]/funnels` | URL-encoded builder + drop-off waterfall |
 | ✅ | `/p/[project]/paths` | Sankey + entry/exit/frustration reports |
-| ✅ | `/p/[project]/content` | Content & interest insights — needs-attention, top pages, entry/exit, project-level interest rollup with trend |
+| ✅ | `/p/[project]/content` | Content & interest insights — needs-attention, top pages, entry/exit, project-level interest rollup with trend; "rising interest, thin coverage" rows can auto-draft a page, see §14h |
+| ✅ | `/p/[project]/content/drafts/[id]` | Viewer for an AI-drafted content page — title, meta description, markdown body; see §14h |
 | ✅ | `/p/[project]/retention` | Cohort grid + stickiness distribution |
 | ✅ | `/p/[project]/events` | Event explorer with per-event filtering and session list |
 | ✅ | `/p/[project]/crawlers` | **AI & crawlers** — see §14b |
 | ✅ | `/p/[project]/goals` | Goals CRUD + conversions + three attribution models |
-| ✅ | `/p/[project]/referrals` | Referral link CRUD + click/visitor/conversion leaderboard; see §14d |
-| ✅ | `/r/[code]` | Public redirect for a referral link — outside the auth group, same shape as `/share/[token]` |
+| ✅ | `/p/[project]/referrals` | Referral link CRUD + click/visitor/conversion leaderboard, plus an optional incentive (discount/credit/unlock) per link; see §14d |
+| ✅ | `/r/[code]` | Public redirect for a referral link — outside the auth group, same shape as `/share/[token]`. When the link carries an incentive, an interstitial shows it first (3s meta-refresh, no JS required) before continuing; a link with no incentive redirects exactly as before, no regression |
 | ✅ | `/p/[project]/signals` | AI-generated growth recommendations — content, product, marketing, sales; see §14e |
-| ✅ | `/p/[project]/settings` | Snippet, public link, domains, timezone, identity scope, consent, retention |
-| ✅ | `/settings` | Instance settings — properties, endpoints, workspace |
+| ✅ | `/p/[project]/waitlist` | Owner view of a property's waitlist — join link, ranked entrant table with referral counts; see §14j |
+| ✅ | `/waitlist/[token]` | Public waitlist join form, outside the auth group; reads `?ref=` and shows the entrant their position + personal invite link on success; see §14j |
+| ✅ | `/p/[project]/settings` | Snippet, public link, domains, timezone, identity scope, consent, retention, embeddable badge snippet (see §14i) |
+| ✅ | `/settings` | Instance settings — properties, endpoints (now including the referral-link origin, see §14d), workspace, weekly digest opt-out (§14f), benchmark report link (§14g) |
 | ✅ | `/settings/team` | Members, roles, invitations |
 | ✅ | `/settings/mcp` | API keys + MCP connection config |
 | ✅ | `/settings/new` | Add a property |
 | ✅ | `/insights` | Cross-project builder — metric × dimension × chart, people across products |
 | ✅ | `/alerts` | Delivery channels, rules, firing history |
 | ✅ | `/share/[token]` | Public read-only property summary |
+| ✅ | `/badge/[token]` | Public embeddable "N visitors this month" widget, meant for an `<iframe>` on the property owner's own site; see §14i |
+| ✅ | `/benchmark/[token]` | Public, indexable portfolio-wide "state of X" aggregate report — rollup only, no per-project or per-person data; see §14g |
 | ✅ | `/invite/[token]` | Invitation acceptance, bound to the invited address |
 | ✅ | Auth | better-auth mounted same-origin at `/api/auth`; config shared with the API via `@falorb/auth` |
 | ✅ | SSE live streaming | `/api/live/[project]`, 3s poll, cursor-advanced, 30-min self-close |
@@ -416,7 +426,9 @@ leaderboard pass, not just the UI in isolation.
 | ✅ | Click/visitor/conversion leaderboard | Clicks derived from `events_v` pageviews (same convention as every other acquisition dimension), never a separate counter that could disagree |
 | ✅ | Public redirect | `/r/[code]`, 302, `Cache-Control: no-store`. Unknown/revoked codes redirect to a fallback rather than 404 — a code gates no private data, so there is no reason to make failure indistinguishable the way the share token does |
 | ✅ | Branded domains | Optional `projects.linkDomain`, DNS-verified via CNAME lookup, middleware rewrites a matching Host header's path to `/r/[code]` internally. Requires Node.js-runtime middleware (`export const runtime = "nodejs"`) for the Postgres lookup — confirmed supported by this Next.js version |
-| 🟡 | Playwright coverage | Verified manually (ingest batch → watermark-reset sessionizer run → Postgres → leaderboard, plus a Host-header-spoofed `curl` for the branded-domain rewrite); no `referrals.spec.ts` yet |
+| ✅ | Own subdomain for shared links | `referralLinkUrl()` now prefers `FALORB_REFERRAL_URL` (e.g. `referral.<domain>`) over `FALORB_APP_URL`, so a link someone actually shares doesn't read as the internal dashboard's own address — same app, same `/r/[code]` route, `infra/Caddyfile`/Coolify just proxy the extra hostname to it. Falls back to `FALORB_APP_URL` when unset |
+| ✅ | Incentive layer | Optional `incentiveKind` (`discount`\|`credit`\|`unlock`), `incentiveValue`, `incentiveDescription` per link — a reason to actually share it. When set, `/r/[code]` shows a brief interstitial (the incentive copy, a "Continue" link, a 3s no-JS meta-refresh) before continuing; a link with no incentive still redirects instantly, unchanged. The leaderboard's existing `conversions` count doubles as "credits earned" for `credit`-kind links — no separate accounting |
+| 🟡 | Playwright coverage | Verified manually (ingest batch → watermark-reset sessionizer run → Postgres → leaderboard, plus a Host-header-spoofed `curl` for the branded-domain rewrite, plus a live interstitial/no-regression check for the incentive layer); no `referrals.spec.ts` yet |
 
 ## 14e. AI growth signals — `/p/[project]/signals`
 
@@ -426,14 +438,81 @@ query layer.
 
 | | Feature | Notes |
 |---|---|---|
-| ✅ | Four signal kinds | Content (page performance + interest graph), product (interest graph, different question — deliberately does not claim funnel/drop-off analysis that does not exist yet), marketing (channel breakdown + referral leaderboard), sales |
+| ✅ | Four signal kinds | Content (page performance + interest graph), product (interest graph **and** funnel-agnostic drop-off, see the `topDropoffs` row below — the gap this table used to note is closed), marketing (channel breakdown + referral leaderboard), sales |
+| ✅ | `topDropoffs` closes the product gap | `packages/queries/src/dropoff.ts`. The `path_transitions` rollup table (§4) has no exit sentinel — every row is evidence of *not* leaving — so it can't be ranked for abandonment on its own. Instead it's cross-referenced with `exitPages`'s real per-page exit rate: for every `(fromPath, toPath)` edge, join in `toPath`'s exit rate, rank by `exitShare × transitions`. Reads as "people came from X, landed on Y, and left from Y at an unusually high rate" — sequence-aware abandonment neither existing query provided alone. `exitShare` is the page's overall exit rate, not conditioned on the specific `fromPath` (an approximation, documented in the query itself) |
 | ✅ | Sales: two independent scopes | "This property" reuses `listPeople` sorted by lead score; "across your portfolio" uses `crossProjectPeople`, which floors `minProjects` at 2 and so cannot be forced into a single-project query — the two scopes are genuinely different code paths, not one query with a parameter |
+| ✅ | Sales: structured hot-leads list with actions | The signal panel used to be prose-only. Each hot lead (from the same `hotLeads()` data) now renders as a row with a "Mark contacted" toggle (`persons.contactedAt`/`contactedBy` — a human-only field, deliberately separate from the visitor-supplied, `identify()`-merged `traits` bag) and a "Draft outreach message" button that calls OpenRouter with that one lead's data for a personalized 3-5 sentence draft, shown in a copyable field |
 | ✅ | Portfolio-scoped caching | `ai_signals.projectId` is nullable, mirroring `dashboards.projectId`'s existing precedent for the same reason; a portfolio-wide signal is scoped by `organizationId` instead and reads the same regardless of which project's page triggered it |
 | ✅ | Cached, not generated per page load | 5-minute regenerate cooldown per `(projectId, kind)` pair, same shape as the rate limiting elsewhere in the dashboard |
 | ✅ | Model selection | Defaults to `"openrouter/auto"` (OpenRouter picks per request) rather than pinning one; `OPENROUTER_MODEL` overrides with a single model or a comma-separated fallback list |
 | ✅ | Plain-text output, guaranteed | A prompt instruction against markdown is not reliable on its own — verified live that models still reach for `**bold**` and `##` headers — so `stripMarkdown` strips it programmatically after generation. Deliberately skips underscore-based emphasis: the context data is full of snake_case field names (`utm_source`, `content_tag`) the model echoes back, and a naive single-underscore rule would merge two unrelated words together |
 | ✅ | Graceful failure | No `OPENROUTER_API_KEY` configured, an unreachable upstream, an empty response, and a real `402` (insufficient OpenRouter credits, hit live during testing) all surface as a clear toast, never a crash |
+| ✅ | Shared across web and worker | The OpenRouter call, prompts and markdown-stripping moved to their own package, `packages/ai` — not `@falorb/core`, which is documented as pure/browser-safe and gets bundled into the client; a secret-holding network call must never live there. `apps/web/src/server/ai.ts` re-exports it behind the app's server-only boundary; `apps/worker`'s digest job (§14f) imports it directly |
 | 🟡 | Playwright coverage | Verified manually for all four kinds and both sales scopes, including a real generated recommendation end to end; no automated coverage yet |
+
+## 14f. Weekly digest email
+
+Push instead of pull: the four AI signals used to require opening the
+dashboard and pressing Generate. A worker job now regenerates all of them for
+every property weekly and emails one summary per organization.
+
+| | Feature | Notes |
+|---|---|---|
+| ✅ | `digest` worker job | `apps/worker/src/jobs/digest.ts`, weekly, `skipOnBoot`. Regenerates content/sales/marketing/product for every project in an org with `organizations.weeklyDigestEnabled` (default on), one project's failure caught independently so it can't take down the rest, each result persisted to `ai_signals` same as an on-demand regenerate |
+| ✅ | Recipients | Every `owner`/`admin` member of the org, via `packages/mailer`'s existing Resend/SMTP/log transport chain — no new delivery mechanism |
+| ✅ | Org-level opt-out | `organizations.weeklyDigestEnabled` toggle on `/settings`, gated by `manageProject` |
+
+## 14g. Public benchmark report — `/benchmark/[token]`
+
+A shareable "state of X" page: aggregate rollup stats across an operator's
+whole portfolio, meant to be found and linked to rather than kept private —
+the opposite intent of `/share/[token]`, built on the identical mechanism.
+
+| | Feature | Notes |
+|---|---|---|
+| ✅ | Reuses the `dashboards.publicToken` pattern | Same table `/share/[token]` uses, at the `projectId IS NULL` (portfolio-wide) row — no new schema |
+| ✅ | Aggregate-only query | `packages/queries/src/benchmark.ts` — visitors, sessions, pageviews, bounce rate, average and median session duration, top channels by share. No per-project or per-person figure in the result set, so there is nothing to leak beyond the report's own existence |
+| ✅ | Deliberately indexable | Unlike every other token-gated page in this app, `generateMetadata` explicitly sets `robots: {index:true, follow:true}` — the root layout defaults every page to `noindex`, so omitting the override (rather than setting it) would have silently inherited the private default |
+| ✅ | Issue/rotate/revoke | `BenchmarkShareControl` on `/settings`, gated by the same `share` capability (admin+) as the per-property share link |
+
+## 14h. Content auto-draft — `/p/[project]/content`
+
+The Content page's "rising interest, thin coverage" rows used to be a table
+to read and act on manually. A button now drafts an actual page for that
+topic via OpenRouter, stored for the owner to copy elsewhere — there is no
+CMS integration, so this stops at drafting, not publishing.
+
+| | Feature | Notes |
+|---|---|---|
+| ✅ | One-click draft per topic | `draftContentPage` action, `content_drafts` table (`title`, `metaDescription`, markdown `body`, the source `topic` and interest context) |
+| ✅ | Markdown preserved | `@falorb/ai`'s `complete()` strips markdown by default for prose signals; this caller passes `stripMarkdown: false` (an additive option) since the output is meant to stay markdown |
+| ✅ | Draft viewer | `/p/[project]/content/drafts/[id]`, three copyable fields (title, meta description, body) plus a list of past drafts on the Content page |
+
+## 14i. Public embeddable traffic badge — `/badge/[token]`
+
+A small "N visitors this month" / live-count widget any property can embed
+elsewhere — a Statcounter/Wistia-style backlink loop, reusing the same public
+token `/share/[token]` already mints.
+
+| | Feature | Notes |
+|---|---|---|
+| ✅ | Same token, second surface | No new capability minted — the badge reads the property's existing `dashboards.publicToken`; revoking the share link breaks the badge too, by design |
+| ✅ | Framing carve-out, scoped narrowly | The app's blanket `X-Frame-Options: DENY` (`next.config.mjs`) and CSP `frame-ancestors 'none'` (`src/middleware.ts`) both exclude `/badge/*` specifically — an iframe-embeddable widget cannot carry either — everything else in the app keeps the strict defaults |
+| ✅ | Escaped output | The one owner-controlled string rendered (`domain`/`projectName`) goes through a local `escapeHtml`, since this route intentionally has no CSP to fall back on |
+| ✅ | Cache-Control, not per-view queries | `public, max-age=120, s-maxage=120, stale-while-revalidate=300` — a busy embed doesn't hit ClickHouse on every page load; `resolveShare`/`totals`/`liveCounts` still run `force-dynamic` server-side so a revoked token stops resolving within the cache window, not instantly but not indefinitely either |
+
+## 14j. Waitlist with referral-boosted position — `/p/[project]/waitlist`
+
+An early-access queue where inviting people moves you up it — the most
+classically viral of the growth features, for a property with something
+pre-launch to attach it to.
+
+| | Feature | Notes |
+|---|---|---|
+| ✅ | `waitlist_entries` table | Per-project, unique on `(projectId, email)`; every entrant gets a `referralCode` and may carry a `referredByCode` |
+| ✅ | Position computed live, never stored | Base rank is signup order; each successful referral moves an entrant up 3 spots. Computed with a window function + join, not cached — matches the table's own doc comment on why a stored rank would drift |
+| ✅ | `projects.waitlistToken` gates the public join page | Same nullable-unique-token-by-presence convention as `dashboards.publicToken` |
+| ✅ | Owner view | `/p/[project]/waitlist` — enable/disable, the join link, a ranked entrant table with referral counts |
 
 ## 15. SDKs
 

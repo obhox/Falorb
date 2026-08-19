@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Button, Card, Dialog, Icon, IconButton, Input } from "@falorb/ui";
+import { Badge, Button, Card, Dialog, Icon, IconButton, Input, Select } from "@falorb/ui";
 import { Empty } from "@/components/Empty";
 import { useToast } from "@/components/Toast";
 import { createReferralLink, revokeReferralLink } from "@/server/actions/referrals";
@@ -18,7 +18,17 @@ export interface ReferralLinkView {
   visitors: number;
   conversions: number;
   conversionRate: number;
+  incentiveKind: string | null;
+  incentiveValue: string | null;
 }
+
+/** Matches `INCENTIVE_KINDS` in the server action — label is what the picker shows. */
+const INCENTIVE_LABELS: Record<string, string> = {
+  "": "No incentive",
+  discount: "Discount",
+  credit: "Credit",
+  unlock: "Unlock",
+};
 
 /**
  * Referral links and their attribution.
@@ -35,12 +45,18 @@ export function ReferralsPanel({ slug, links }: { slug: string; links: ReferralL
   const [label, setLabel] = useState("");
   const [code, setCode] = useState("");
   const [destinationUrl, setDestinationUrl] = useState("");
+  const [incentiveKind, setIncentiveKind] = useState("");
+  const [incentiveValue, setIncentiveValue] = useState("");
+  const [incentiveDescription, setIncentiveDescription] = useState("");
 
   async function submit() {
     const data = new FormData();
     data.set("label", label);
     data.set("code", code);
     data.set("destinationUrl", destinationUrl);
+    data.set("incentiveKind", incentiveKind);
+    data.set("incentiveValue", incentiveValue);
+    data.set("incentiveDescription", incentiveDescription);
 
     const result = await run(() => createReferralLink(slug, data), { success: "Referral link created" });
     if (!result?.ok) return;
@@ -49,6 +65,9 @@ export function ReferralsPanel({ slug, links }: { slug: string; links: ReferralL
     setLabel("");
     setCode("");
     setDestinationUrl("");
+    setIncentiveKind("");
+    setIncentiveValue("");
+    setIncentiveDescription("");
   }
 
   async function revoke(linkId: string, linkLabel: string) {
@@ -109,16 +128,22 @@ export function ReferralsPanel({ slug, links }: { slug: string; links: ReferralL
                 <span style={{ display: "grid", gap: 2, minWidth: 0 }}>
                   <span
                     style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 6,
                       fontSize: "var(--size-body-sm)",
                       color: "var(--text-primary)",
                       overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
                     }}
                   >
-                    {link.label}
-                    {!link.active && (
-                      <span style={{ color: "var(--text-muted)" }}> · revoked</span>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {link.label}
+                      {!link.active && (
+                        <span style={{ color: "var(--text-muted)" }}> · revoked</span>
+                      )}
+                    </span>
+                    {link.incentiveKind && link.incentiveValue && (
+                      <Badge tone="accent">{link.incentiveValue}</Badge>
                     )}
                   </span>
                   <span
@@ -136,7 +161,14 @@ export function ReferralsPanel({ slug, links }: { slug: string; links: ReferralL
                 </span>
                 <span style={figure}>{num(link.clicks)}</span>
                 <span style={figure}>{num(link.visitors)}</span>
-                <span style={figure}>{num(link.conversions)}</span>
+                <span style={{ display: "grid", gap: 2, justifyItems: "end" }}>
+                  <span style={figure}>{num(link.conversions)}</span>
+                  {link.incentiveKind === "credit" && (
+                    <span style={{ fontSize: "var(--size-micro)", color: "var(--text-muted)" }}>
+                      credits earned
+                    </span>
+                  )}
+                </span>
                 <span style={figure}>{pct(link.conversionRate)}</span>
                 <IconButton
                   size="sm"
@@ -197,6 +229,43 @@ export function ReferralsPanel({ slug, links }: { slug: string; links: ReferralL
             placeholder="https://acme.example/launch"
             hint="Leave blank to send people to this property's homepage."
           />
+
+          <div style={{ display: "grid", gap: 4 }}>
+            <span style={{ fontSize: "var(--size-body-sm)", color: "var(--text-secondary)" }}>
+              Incentive
+            </span>
+            <Select
+              value={INCENTIVE_LABELS[incentiveKind]}
+              options={Object.values(INCENTIVE_LABELS)}
+              onChange={(pickedLabel: string) => {
+                const entry = Object.entries(INCENTIVE_LABELS).find(([, l]) => l === pickedLabel);
+                if (entry) setIncentiveKind(entry[0]);
+              }}
+            />
+            <span style={{ fontSize: "var(--size-micro)", color: "var(--text-muted)" }}>
+              Give the referee a reason to actually share the link — shown on an interstitial
+              before they continue through.
+            </span>
+          </div>
+
+          {incentiveKind && (
+            <>
+              <Input
+                label="Value"
+                value={incentiveValue}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setIncentiveValue(e.target.value)}
+                placeholder="20% off"
+                hint="Short — this is what's shown big on the interstitial."
+              />
+              <Input
+                label="Description"
+                value={incentiveDescription}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setIncentiveDescription(e.target.value)}
+                placeholder="Applies automatically at checkout for the next 7 days."
+                hint="Optional — longer copy shown under the value."
+              />
+            </>
+          )}
         </div>
       </Dialog>
     </>

@@ -1,4 +1,5 @@
 import {
+  boolean,
   index,
   integer,
   jsonb,
@@ -42,6 +43,8 @@ export const organizations = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     name: text("name").notNull(),
     slug: text("slug").notNull(),
+    /** Weekly summary of all four AI signals, emailed by the digest worker job. */
+    weeklyDigestEnabled: boolean("weekly_digest_enabled").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -100,6 +103,13 @@ export const projects = pgTable(
      */
     linkDomain: text("link_domain"),
 
+    /**
+     * Secret token gating the public `/waitlist/[token]` join widget. Null
+     * (the default) means the waitlist is off — same on/off-by-presence
+     * convention as `dashboards.publicToken`.
+     */
+    waitlistToken: text("waitlist_token"),
+
     /** Embedded in the tracker snippet. Public by design. */
     publicKey: text("public_key").notNull(),
     /** SHA-256 of the server-side API secret. The secret itself is shown once. */
@@ -133,6 +143,7 @@ export const projects = pgTable(
     uniqueIndex("projects_uuid_uq").on(t.uuid),
     uniqueIndex("projects_org_slug_uq").on(t.organizationId, t.slug),
     uniqueIndex("projects_link_domain_uq").on(t.linkDomain),
+    uniqueIndex("projects_waitlist_token_uq").on(t.waitlistToken),
     index("projects_org_idx").on(t.organizationId),
   ],
 );

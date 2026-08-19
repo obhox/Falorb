@@ -50,6 +50,13 @@
       "when": 1787091103060,
       "tag": "0006_lonely_sentinel",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1787097854131,
+      "tag": "0007_legal_lila_cheney",
+      "breakpoints": true
     }
   ]
 }

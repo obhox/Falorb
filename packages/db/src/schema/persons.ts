@@ -12,6 +12,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { organizations, projects } from "./tenancy";
+import { user } from "./auth";
 
 /**
  * Persons live in Postgres, not ClickHouse, because a person profile mutates
@@ -114,6 +115,12 @@ export const persons = pgTable(
 
     /** Heuristic engagement score surfaced in the people list. */
     leadScore: integer("lead_score").notNull().default(0),
+
+    /** Owner-set sales outreach marker — distinct from `traits`, which is
+     * visitor-supplied via `identify()` and merged unpredictably; this is
+     * only ever written by a human clicking "mark as contacted". */
+    contactedAt: timestamp("contacted_at", { withTimezone: true }),
+    contactedBy: text("contacted_by").references(() => user.id, { onDelete: "set null" }),
 
     /**
      * Set when the person exercises a GDPR erasure request. The row is

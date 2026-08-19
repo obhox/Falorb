@@ -1,6 +1,6 @@
 import "server-only";
 import { randomBytes } from "node:crypto";
-import { and, eq, isNotNull } from "drizzle-orm";
+import { and, eq, isNotNull, isNull } from "drizzle-orm";
 import { db, schema } from "@falorb/db";
 
 /**
@@ -118,6 +118,119 @@ export interface SharedProject {
   projectName: string;
   domain: string | null;
   timezone: string;
+}
+
+/**
+ * Portfolio-wide sharing.
+ *
+ * Same `dashboards` row, same `publicToken` mechanism — just the branch
+ * `dashboards.projectId` being nullable was designed for: `projectId IS NULL`
+ * means "spans the whole organization" rather than one property. Kept as
+ * separate functions rather than an optional `projectId` parameter on the
+ * existing ones so the project-scoped path — read concurrently elsewhere —
+ * cannot change shape underneath it.
+ */
+
+/** The live organization-wide share, or null when it is not shared. */
+export async function getOrgShare(organizationId: string): Promise<DashboardRow | null> {
+  const [row] = await db()
+    .select()
+    .from(schema.dashboards)
+    .where(
+      and(
+        eq(schema.dashboards.organizationId, organizationId),
+        isNull(schema.dashboards.projectId),
+        isNotNull(schema.dashboards.publicToken),
+      ),
+    )
+    .limit(1);
+
+  return row ?? null;
+}
+
+/** Issue a portfolio-wide link, or rotate the existing one. */
+export async function shareOrganization(
+  organizationId: string,
+  createdBy: string,
+  name: string,
+): Promise<string> {
+  const token = randomBytes(TOKEN_BYTES).toString("base64url");
+  const database = db();
+
+  const [existing] = await database
+    .select()
+    .from(schema.dashboards)
+    .where(
+      and(
+        eq(schema.dashboards.organizationId, organizationId),
+        isNull(schema.dashboards.projectId),
+      ),
+    )
+    .limit(1);
+
+  if (existing) {
+    await database
+      .update(schema.dashboards)
+      .set({ publicToken: token, updatedAt: new Date() })
+      .where(eq(schema.dashboards.id, existing.id));
+    return token;
+  }
+
+  await database.insert(schema.dashboards).values({
+    organizationId,
+    projectId: null,
+    name: `${name} — benchmark`,
+    publicToken: token,
+    createdBy,
+  });
+
+  return token;
+}
+
+/** Revoke the portfolio-wide link. The row survives so re-sharing keeps its name. */
+export async function unshareOrganization(organizationId: string): Promise<boolean> {
+  const [updated] = await db()
+    .update(schema.dashboards)
+    .set({ publicToken: null, updatedAt: new Date() })
+    .where(
+      and(
+        eq(schema.dashboards.organizationId, organizationId),
+        isNull(schema.dashboards.projectId),
+      ),
+    )
+    .returning();
+
+  return Boolean(updated);
+}
+
+export interface SharedOrganization {
+  organizationId: string;
+  organizationName: string;
+}
+
+/**
+ * Resolve a token to the organization it exposes.
+ *
+ * Same bounded validation as `resolveShare`. No archived-check: organizations
+ * have no archive concept here (see `packages/db/src/schema/tenancy.ts`), so
+ * a revoked token is the only way this stops resolving.
+ */
+export async function resolveBenchmarkShare(token: string): Promise<SharedOrganization | null> {
+  if (!token || token.length > 128 || !/^[A-Za-z0-9_-]+$/.test(token)) return null;
+
+  const [row] = await db()
+    .select({
+      organizationId: schema.organizations.id,
+      organizationName: schema.organizations.name,
+    })
+    .from(schema.dashboards)
+    .innerJoin(schema.organizations, eq(schema.organizations.id, schema.dashboards.organizationId))
+    .where(and(eq(schema.dashboards.publicToken, token), isNull(schema.dashboards.projectId)))
+    .limit(1);
+
+  if (!row) return null;
+
+  return row;
 }
 
 /**

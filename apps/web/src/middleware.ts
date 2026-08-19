@@ -127,7 +127,12 @@ export const config = {
      * layer that can buffer it.
      */
     {
-      source: "/((?!api/live|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|woff2?)$).*)",
+      // `badge/` is excluded too: it sets `frame-ancestors 'none'` below,
+      // which would stop the public embeddable badge (see
+      // `src/app/badge/[token]/route.ts`) from ever rendering inside the
+      // <iframe> on a property owner's own site that is the entire point of
+      // it. That route sets its own, lighter headers instead.
+      source: "/((?!api/live|badge/|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|woff2?)$).*)",
       missing: [
         { type: "header", key: "next-router-prefetch" },
         { type: "header", key: "purpose", value: "prefetch" },

@@ -12,6 +12,7 @@ import { scoreInterests } from "./jobs/interest-scorer";
 import { evaluateAlerts } from "./jobs/alerts";
 import { dispatchWebhooks, reviveWebhooks } from "./jobs/webhooks";
 import { enforceRetention, processDataRequests, pruneOrphanedPersons } from "./jobs/retention-gc";
+import { sendWeeklyDigests } from "./jobs/digest";
 
 /**
  * Worker entrypoint.
@@ -166,6 +167,18 @@ scheduler.add({
   run: () => optimizeAggregates(context),
 });
 
+// Weekly, and skipped at boot for the same reason as retention/optimize
+// above: a restart should not immediately blast every org's inboxes.
+scheduler.add({
+  name: "digest",
+  intervalMs: 7 * 24 * 60 * MINUTE,
+  timeoutMs: 10 * MINUTE,
+  skipOnBoot: true,
+  run: async () => {
+    await sendWeeklyDigests(context);
+  },
+});
+
 // Reclaim stream entries orphaned by a writer that died before acknowledging.
 const reclaimTimer = setInterval(() => {
   void writer.reclaimStale().catch((e) => console.error("[reclaim]", String(e)));
@@ -198,7 +211,7 @@ process.on("SIGTERM", () => void shutdown("SIGTERM"));
 process.on("SIGINT", () => void shutdown("SIGINT"));
 
 console.log(
-  `[worker] ${instanceId} started — ${context.projectIds.length} active projects, ${13} scheduled jobs`,
+  `[worker] ${instanceId} started — ${context.projectIds.length} active projects, ${14} scheduled jobs`,
 );
 
 await writer.start();

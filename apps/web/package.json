@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@clickhouse/client": "^1.10.1",
+    "@falorb/ai": "workspace:*",
     "@falorb/auth": "workspace:*",
     "@falorb/core": "workspace:*",
     "@falorb/db": "workspace:*",

@@ -117,6 +117,18 @@ export const referralLinks = pgTable(
     label: text("label").notNull(),
     /** Null resolves to the project's primary domain at redirect time. */
     destinationUrl: text("destination_url"),
+    /**
+     * Optional incentive shown on the `/r/[code]` interstitial before the
+     * visitor is redirected — the reason someone actually shares the link.
+     * `incentiveKind` is app-validated ("discount" | "credit" | "unlock"),
+     * kept as text rather than a pg enum to match `aiSignals.kind`'s
+     * convention for small, UI-driven vocabularies.
+     */
+    incentiveKind: text("incentive_kind"),
+    /** Short display value, e.g. "20% off" or "1 month free". */
+    incentiveValue: text("incentive_value"),
+    /** Longer copy shown on the interstitial page. */
+    incentiveDescription: text("incentive_description"),
     createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
@@ -224,4 +236,64 @@ export const dashboardWidgets = pgTable(
     position: integer("position").notNull().default(0),
   },
   (t) => [index("dashboard_widgets_dashboard_idx").on(t.dashboardId)],
+);
+
+/**
+ * An AI-drafted landing/content page for a topic the Content page flagged as
+ * "rising interest, thin coverage" — real visitor demand with no page
+ * serving it yet. Drafted, not published: Falorb has no CMS integration, so
+ * this stores the copy for the owner to paste elsewhere rather than shipping
+ * it live itself.
+ */
+export const contentDrafts = pgTable(
+  "content_drafts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    projectId: integer("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    /** The interest-graph topic this draft was generated for. */
+    topic: text("topic").notNull(),
+    title: text("title").notNull(),
+    metaDescription: text("meta_description").notNull(),
+    /** Markdown body. */
+    body: text("body").notNull(),
+    createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
+    generatedAt: timestamp("generated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("content_drafts_project_idx").on(t.projectId),
+    index("content_drafts_org_idx").on(t.organizationId),
+  ],
+);
+
+/**
+ * One row per waitlist signup. `referralCode` is minted for every entrant so
+ * they can move up the list by inviting others; `referredByCode` records
+ * whose invite they arrived through. Position is never stored — it is always
+ * computed live from signup order plus referral count, so it can't drift out
+ * of sync the way a cached rank would.
+ */
+export const waitlistEntries = pgTable(
+  "waitlist_entries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    projectId: integer("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    email: text("email").notNull(),
+    name: text("name"),
+    referralCode: text("referral_code").notNull(),
+    referredByCode: text("referred_by_code"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("waitlist_entries_project_email_uq").on(t.projectId, t.email),
+    uniqueIndex("waitlist_entries_referral_code_uq").on(t.referralCode),
+    index("waitlist_entries_project_idx").on(t.projectId),
+    index("waitlist_entries_referred_by_idx").on(t.referredByCode),
+  ],
 );

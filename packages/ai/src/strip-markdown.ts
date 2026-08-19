@@ -1,17 +1,16 @@
 /**
  * Strip markdown syntax from a short block of AI-generated text.
  *
- * Used to clean up `generateSignal`'s output before it's cached and rendered
- * as plain text with no markdown renderer — an instruction alone isn't
- * reliable, models are trained on enough markdown-formatted "advice" text
- * that they reach for `**bold**` and `##` headers out of habit even when told
- * not to, so unstripped syntax would otherwise show up as literal asterisks
- * and hashes on screen.
+ * Used to clean up model output before it's cached and rendered as plain
+ * text with no markdown renderer — an instruction alone isn't reliable,
+ * models are trained on enough markdown-formatted "advice" text that they
+ * reach for `**bold**` and `##` headers out of habit even when told not to,
+ * so unstripped syntax would otherwise show up as literal asterisks and
+ * hashes on screen.
  *
  * A light regex pass, not a full parser — good enough for the handful of
  * constructs a short LLM response actually uses (emphasis, headers, list
- * markers). Pure and dependency-free so it can live in `@/lib` and be tested
- * without pulling in the server-only module that calls it.
+ * markers).
  *
  * Deliberately does not touch single/double underscores as italic/bold
  * markers: the context data these signals are generated from is full of

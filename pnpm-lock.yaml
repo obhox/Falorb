@@ -140,6 +140,9 @@ importers:
       '@clickhouse/client':
         specifier: ^1.10.1
         version: 1.23.1
+      '@falorb/ai':
+        specifier: workspace:*
+        version: link:../../packages/ai
       '@falorb/auth':
         specifier: workspace:*
         version: link:../../packages/auth
@@ -201,6 +204,9 @@ importers:
       '@clickhouse/client':
         specifier: ^1.23.1
         version: 1.23.1
+      '@falorb/ai':
+        specifier: workspace:*
+        version: link:../../packages/ai
       '@falorb/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -226,6 +232,18 @@ importers:
       tsx:
         specifier: ^4.19.2
         version: 4.23.12
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.5
+        version: 3.2.7(@types/node@22.20.1)(tsx@4.23.12)
+
+  packages/ai:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.5
+        version: 22.20.1
       typescript:
         specifier: ^5.7.3
         version: 5.9.3

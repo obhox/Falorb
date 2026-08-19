@@ -24,6 +24,7 @@ export type {
   BreakdownRow,
   ContentInterestRow,
   DateRange,
+  DropoffRow,
   Filter,
   FunnelOptions,
   FunnelStep,
@@ -81,6 +82,8 @@ export const entryPages = (o: q.QueryScope & { limit?: number }) => q.entryPages
 export const frustration = (o: q.QueryScope & { limit?: number }) => q.frustration(ch(), o);
 export const contentInterests = (o: q.QueryScope & { limit?: number }) =>
   q.contentInterests(ch(), o);
+export const topDropoffs = (o: q.QueryScope & { limit?: number; minPageviews?: number }) =>
+  q.topDropoffs(ch(), o);
 export const referralClicks = (o: q.QueryScope & { limit?: number }) =>
   q.referralClicks(ch(), o);
 

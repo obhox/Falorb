@@ -1,5 +1,6 @@
 import { requireProject } from "@/server/session";
 import { getLatestSignal, type AiSignalRow } from "@/server/signals";
+import { hotLeads } from "@/server/sales";
 import { PageBody } from "@/components/shell/PageHeader";
 import { one, resolveRange, type SearchParams } from "@/lib/range";
 import { MarketingSignalPanel } from "./MarketingSignalPanel";
@@ -30,7 +31,7 @@ export default async function SignalsPage({
   params: Promise<{ project: string }>;
   searchParams: Promise<SearchParams>;
 }) {
-  const { project } = await requireProject((await params).project);
+  const { session, project } = await requireProject((await params).project);
   const search = await searchParams;
   const resolved = resolveRange({
     range: one(search, "range"),
@@ -38,13 +39,22 @@ export default async function SignalsPage({
     to: one(search, "to"),
   });
 
-  const [marketing, content, product, salesProject, salesPortfolio] = await Promise.all([
-    getLatestSignal(project.id, "marketing"),
-    getLatestSignal(project.id, "content"),
-    getLatestSignal(project.id, "product"),
-    getLatestSignal(project.id, "sales"),
-    getLatestSignal(null, "sales"),
-  ]);
+  const [marketing, content, product, salesProject, salesPortfolio, leadsProject, leadsPortfolio] =
+    await Promise.all([
+      getLatestSignal(project.id, "marketing"),
+      getLatestSignal(project.id, "content"),
+      getLatestSignal(project.id, "product"),
+      getLatestSignal(project.id, "sales"),
+      getLatestSignal(null, "sales"),
+      hotLeads(session.workspace.organizationId, "project", [project.id], resolved.range, 20),
+      hotLeads(
+        session.workspace.organizationId,
+        "portfolio",
+        session.projects.map((p) => p.id),
+        resolved.range,
+        20,
+      ),
+    ]);
 
   return (
     <PageBody>
@@ -55,6 +65,7 @@ export default async function SignalsPage({
         slug={project.slug}
         range={resolved.range}
         signals={{ project: toView(salesProject), portfolio: toView(salesPortfolio) }}
+        leads={{ project: leadsProject, portfolio: leadsPortfolio }}
       />
     </PageBody>
   );

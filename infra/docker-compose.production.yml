@@ -241,6 +241,13 @@ services:
       # rejected by the other.
       BETTER_AUTH_SECRET: ${SERVICE_BASE64_64_AUTH}
       FALORB_APP_URL: https://dashboard.${FALORB_DOMAIN}
+      # Referral links (`/r/<code>`) are served from this same container, but
+      # displayed and shared under their own hostname rather than the
+      # dashboard's — see `apps/web/src/server/referrals.ts`. Requires
+      # `referral.${FALORB_DOMAIN}` added as an additional domain on this
+      # service in the Coolify console (see infra/DEPLOY.md) since a compose
+      # service's `SERVICE_FQDN_*` only wires one hostname automatically.
+      FALORB_REFERRAL_URL: https://referral.${FALORB_DOMAIN}
       FALORB_API_URL: https://api.${FALORB_DOMAIN}
       FALORB_INGEST_URL: https://a.${FALORB_DOMAIN}
       FALORB_MCP_URL: https://mcp.${FALORB_DOMAIN}/mcp

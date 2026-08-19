@@ -21,6 +21,9 @@ export interface HotLead {
   interestScores: unknown;
   /** How many of the organization's properties this person has been seen on. */
   projectCount: number;
+  /** Owner-set outreach marker — see `persons.contactedAt` in the schema. */
+  contactedAt: string | null;
+  contactedBy: string | null;
 }
 
 /**
@@ -113,5 +116,38 @@ function toHotLead(
     companyIndustry,
     interestScores: person.interestScores,
     projectCount,
+    contactedAt: person.contactedAt?.toISOString() ?? null,
+    contactedBy: person.contactedBy,
   };
+}
+
+/**
+ * One lead by person id, for drafting an outreach message about them.
+ *
+ * Scoped by `organizationId` only, not by a project — the "portfolio" scope
+ * of `hotLeads` above can surface a person whose alias rows sit on a
+ * different project than whatever page the caller is standing on, and the
+ * outreach draft is about the person, not about the property.
+ */
+export async function getHotLead(personId: string, organizationId: string): Promise<HotLead | null> {
+  const [row] = await db()
+    .select({
+      person: schema.persons,
+      companyName: schema.companies.name,
+      companyDomain: schema.companies.domain,
+      companyIndustry: schema.companies.industry,
+    })
+    .from(schema.persons)
+    .leftJoin(schema.companies, eq(schema.companies.id, schema.persons.companyId))
+    .where(
+      and(
+        eq(schema.persons.id, personId),
+        eq(schema.persons.organizationId, organizationId),
+        isNull(schema.persons.deletedAt),
+      ),
+    )
+    .limit(1);
+
+  if (!row) return null;
+  return toHotLead(row.person, row.companyName, row.companyDomain, row.companyIndustry, row.person.projectIds.length);
 }

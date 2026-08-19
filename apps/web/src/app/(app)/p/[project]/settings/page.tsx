@@ -11,6 +11,7 @@ import { PageBody } from "@/components/shell/PageHeader";
 import { CopyField } from "@/components/CopyField";
 import { SettingsForm } from "./SettingsForm";
 import { ShareControl } from "./ShareControl";
+import { BadgeEmbedControl } from "./BadgeEmbedControl";
 import { ConnectionPanel } from "./ConnectionPanel";
 import { ProjectCreatedTracker } from "./ProjectCreatedTracker";
 
@@ -74,12 +75,19 @@ export default async function ProjectSettingsPage({
       </Card>
 
       {can.share(session.workspace.role) && (
+      <>
       <ShareControl
         slug={project.slug}
         initialUrl={
           share?.publicToken ? `${origin.replace(/\/$/, "")}/share/${share.publicToken}` : null
         }
       />
+      <BadgeEmbedControl
+        slug={project.slug}
+        initialToken={share?.publicToken ?? null}
+        origin={origin.replace(/\/$/, "")}
+      />
+      </>
       )}
 
       <SettingsForm

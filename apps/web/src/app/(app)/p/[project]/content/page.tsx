@@ -1,10 +1,13 @@
 import { Card } from "@falorb/ui";
 import { requireProject } from "@/server/session";
 import { breakdown, contentInterests, entryPages, exitPages } from "@/server/analytics";
+import { listContentDrafts } from "@/server/actions/content-draft";
 import { PageBody } from "@/components/shell/PageHeader";
 import { BreakdownCard } from "@/components/BreakdownCard";
 import { Empty } from "@/components/Empty";
 import { Table } from "@/components/Table";
+import { RisingThinPanel } from "./RisingThinPanel";
+import { DraftsCard } from "./DraftsCard";
 import { delta, num, pct, signedPct } from "@/lib/format";
 import { one, resolveRange, type SearchParams } from "@/lib/range";
 
@@ -42,12 +45,13 @@ export default async function ContentPage({
 
   const scope = { projectIds: [project.id], range: resolved.range };
 
-  const [pages, entries, exits, interests, interestsPrevious] = await Promise.all([
+  const [pages, entries, exits, interests, interestsPrevious, drafts] = await Promise.all([
     breakdown({ ...scope, field: "path", limit: 15 }),
     entryPages({ ...scope, limit: 10 }),
     exitPages({ ...scope, limit: 10, minPageviews: 10 }),
     contentInterests({ ...scope, limit: 15 }),
     contentInterests({ projectIds: [project.id], range: resolved.previous, limit: 15 }),
+    listContentDrafts(project.slug),
   ]);
 
   // High-traffic pages that are also losing people — the concrete "what's not
@@ -166,21 +170,19 @@ export default async function ContentPage({
       </Card>
 
       {risingThin.length > 0 && (
-        <Card
-          title="Rising interest, thin coverage"
-          subtitle="Growing topics backed by only a page or two — the concrete case for what to write next"
-        >
-          <Table
-            head={["Topic", "Visitors", "Change", "Pages"]}
-            rows={risingThin.map((row) => [
-              row.topic,
-              num(row.visitors),
-              row.isNew ? "New" : signedPct(row.changePct),
-              num(row.distinct_paths),
-            ])}
-          />
-        </Card>
+        <RisingThinPanel
+          slug={project.slug}
+          rows={risingThin.map((row) => ({
+            topic: row.topic,
+            visitors: row.visitors,
+            isNew: row.isNew,
+            changePct: row.changePct,
+            distinctPaths: row.distinct_paths,
+          }))}
+        />
       )}
+
+      {drafts.length > 0 && <DraftsCard slug={project.slug} drafts={drafts} />}
     </PageBody>
   );
 }

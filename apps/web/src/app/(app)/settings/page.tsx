@@ -1,14 +1,19 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { eq } from "drizzle-orm";
 import { Badge, Button, Card, Icon } from "@falorb/ui";
 import { can, ROLE_LABELS, type MemberRole } from "@falorb/db";
+import { db, schema } from "@falorb/db";
 import { requireSession } from "@/server/session";
 import { getDomainStatuses } from "@/server/connection";
+import { getOrgShare } from "@/server/sharing";
 import { PageBody, PageHeader } from "@/components/shell/PageHeader";
 import { CopyField } from "@/components/CopyField";
 import { DomainTestChips } from "@/components/DomainTest";
 import { Empty } from "@/components/Empty";
 import { num, shortDate } from "@/lib/format";
+import { DigestToggle } from "./DigestToggle";
+import { BenchmarkShareControl } from "./BenchmarkShareControl";
 
 export const metadata: Metadata = { title: "Settings" };
 export const dynamic = "force-dynamic";
@@ -32,6 +37,19 @@ export default async function InstanceSettingsPage() {
   const ingest = process.env.FALORB_INGEST_URL ?? "http://localhost:3001";
   const app = process.env.FALORB_APP_URL ?? "http://localhost:3000";
   const api = process.env.FALORB_API_URL ?? "http://localhost:3003";
+  const referral = process.env.FALORB_REFERRAL_URL ?? app;
+
+  const [[org], orgShare] = await Promise.all([
+    db()
+      .select({ weeklyDigestEnabled: schema.organizations.weeklyDigestEnabled })
+      .from(schema.organizations)
+      .where(eq(schema.organizations.id, session.workspace.organizationId))
+      .limit(1),
+    getOrgShare(session.workspace.organizationId),
+  ]);
+  const benchmarkUrl = orgShare?.publicToken
+    ? `${app.replace(/\/$/, "")}/benchmark/${orgShare.publicToken}`
+    : null;
 
   return (
     <>
@@ -163,6 +181,7 @@ export default async function InstanceSettingsPage() {
           <div style={{ display: "grid", gap: "var(--space-7)" }}>
             <CopyField label="Collector" value={ingest} />
             <CopyField label="Dashboard" value={app} />
+            <CopyField label="Referral links" value={referral} />
             <CopyField label="API" value={api} />
             <p
               style={{
@@ -199,6 +218,13 @@ export default async function InstanceSettingsPage() {
             </p>
           </div>
         </Card>
+
+        <DigestToggle
+          weeklyDigestEnabled={org?.weeklyDigestEnabled ?? true}
+          canEdit={can.manageProject(session.workspace.role)}
+        />
+
+        {can.share(session.workspace.role) && <BenchmarkShareControl initialUrl={benchmarkUrl} />}
       </PageBody>
     </>
   );

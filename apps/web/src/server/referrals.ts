@@ -10,9 +10,21 @@ const CODE_LOOKUP_PATTERN = /^[a-z0-9](?:[a-z0-9-]{1,62}[a-z0-9])?$/;
 /** A bare, lowercase hostname — no scheme, no path, no trailing dot. */
 export const LINK_DOMAIN_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
 
-/** `${FALORB_APP_URL}/r/<code>` — the same env var every other shareable link uses. */
+/**
+ * `${FALORB_REFERRAL_URL}/r/<code>` — a dedicated subdomain (e.g.
+ * `referral.<domain>`) rather than `FALORB_APP_URL`, so a link someone
+ * actually shares doesn't read as the internal dashboard's own address.
+ * Same Next.js app, same `/r/[code]` route — `infra/Caddyfile` just proxies
+ * this hostname to the same upstream as `dashboard.<domain>`. Falls back to
+ * `FALORB_APP_URL` when unset, so this stays backward compatible for any
+ * deployment that hasn't added the new hostname yet.
+ */
 export function referralLinkUrl(code: string): string {
-  const origin = (process.env.FALORB_APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
+  const origin = (
+    process.env.FALORB_REFERRAL_URL ??
+    process.env.FALORB_APP_URL ??
+    "http://localhost:3000"
+  ).replace(/\/$/, "");
   return `${origin}/r/${code}`;
 }
 
@@ -21,9 +33,10 @@ export function brandedReferralLinkUrl(linkDomain: string, code: string): string
   return `https://${linkDomain}/${code}`;
 }
 
-/** Hostname a branded link domain's CNAME should point at — this app's own origin. */
+/** Hostname a branded link domain's CNAME should point at — this app's own referral origin. */
 export function linkDomainTarget(): string {
-  const origin = process.env.FALORB_APP_URL ?? "http://localhost:3000";
+  const origin =
+    process.env.FALORB_REFERRAL_URL ?? process.env.FALORB_APP_URL ?? "http://localhost:3000";
   return new URL(origin).hostname;
 }
 
@@ -133,6 +146,9 @@ export interface ReferralRedirectTarget {
   destinationUrl: string | null;
   /** The property's primary domain, used when no explicit destination is set. */
   domain: string | null;
+  incentiveKind: string | null;
+  incentiveValue: string | null;
+  incentiveDescription: string | null;
 }
 
 /**
@@ -155,6 +171,9 @@ export async function resolveReferralLink(code: string): Promise<ReferralRedirec
       destinationUrl: schema.referralLinks.destinationUrl,
       domains: schema.projects.domains,
       archivedAt: schema.projects.archivedAt,
+      incentiveKind: schema.referralLinks.incentiveKind,
+      incentiveValue: schema.referralLinks.incentiveValue,
+      incentiveDescription: schema.referralLinks.incentiveDescription,
     })
     .from(schema.referralLinks)
     .innerJoin(schema.projects, eq(schema.projects.id, schema.referralLinks.projectId))
@@ -163,5 +182,12 @@ export async function resolveReferralLink(code: string): Promise<ReferralRedirec
 
   if (!row || row.archivedAt) return null;
 
-  return { code: row.code, destinationUrl: row.destinationUrl, domain: row.domains[0] ?? null };
+  return {
+    code: row.code,
+    destinationUrl: row.destinationUrl,
+    domain: row.domains[0] ?? null,
+    incentiveKind: row.incentiveKind,
+    incentiveValue: row.incentiveValue,
+    incentiveDescription: row.incentiveDescription,
+  };
 }

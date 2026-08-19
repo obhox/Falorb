@@ -15,6 +15,7 @@ import {
   liveFeed,
   liveVisitors,
   pathTransitions,
+  topDropoffs,
   personInterests,
   personList,
   personProjects,
@@ -143,6 +144,7 @@ async function main(): Promise<void> {
   await check("exit pages", () => exitPages(client, { ...scope, minPageviews: 1 }));
   await check("entry pages", () => entryPages(client, scope));
   await check("frustration", () => frustration(client, scope));
+  await check("top dropoffs", () => topDropoffs(client, { ...scope, minPageviews: 1 }));
 
   console.log("\nsessions");
   await check("session list", () => sessionList(client, scope));

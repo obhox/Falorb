@@ -57,11 +57,16 @@ const nextConfig = {
    *
    * The Content-Security-Policy is deliberately *not* here: it carries a
    * per-request nonce and so must be generated in `src/middleware.ts`.
+   *
+   * `/badge` is excluded from this blanket rule and gets its own, lighter set
+   * below: it is a public widget meant to be embedded in an <iframe> on a
+   * property owner's own site, and `X-Frame-Options: DENY` would break the
+   * entire feature by refusing to render there at all.
    */
   async headers() {
     return [
       {
-        source: "/:path*",
+        source: "/:path((?!badge/).*)",
         headers: [
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "X-Frame-Options", value: "DENY" },
@@ -79,6 +84,24 @@ const nextConfig = {
           // it through shared process state.
           { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
           { key: "Cross-Origin-Resource-Policy", value: "same-origin" },
+          { key: "X-DNS-Prefetch-Control", value: "off" },
+        ],
+      },
+      {
+        // No X-Frame-Options and no Cross-Origin-* isolation here — the badge
+        // is public, read-only, and has to be embeddable by definition.
+        source: "/badge/:token*",
+        headers: [
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+          {
+            key: "Strict-Transport-Security",
+            value: "max-age=63072000; includeSubDomains; preload",
+          },
+          {
+            key: "Permissions-Policy",
+            value: "geolocation=(), microphone=(), camera=(), payment=(), usb=(), interest-cohort=()",
+          },
           { key: "X-DNS-Prefetch-Control", value: "off" },
         ],
       },

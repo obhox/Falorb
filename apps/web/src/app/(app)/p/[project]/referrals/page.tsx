@@ -65,6 +65,8 @@ export default async function ReferralsPage({
     visitors: row.visitors,
     conversions: row.conversions,
     conversionRate: row.conversionRate,
+    incentiveKind: row.link.incentiveKind,
+    incentiveValue: row.link.incentiveValue,
   }));
 
   const totalClicks = views.reduce((sum, v) => sum + v.clicks, 0);

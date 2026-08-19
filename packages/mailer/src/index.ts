@@ -207,6 +207,13 @@ export class Mailer {
   }
 }
 
+/** Shared instance across worker jobs; constructing one per job would be wasteful. */
+let sharedMailer: Mailer | undefined;
+export function mailer(): Mailer {
+  sharedMailer ??= new Mailer();
+  return sharedMailer;
+}
+
 function indent(text: string): string {
   return text
     .split("\n")
@@ -275,5 +282,35 @@ export function alertMail(to: string, alertName: string, message: string, url?: 
     to,
     subject: `Falorb alert: ${alertName}`,
     text: [message, ...(url ? ["", url] : [])].join("\n"),
+  };
+}
+
+export function digestMail(
+  to: string,
+  sections: Array<{
+    projectName: string;
+    content?: string;
+    sales?: string;
+    marketing?: string;
+    product?: string;
+  }>,
+): Mail {
+  const body = sections.flatMap((section) => [
+    section.projectName,
+    ...(section.content ? [`Content: ${section.content}`] : []),
+    ...(section.sales ? [`Sales: ${section.sales}`] : []),
+    ...(section.marketing ? [`Marketing: ${section.marketing}`] : []),
+    ...(section.product ? [`Product: ${section.product}`] : []),
+    "",
+  ]);
+
+  return {
+    to,
+    subject: "Your weekly Falorb digest",
+    text: [
+      "This week's AI growth signals across your properties, regenerated so you don't have to open the dashboard to check them yourself.",
+      "",
+      ...body,
+    ].join("\n"),
   };
 }

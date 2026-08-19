@@ -5,7 +5,7 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@falorb/db";
 import type { DateRange } from "@falorb/queries";
 import { requireProject } from "@/server/session";
-import { breakdown, contentInterests, entryPages, exitPages } from "@/server/analytics";
+import { breakdown, contentInterests, entryPages, exitPages, topDropoffs } from "@/server/analytics";
 import { hotLeads } from "@/server/sales";
 import { listReferralLinks, referralLeaderboard } from "@/server/referrals";
 import { AiSignalError, generateSignal } from "@/server/ai";
@@ -239,14 +239,15 @@ export async function regenerateMarketingSignal(slug: string, range: DateRange):
 /**
  * Generates and caches the Content page's product-gap recommendation.
  *
- * Reuses the exact same `contentInterests` fetch `regenerateContentSignal`
- * already makes — same data, a different system prompt (product-gap framing
- * rather than content-priority framing). There is no cross-funnel drop-off
- * query in this codebase yet (confirmed: `packages/queries/src/funnels.ts`
- * needs a caller-supplied funnel definition per call, nothing aggregates
- * across every stored funnel the way `goals.ts` does for goals) — v1
- * deliberately relies on the interest/coverage gap alone; cross-funnel
- * drop-off is a real fast-follow, not something to silently imply happened.
+ * Builds on the same `contentInterests` fetch `regenerateContentSignal`
+ * already makes — same interest data, a different system prompt (product-gap
+ * framing rather than content-priority framing) — and adds `topDropoffs`
+ * (`packages/queries/src/dropoff.ts`), which cross-references the
+ * `path_transitions` rollup with `exitPages`' real exit rates to surface
+ * sequence-aware abandonment ("came from X, landed on Y, left from Y at an
+ * unusually high rate"). That closes the gap noted in FEATURES.md §14e: the
+ * product signal now reasons over actual behavioral drop-off, not just
+ * topic-interest popularity.
  */
 export async function regenerateProductSignal(slug: string, range: DateRange): Promise<ActionResult> {
   const { session, project } = await requireProject(slug);
@@ -268,9 +269,10 @@ export async function regenerateProductSignal(slug: string, range: DateRange): P
   const span = range.to - range.from;
   const previousRange: DateRange = { from: range.from - span, to: range.from };
 
-  const [interests, interestsPrevious] = await Promise.all([
+  const [interests, interestsPrevious, dropoffs] = await Promise.all([
     contentInterests({ projectIds: [project.id], range, limit: 15 }),
     contentInterests({ projectIds: [project.id], range: previousRange, limit: 15 }),
+    topDropoffs({ projectIds: [project.id], range, limit: 15 }),
   ]);
 
   let body: string;
@@ -279,6 +281,7 @@ export async function regenerateProductSignal(slug: string, range: DateRange): P
       dateRange: range,
       interests,
       interestsPreviousPeriod: interestsPrevious,
+      dropoffs,
     });
   } catch (error) {
     return {

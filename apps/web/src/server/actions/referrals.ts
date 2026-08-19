@@ -18,6 +18,14 @@ import { deny } from "./guard";
 
 const CODE_PATTERN = /^[a-z0-9](?:[a-z0-9-]{1,62}[a-z0-9])?$/;
 
+/** Mirrors `referralLinks.incentiveKind`'s app-validated vocabulary. */
+const INCENTIVE_KINDS = ["discount", "credit", "unlock"] as const;
+type IncentiveKind = (typeof INCENTIVE_KINDS)[number];
+
+function isIncentiveKind(value: string): value is IncentiveKind {
+  return (INCENTIVE_KINDS as readonly string[]).includes(value);
+}
+
 function slugify(label: string): string {
   return label
     .toLowerCase()
@@ -36,6 +44,9 @@ export async function createReferralLink(slug: string, formData: FormData): Prom
   const label = String(formData.get("label") ?? "").trim();
   const rawCode = String(formData.get("code") ?? "").trim().toLowerCase();
   const destinationUrl = String(formData.get("destinationUrl") ?? "").trim();
+  const rawIncentiveKind = String(formData.get("incentiveKind") ?? "").trim().toLowerCase();
+  const incentiveValue = String(formData.get("incentiveValue") ?? "").trim();
+  const incentiveDescription = String(formData.get("incentiveDescription") ?? "").trim();
 
   if (!label) return { ok: false, message: "Give the link a label — what it's for, not the code." };
 
@@ -55,12 +66,25 @@ export async function createReferralLink(slug: string, formData: FormData): Prom
     }
   }
 
+  if (rawIncentiveKind && !isIncentiveKind(rawIncentiveKind)) {
+    return { ok: false, message: "Unrecognized incentive type." };
+  }
+  // A kind with no display value would leave the interstitial blank — the
+  // one combination worth rejecting up front rather than at redirect time.
+  if (rawIncentiveKind && !incentiveValue) {
+    return { ok: false, message: "Give the incentive a short value to show, e.g. \"20% off\"." };
+  }
+  const incentiveKind = rawIncentiveKind || null;
+
   try {
     await db().insert(schema.referralLinks).values({
       projectId: project.id,
       code,
       label,
       destinationUrl: destinationUrl || null,
+      incentiveKind,
+      incentiveValue: incentiveKind ? incentiveValue : null,
+      incentiveDescription: incentiveKind ? incentiveDescription || null : null,
       createdBy: session.user.id,
     });
   } catch (error) {

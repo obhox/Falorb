@@ -2,11 +2,19 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { McpContext } from "./context";
 import { registerAnalyticsTools } from "./tools/analytics";
+import { registerContentTools } from "./tools/content";
 import { registerDiscoveryTools } from "./tools/discovery";
 import { registerFunnelTools } from "./tools/funnels";
+import { registerGoalTools } from "./tools/goals";
+import { registerLeadTools } from "./tools/leads";
 import { registerLiveTools } from "./tools/live";
 import { registerManagementTools } from "./tools/manage";
 import { registerPeopleTools } from "./tools/people";
+import { registerReferralTools } from "./tools/referrals";
+import { registerSharingTools } from "./tools/sharing";
+import { registerSignalTools } from "./tools/signals";
+import { registerTeamTools } from "./tools/team";
+import { registerWaitlistTools } from "./tools/waitlist";
 
 export const SERVER_NAME = "falorb-analytics";
 export const SERVER_VERSION = "0.1.0";
@@ -38,11 +46,18 @@ verify rather than guess.
 - Change over time → \`get_trend\`
 - Top pages / sources / countries → \`get_breakdown\`
 - Conversion and where it fails → \`run_funnel\`, then \`get_funnel_dropoffs\`
+- Named conversions (signups, purchases) → \`list_goals\`, \`get_goal_conversions\`, \`get_goal_attribution\`
 - Where the site loses people → \`get_dropoff\`
 - Do people come back → \`get_retention\`
 - One human's full history → \`search_people\` or \`list_people\`, then \`get_person\`
-- Warmest leads → \`find_cross_project_people\`
-- Is it working right now → \`get_live_visitors\`, \`get_platform_health\`
+- Warmest leads → \`find_cross_project_people\` or \`get_hot_leads\` (add \`scope: "portfolio"\` for cross-project)
+- Is it working right now → \`get_live_visitors\`, \`get_platform_health\`, \`get_connection_status\` (one project's install)
+- Acquisition links and referral performance → \`list_referral_links\`, \`get_referral_leaderboard\`
+- Early-access queue → \`list_waitlist\`
+- Cached AI recommendations (what to write, who to contact, which channel, what's broken) → \`get_latest_signal\`, \`regenerate_signal\`
+- New project → \`create_project\`, then \`get_install_snippet\`
+- Public sharing → \`get_share_link\` / \`create_share_link\` (one project), \`get_benchmark_report\` (portfolio-wide, aggregate only)
+- Workspace membership → \`list_team\`, \`invite_member\`
 
 **Interpreting results honestly:**
 - Visitor and session counts use an approximate distinct-count estimator. They
@@ -62,8 +77,13 @@ domains. Anonymous visitors are never merged across domains. If asked to track
 someone across the wider internet, explain that the platform cannot and does
 not do this.
 
-Destructive actions (deleting projects, erasing a person's data) are not
-available through this interface by design; they require the dashboard.
+Most write tools create, update, or reversibly revoke something (goals,
+alerts, referral links, share links, invitations, team roles) and require
+the \`write\` scope. Two things are deliberately **never** available through
+this interface, regardless of scope: deleting or archiving a project, and
+erasing a person's data. Both are irreversible, and person erasure in
+particular is a GDPR obligation that needs a human to confirm the subject's
+identity — both stay dashboard-only actions.
 `.trim();
 
 export function buildServer(ctx: () => McpContext): McpServer {
@@ -78,6 +98,14 @@ export function buildServer(ctx: () => McpContext): McpServer {
   registerPeopleTools(server, ctx);
   registerLiveTools(server, ctx);
   registerManagementTools(server, ctx);
+  registerGoalTools(server, ctx);
+  registerContentTools(server, ctx);
+  registerReferralTools(server, ctx);
+  registerSignalTools(server, ctx);
+  registerWaitlistTools(server, ctx);
+  registerSharingTools(server, ctx);
+  registerTeamTools(server, ctx);
+  registerLeadTools(server, ctx);
 
   registerResources(server, ctx);
   registerPrompts(server);
@@ -131,12 +159,28 @@ function registerResources(server: McpServer, ctx: () => McpContext): void {
             "- Individual profiles: full timeline, products used, acquisition history, inferred interests",
             "- Which people have used more than one of the organization's products",
             "- Company-level B2B identification, derived from network ASN",
+            "- Named conversion goals, their conversion rate, and revenue attribution by acquisition model",
+            "- Referral link performance, and a project's waitlist queue",
+            "- Cached AI recommendations: what to write, who to contact, which channel is working, what's broken",
+            "- Whether a project's tracker is actually installed and sending events, per domain",
+            "- Workspace membership, invitations, and delivery channels for alerts",
+            "",
+            "## Can change (write scope)",
+            "- Create a project, a goal, a referral link, an alert (and its delivery channel), a share link",
+            "- Pause/resume or delete a goal or an alert; revoke a referral, share, or benchmark link",
+            "- Regenerate an AI signal or draft a content page or outreach message (LLM calls, rate-limited)",
+            "- Toggle a project's waitlist and the organization's weekly digest email",
+            "- Invite, re-role, or remove a team member (never the workspace's only owner)",
             "",
             "## Cannot answer, by design",
             "- What a visitor does on websites this organization does not own",
             "- Any individual's browsing history off these properties",
             "- Personal identity beyond what a site explicitly passed to `identify()`",
             "- Anything requiring third-party cookies or browser fingerprinting",
+            "",
+            "## Cannot change, by design",
+            "- Delete or archive a project",
+            "- Erase a person's data (a GDPR erasure needs a human to confirm the subject's identity)",
             "",
             "Raw IP addresses are never stored. They are hashed with a salt that",
             "rotates daily, so the hash cannot be correlated across days or across",

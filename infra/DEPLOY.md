@@ -15,35 +15,37 @@ What remains genuinely needs your Coolify console and your DNS registrar.
 
 ## 1. DNS
 
-Add four `A` records at your registrar, all pointing at the server:
+Add six `A` records at your registrar, all pointing at the server:
 
 | Type | Name  | Value           | Purpose |
 |------|-------|-----------------|---------|
 | A    | `a`   | `YOUR_SERVER_IP`  | Collector — the tracker endpoint |
 | A    | `dashboard` | `YOUR_SERVER_IP`  | Dashboard |
-| A    | `referral` | `YOUR_SERVER_IP`  | Referral links (`/r/<code>`) |
+| A    | `refer` | `YOUR_SERVER_IP`  | Referral links (`/r/<code>`) |
+| A    | `list` | `YOUR_SERVER_IP`  | Waitlist join links (`/waitlist/[token]`) |
 | A    | `api` | `YOUR_SERVER_IP`  | Account & management API |
 | A    | `mcp` | `YOUR_SERVER_IP`  | MCP server for AI assistants |
 
-Five subdomains rather than paths on one, deliberately:
+Six subdomains rather than paths on one, deliberately:
 
 - **`a.` is separate so an ad-blocker rule cannot take the dashboard down.**
   Blocklists target collector hostnames; if the dashboard shared that
   hostname it would be blocked alongside it.
 - `api.` and `dashboard.` are separate hosts but share the parent domain, so
   the session cookie stays first-party.
-- **`referral.` is separate so a link someone actually shares doesn't read
-  as the internal dashboard's own address.** It's the same `web` container
-  and the same `/r/[code]` route as the dashboard — just its own hostname.
-  In Coolify, add `referral.falorb.com` as an *additional* domain on the
-  `web` service (Domains field in the console): the compose file's
-  `SERVICE_FQDN_WEB_3000` only wires the primary one automatically.
+- **`refer.` and `list.` are separate so a link someone actually shares
+  doesn't read as the internal dashboard's own address.** Both are the same
+  `web` container as the dashboard — `/r/[code]` and `/waitlist/[token]`
+  respectively — just their own hostnames. In Coolify, add `refer.falorb.com`
+  and `list.falorb.com` as *additional* domains on the `web` service (Domains
+  field in the console): the compose file's `SERVICE_FQDN_WEB_3000` only
+  wires the primary one automatically.
 
 Wait for propagation before deploying — Coolify requests certificates on
 first boot, and Let's Encrypt failing leaves you retrying behind a rate limit.
 
 ```bash
-dig +short a.falorb.com dashboard.falorb.com referral.falorb.com api.falorb.com mcp.falorb.com
+dig +short a.falorb.com dashboard.falorb.com refer.falorb.com list.falorb.com api.falorb.com mcp.falorb.com
 ```
 
 ---
@@ -125,11 +127,12 @@ in the compose file, and you edit its value:
 They are generated pointing at a `sslip.io` hostname, so leaving one unset does
 not fail loudly — that service is simply not on the domain you expected.
 
-`referral.falorb.com` has no `SERVICE_FQDN_*` of its own — a compose service
-gets exactly one from Coolify. Add it as a second domain on the **same** `web`
-service instead, via the Domains field in the Coolify console (the one place
-in this doc that field is actually used). `FALORB_REFERRAL_URL` in the compose
-file already points at it; without this step referral links silently fall
+`refer.falorb.com` and `list.falorb.com` have no `SERVICE_FQDN_*` of their
+own — a compose service gets exactly one from Coolify. Add both as extra
+domains on the **same** `web` service instead, via the Domains field in the
+Coolify console (the one place in this doc that field is actually used).
+`FALORB_REFERRAL_URL` and `FALORB_WAITLIST_URL` in the compose file already
+point at them; without this step referral and waitlist links silently fall
 back to `FALORB_APP_URL` and read as `dashboard.falorb.com` links instead.
 
 `worker` gets **no domain** — it serves no HTTP and must not be reachable.

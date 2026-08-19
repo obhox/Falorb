@@ -1,12 +1,14 @@
 # Falorb reverse proxy.
 #
-# Caddy handles TLS automatically. Four hostnames, deliberately separate:
+# Caddy handles TLS automatically. Five hostnames, deliberately separate:
 #
 #   a.<domain>          the collector. Publicly reachable, high volume.
 #   dashboard.<domain>  the dashboard.
-#   referral.<domain>   referral links (`/r/<code>`), so a link someone
+#   refer.<domain>      referral links (`/r/<code>`), so a link someone
 #                        actually shares doesn't read as the internal
 #                        dashboard's own address. Same app as dashboard.<domain>.
+#   list.<domain>       waitlist join links (`/waitlist/[token]`), same
+#                        reasoning as refer.<domain> — same app again.
 #   mcp.<domain>        the MCP server, for assistants connecting remotely.
 #
 # The collector is on its own subdomain rather than a path on the dashboard so
@@ -95,7 +97,20 @@ dashboard.{$FALORB_DOMAIN} {
 # --- referral links ------------------------------------------------------------
 # Same upstream as the dashboard — `/r/[code]` is a route inside that same
 # Next.js app — just a distinct public-facing hostname for shared links.
-referral.{$FALORB_DOMAIN} {
+refer.{$FALORB_DOMAIN} {
+	encode zstd gzip
+
+	header {
+		-Server
+	}
+
+	reverse_proxy web:3000
+}
+
+# --- waitlist ------------------------------------------------------------------
+# Same upstream again — `/waitlist/[token]` is a route in the same app, just
+# its own hostname so an invite link doesn't read as the internal dashboard.
+list.{$FALORB_DOMAIN} {
 	encode zstd gzip
 
 	header {

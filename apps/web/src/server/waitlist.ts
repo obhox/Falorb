@@ -48,9 +48,19 @@ function isUniqueViolation(error: unknown, constraint: string): boolean {
   );
 }
 
-/** Public join link for a waitlist, optionally carrying an entrant's own referral code. */
+/**
+ * Public join link for a waitlist, optionally carrying an entrant's own
+ * referral code. Prefers `FALORB_WAITLIST_URL` (e.g. `list.<domain>`) over
+ * `FALORB_APP_URL` — same reasoning as `referralLinkUrl` in `referrals.ts`:
+ * a link people actually invite others with shouldn't read as the internal
+ * dashboard's own address. Falls back to `FALORB_APP_URL` when unset.
+ */
 export function waitlistJoinUrl(token: string, referralCode?: string): string {
-  const origin = (process.env.FALORB_APP_URL ?? "http://localhost:3000").replace(/\/$/, "");
+  const origin = (
+    process.env.FALORB_WAITLIST_URL ??
+    process.env.FALORB_APP_URL ??
+    "http://localhost:3000"
+  ).replace(/\/$/, "");
   const url = `${origin}/waitlist/${token}`;
   return referralCode ? `${url}?ref=${encodeURIComponent(referralCode)}` : url;
 }

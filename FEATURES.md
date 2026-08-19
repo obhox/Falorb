@@ -426,7 +426,7 @@ leaderboard pass, not just the UI in isolation.
 | ✅ | Click/visitor/conversion leaderboard | Clicks derived from `events_v` pageviews (same convention as every other acquisition dimension), never a separate counter that could disagree |
 | ✅ | Public redirect | `/r/[code]`, 302, `Cache-Control: no-store`. Unknown/revoked codes redirect to a fallback rather than 404 — a code gates no private data, so there is no reason to make failure indistinguishable the way the share token does |
 | ✅ | Branded domains | Optional `projects.linkDomain`, DNS-verified via CNAME lookup, middleware rewrites a matching Host header's path to `/r/[code]` internally. Requires Node.js-runtime middleware (`export const runtime = "nodejs"`) for the Postgres lookup — confirmed supported by this Next.js version |
-| ✅ | Own subdomain for shared links | `referralLinkUrl()` now prefers `FALORB_REFERRAL_URL` (e.g. `referral.<domain>`) over `FALORB_APP_URL`, so a link someone actually shares doesn't read as the internal dashboard's own address — same app, same `/r/[code]` route, `infra/Caddyfile`/Coolify just proxy the extra hostname to it. Falls back to `FALORB_APP_URL` when unset |
+| ✅ | Own subdomain for shared links | `referralLinkUrl()` prefers `FALORB_REFERRAL_URL` (e.g. `refer.<domain>`) over `FALORB_APP_URL`, so a link someone actually shares doesn't read as the internal dashboard's own address — same app, same `/r/[code]` route, `infra/Caddyfile`/Coolify just proxy the extra hostname to it. Falls back to `FALORB_APP_URL` when unset. `waitlistJoinUrl()` (§14j) follows the identical pattern with `FALORB_WAITLIST_URL` (e.g. `list.<domain>`) |
 | ✅ | Incentive layer | Optional `incentiveKind` (`discount`\|`credit`\|`unlock`), `incentiveValue`, `incentiveDescription` per link — a reason to actually share it. When set, `/r/[code]` shows a brief interstitial (the incentive copy, a "Continue" link, a 3s no-JS meta-refresh) before continuing; a link with no incentive still redirects instantly, unchanged. The leaderboard's existing `conversions` count doubles as "credits earned" for `credit`-kind links — no separate accounting |
 | 🟡 | Playwright coverage | Verified manually (ingest batch → watermark-reset sessionizer run → Postgres → leaderboard, plus a Host-header-spoofed `curl` for the branded-domain rewrite, plus a live interstitial/no-regression check for the incentive layer); no `referrals.spec.ts` yet |
 
@@ -512,6 +512,7 @@ pre-launch to attach it to.
 | ✅ | `waitlist_entries` table | Per-project, unique on `(projectId, email)`; every entrant gets a `referralCode` and may carry a `referredByCode` |
 | ✅ | Position computed live, never stored | Base rank is signup order; each successful referral moves an entrant up 3 spots. Computed with a window function + join, not cached — matches the table's own doc comment on why a stored rank would drift |
 | ✅ | `projects.waitlistToken` gates the public join page | Same nullable-unique-token-by-presence convention as `dashboards.publicToken` |
+| ✅ | Own subdomain for join links | `waitlistJoinUrl()` prefers `FALORB_WAITLIST_URL` (e.g. `list.<domain>`) over `FALORB_APP_URL`, same reasoning and fallback as `referralLinkUrl()` (§14d) |
 | ✅ | Owner view | `/p/[project]/waitlist` — enable/disable, the join link, a ranked entrant table with referral counts |
 
 ## 15. SDKs

@@ -103,6 +103,9 @@ importers:
       '@clickhouse/client':
         specifier: ^1.23.1
         version: 1.23.1
+      '@falorb/ai':
+        specifier: workspace:*
+        version: link:../../packages/ai
       '@falorb/core':
         specifier: workspace:*
         version: link:../../packages/core

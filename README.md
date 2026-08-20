@@ -22,6 +22,7 @@ whole backend; see [FEATURES.md](FEATURES.md) for the gaps.
 - **Growth signals** — page-performance and interest-graph insights per property, plus on-demand AI recommendations (via OpenRouter) for content, product gaps, channels, and who to contact.
 - **Privacy-first** — no raw IP stored anywhere, GDPR export/erasure, per-project retention.
 - **AI-native** — an MCP server (25 tools) so an assistant can query the platform directly, and a dashboard panel tracking what AI crawlers read on your sites.
+- **Integrations** — deep, two-way connections to Linki (sales outreach/CRM) and [Bund AI](https://usebund.com) (customer support): their data mirrors into Falorb, joinable with product analytics, and a few manual actions (push a signal, create/update a contact, resolve an escalation) run from here without switching tabs. See [FEATURES.md §13](FEATURES.md#13-integrations--linki--bund-ai-built-generic-multi-service-design-superseded).
 
 ### Scope boundary
 
@@ -63,15 +64,17 @@ dashboard and the query layer — and share one `better-auth` config from
 |---|---|
 | `packages/core` | Wire format, event schema, UA/referrer/URL parsing |
 | `packages/tracker` | Browser script — 2.9 KB gzip, zero dependencies |
-| `packages/db` | Drizzle (Postgres) + ClickHouse DDL, migrations, API keys |
+| `packages/db` | Drizzle (Postgres) + ClickHouse DDL, migrations, API keys, integration credential encryption |
 | `packages/queries` | Parameterized ClickHouse query builders |
 | `packages/auth` | Shared `better-auth` config — sessions, API keys, roles |
 | `packages/mailer` | Transactional email (verification, reset, invites, alerts) — Resend or SMTP |
+| `packages/linki-client` | Typed client for Linki's `/api/v1/*` — sales outreach/CRM |
+| `packages/bund-ai-client` | Typed client for Bund AI's `/api/v1/*` — customer support |
 | `packages/ui` | Design system — 32 components, light/dark tokens |
 | `packages/sdk-node` | Server-side SDK — non-blocking, never throws, batches by identity |
 | `packages/sdk-react` | `<FalorbProvider>`, `useFalorb`, `usePageview`, `useIdentify` |
 | `apps/ingest` | Collector: validate, enrich, hash IP, publish |
-| `apps/worker` | Stream writer + 11 scheduled derivation jobs |
+| `apps/worker` | Stream writer + 16 scheduled derivation jobs |
 | `apps/api` | Self-serve accounts — signup, sessions, projects, API keys, team invites |
 | `apps/web` | The dashboard — 27 routes, role-enforced, light and dark |
 | `apps/mcp` | MCP server — 25 tools, 2 resources, 3 prompts for AI assistants |
@@ -220,8 +223,10 @@ connection panel, public share links — are in [FEATURES.md](FEATURES.md#14-das
 
 ## Workers
 
-Eleven scheduled jobs, each holding a Redis lock so a second replica adds
-throughput without duplicating sweeps.
+Thirteen scheduled jobs below (plus `digest`, `webhooks` and `webhook-revive`
+— see [FEATURES.md §7](FEATURES.md#7-workers--appsworker) for the full list),
+each holding a Redis lock so a second replica adds throughput without
+duplicating sweeps.
 
 | Job | Every | Does |
 |---|---|---|
@@ -234,6 +239,8 @@ throughput without duplicating sweeps.
 | `enrichment` | 6h | Resolves ASN → company for B2B identification |
 | `alerts` | 5m | Threshold, anomaly, no-data and error-spike rules |
 | `data-requests` | 2m | GDPR export and erasure |
+| `linki-sync` | 15m | Mirrors a connected Linki workspace's CRM/outreach data into Postgres |
+| `bund-ai-sync` | 15m | Mirrors a connected Bund AI business's support data into Postgres |
 | `retention` | 12h | Per-project retention, orphan pruning |
 | `optimize` | 6h | Forces aggregate merges |
 
@@ -250,6 +257,30 @@ needed after an import or a first deploy onto existing traffic):
 ```bash
 pnpm --filter @falorb/worker backfill --days 90
 ```
+
+## Integrations
+
+Falorb connects to two of the operator's own products as deep, two-way
+integrations — not a generic connector framework, and not a code merge.
+Each keeps running as its own independently-deployed service, owning its own
+database and execution (real LinkedIn/email sending in Linki, real customer
+chat in Bund AI); Falorb is a client that drives it and a mirror that reads
+it. See [FEATURES.md §13](FEATURES.md#13-integrations--linki--bund-ai-built-generic-multi-service-design-superseded)
+for exactly what's built versus still planned.
+
+- **Linki** — sales outreach/CRM. Mirrored: contacts, lists, workflows, runs
+  and their per-target/per-channel progress, pipeline stages, opportunities,
+  signal rules, suppressions, sent messages.
+- **Bund AI** — AI customer support. Mirrored: conversations, escalations,
+  leads, tickets.
+- **Credentials** are stored per-organization, AES-256-GCM encrypted
+  (`INTEGRATION_CREDENTIAL_ENC_KEY` in `.env`), never returned by any API
+  response. Connect one at `/settings/integrations` after generating a scoped
+  key in Linki's or Bund AI's own settings UI.
+- **Manual actions** run from Falorb: push a signal to Linki, create or
+  update a Linki contact (from a person's profile), resolve a Bund AI
+  escalation (from `/support`). Each is one human clicking one button for one
+  record on screen — there is no automated/bulk action yet.
 
 ## Privacy
 

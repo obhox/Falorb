@@ -18,6 +18,7 @@ import { HttpError } from "./http";
 import { requireAuth, requireHumanSession, requireScope } from "./guards";
 import { teamRoutes } from "./routes/team";
 import { peopleRoutes } from "./routes/people";
+import { integrationsRoutes } from "./routes/integrations";
 import { createProject, ensureWorkspace, normalizeDomain, type Workspace } from "./onboarding";
 
 /**
@@ -447,6 +448,7 @@ app.get("/api/projects/:publicKey/disclosure", async (c) => {
 // resolved workspace and scopes.
 app.route("/api/team", teamRoutes(db, mailer));
 app.route("/api/people", peopleRoutes(db));
+app.route("/api/integrations", integrationsRoutes(db));
 
 app.onError((error, c) => {
   if (error instanceof HttpError) {

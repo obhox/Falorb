@@ -32,12 +32,18 @@ importers:
       '@falorb/auth':
         specifier: workspace:*
         version: link:../../packages/auth
+      '@falorb/bund-ai-client':
+        specifier: workspace:*
+        version: link:../../packages/bund-ai-client
       '@falorb/core':
         specifier: workspace:*
         version: link:../../packages/core
       '@falorb/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@falorb/linki-client':
+        specifier: workspace:*
+        version: link:../../packages/linki-client
       '@falorb/mailer':
         specifier: workspace:*
         version: link:../../packages/mailer
@@ -149,12 +155,18 @@ importers:
       '@falorb/auth':
         specifier: workspace:*
         version: link:../../packages/auth
+      '@falorb/bund-ai-client':
+        specifier: workspace:*
+        version: link:../../packages/bund-ai-client
       '@falorb/core':
         specifier: workspace:*
         version: link:../../packages/core
       '@falorb/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@falorb/linki-client':
+        specifier: workspace:*
+        version: link:../../packages/linki-client
       '@falorb/queries':
         specifier: workspace:*
         version: link:../../packages/queries
@@ -213,12 +225,18 @@ importers:
       '@falorb/ai':
         specifier: workspace:*
         version: link:../../packages/ai
+      '@falorb/bund-ai-client':
+        specifier: workspace:*
+        version: link:../../packages/bund-ai-client
       '@falorb/core':
         specifier: workspace:*
         version: link:../../packages/core
       '@falorb/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@falorb/linki-client':
+        specifier: workspace:*
+        version: link:../../packages/linki-client
       '@falorb/mailer':
         specifier: workspace:*
         version: link:../../packages/mailer
@@ -279,6 +297,18 @@ importers:
         specifier: ^3.0.5
         version: 3.2.7(@types/node@22.20.1)(tsx@4.23.12)
 
+  packages/bund-ai-client:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.5
+        version: 22.20.1
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.5
+        version: 3.2.7(@types/node@22.20.1)(tsx@4.23.12)
+
   packages/core:
     dependencies:
       zod:
@@ -316,6 +346,18 @@ importers:
       typescript:
         specifier: ^5.7.3
         version: 5.9.3
+
+  packages/linki-client:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.5
+        version: 22.20.1
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.5
+        version: 3.2.7(@types/node@22.20.1)(tsx@4.23.12)
 
   packages/mailer:
     dependencies:

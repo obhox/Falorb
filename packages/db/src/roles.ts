@@ -81,6 +81,8 @@ export const can = {
   assignRole: (role: string) => atLeast(role, "owner"),
   /** Archive a property, which hides its data from every screen. */
   archiveProject: (role: string) => atLeast(role, "owner"),
+  /** Push a signal, create/update a CRM contact, resolve a support case — real actions on a connected external system, not just reading its mirror. */
+  actOnIntegrations: (role: string) => atLeast(role, "member"),
 } satisfies Record<string, (role: string) => boolean>;
 
 /**

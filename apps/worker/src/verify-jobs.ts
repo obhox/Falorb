@@ -8,6 +8,8 @@ import { scoreInterests } from "./jobs/interest-scorer";
 import { evaluateAlerts } from "./jobs/alerts";
 import { dispatchWebhooks, reviveWebhooks } from "./jobs/webhooks";
 import { enforceRetention, processDataRequests, pruneOrphanedPersons } from "./jobs/retention-gc";
+import { syncLinki } from "./jobs/linki-sync";
+import { syncBundAi } from "./jobs/bund-ai-sync";
 
 /**
  * Runs every scheduled job once, in dependency order.
@@ -57,6 +59,10 @@ await run("alerts", () => evaluateAlerts(context));
 await run("webhooks", () => dispatchWebhooks(context, watermarks));
 await run("webhook-revive", () => reviveWebhooks(context));
 await run("data-requests", () => processDataRequests(context));
+// No-ops cleanly with zero connected orgs — still worth running here so a
+// broken query surfaces the moment a first org connects, not weeks later.
+await run("linki-sync", () => syncLinki(context));
+await run("bund-ai-sync", () => syncBundAi(context));
 await run("retention", () => enforceRetention(context));
 await run("prune-orphans", () => pruneOrphanedPersons(context));
 await run("optimize", () => optimizeAggregates(context));

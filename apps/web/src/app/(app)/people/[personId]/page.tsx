@@ -14,6 +14,7 @@ import { PageBody, PageHeader } from "@/components/shell/PageHeader";
 import { StatStrip } from "@/components/StatStrip";
 import { Empty } from "@/components/Empty";
 import { PersonTimeline } from "@/components/PersonTimeline";
+import { CompanyResearchCard } from "./CompanyResearchCard";
 import {
   countryLabel,
   dateTime,
@@ -338,18 +339,7 @@ export default async function PersonPage({
               </div>
             </Card>
 
-            {company && (
-              <Card title="Company" subtitle="Resolved from the network operator, not a person">
-                <div style={{ display: "grid", gap: 10 }}>
-                  <Attribute label="Domain" value={company.domain} mono />
-                  {company.name && <Attribute label="Name" value={company.name} />}
-                  {company.industry && <Attribute label="Industry" value={company.industry} />}
-                  {company.employeeRange && (
-                    <Attribute label="Employees" value={company.employeeRange} mono />
-                  )}
-                </div>
-              </Card>
-            )}
+            <CompanyResearchCard personId={person.id} company={company} />
 
             <Card title="Context" subtitle="Most recent observed">
               <div style={{ display: "grid", gap: 10 }}>

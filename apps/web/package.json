@@ -22,6 +22,7 @@
     "@falorb/core": "workspace:*",
     "@falorb/db": "workspace:*",
     "@falorb/queries": "workspace:*",
+    "@falorb/research": "workspace:*",
     "@falorb/ui": "workspace:*",
     "better-auth": "^1.6.29",
     "drizzle-orm": "^0.45.2",

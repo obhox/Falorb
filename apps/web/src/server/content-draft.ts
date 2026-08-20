@@ -1,5 +1,6 @@
 import "server-only";
 import { complete } from "@/server/ai";
+import { ResearchUnavailableError, search } from "@/server/research";
 
 /**
  * Turns a "rising interest, thin coverage" topic into a draft landing/content
@@ -22,17 +23,50 @@ export interface ContentDraft {
 
 const BODY_DELIMITER = "---";
 
+/**
+ * Best-effort external research folded into the draft prompt, or null when
+ * unavailable. `search()` picks exactly one provider (Exa, falling back to
+ * Firecrawl only if Exa itself is unconfigured or erroring) — this never
+ * combines both for one topic.
+ */
+async function researchTopic(topic: string): Promise<string | null> {
+  let results: Awaited<ReturnType<typeof search>>;
+  try {
+    results = await search(topic, { limit: 5 });
+  } catch (error) {
+    // Neither provider configured/working — the draft still generates from
+    // interest data alone, same graceful-degrade shape as every other
+    // optional integration in this codebase.
+    if (error instanceof ResearchUnavailableError) return null;
+    throw error;
+  }
+  if (!results.length) return null;
+
+  const snippets = results
+    .map((r) => `- ${r.title ?? r.url} (${r.url}): ${r.text.slice(0, 500)}`)
+    .join("\n");
+
+  return `What already ranks for "${topic}" on the open web:\n${snippets}`;
+}
+
 export async function generateContentDraft(
   topic: string,
   contextData: unknown,
   projectName: string,
 ): Promise<ContentDraft> {
+  const research = await researchTopic(topic);
+
   const systemPrompt =
     `You are a content strategist writing a new landing/content page for ${projectName}. ` +
     `The topic is "${topic}": visitors are already searching for or landing near this ` +
     "topic but there is almost no content serving it yet on this property, and you are " +
-    "closing that gap. You are given the visitor-interest data behind this topic. Write " +
-    "a complete page for it. Respond with EXACTLY this structure and nothing else: a " +
+    "closing that gap. You are given the visitor-interest data behind this topic" +
+    (research
+      ? ", plus real research on what already exists elsewhere on the web for it — use " +
+        "it to write something more specific and differentiated than a generic overview, " +
+        "not to copy it"
+      : "") +
+    ". Write a complete page for it. Respond with EXACTLY this structure and nothing else: a " +
     'first line starting with "TITLE: " followed by the page title (under 60 ' +
     'characters), a second line starting with "META: " followed by a meta description ' +
     `(under 160 characters), then a line containing only "${BODY_DELIMITER}", then the ` +
@@ -42,7 +76,7 @@ export async function generateContentDraft(
 
   const raw = await complete(
     systemPrompt,
-    { topic, projectName, interestContext: contextData },
+    { topic, projectName, interestContext: contextData, ...(research ? { research } : {}) },
     { maxTokens: 2000, stripMarkdown: false },
   );
 

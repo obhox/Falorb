@@ -515,6 +515,20 @@ pre-launch to attach it to.
 | ✅ | Own subdomain for join links | `waitlistJoinUrl()` prefers `FALORB_WAITLIST_URL` (e.g. `list.<domain>`) over `FALORB_APP_URL`, same reasoning and fallback as `referralLinkUrl()` (§14d) |
 | ✅ | Owner view | `/p/[project]/waitlist` — enable/disable, the join link, a ranked entrant table with referral counts |
 
+## 14k. Web research — Exa + Firecrawl
+
+A platform-level pair of API keys, the same shape as `OPENROUTER_API_KEY` —
+a secret Falorb itself holds to call a third-party research API, not the
+per-organization "connect your own account" integration §13 describes as a
+future direction. Grounds two existing AI features in real web content
+instead of the LLM's own guesses.
+
+| | Feature | Notes |
+|---|---|---|
+| ✅ | `packages/research` | Exa (search) and Firecrawl (scrape) clients, same fetch/timeout/error-shape convention as `@falorb/ai`'s `complete()`. Exa and Firecrawl are fallbacks for each other, never called together for one request: `search()` tries Exa first and only reaches for Firecrawl's own search if Exa is unconfigured or errors; `fetchPage()` tries Firecrawl's scrape first and only reaches for Exa's `/contents` if Firecrawl is unconfigured or errors. `apps/web/src/server/research.ts` re-exports behind the app's server-only boundary |
+| ✅ | Content drafts research | `draftContentPage` (§14h) now calls `researchTopic` first: a web search for the topic sees what already ranks, folded into the OpenRouter prompt so the draft is differentiated rather than a generic overview. Falls back to the interest-data-only prompt if neither provider is configured or working — never blocks the draft |
+| ✅ | Company research | New "Research this company" action on the person profile's Company card (`CompanyResearchCard.tsx`, `enrichCompany` action) — fills `companies.industry`/`employeeRange`/`linkedinUrl`, fields the automatic ASN-based enrichment job (§4, `apps/worker/src/jobs/enrichment.ts`) never populates since it only ever learns a network operator's registered name. A scrape of the company's own homepage feeds one short OpenRouter call that extracts only what the content actually states — told explicitly to leave a field `unknown` rather than infer it. Gated by `writeAnalysis` (member+), same manual-and-explicit shape as every other AI-backed write |
+
 ## 15. SDKs
 
 | | Package | Notes |

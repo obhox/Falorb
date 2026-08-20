@@ -39,6 +39,10 @@ export const AUDIT_ACTIONS = {
   crmSignalPushed: "crm.signal_pushed",
   crmContactCreated: "crm.contact_created",
   crmContactUpdated: "crm.contact_updated",
+  crmProfileCreated: "crm.profile_created",
+  crmProfileUpdated: "crm.profile_updated",
+  crmDealCreated: "crm.deal_created",
+  crmDealUpdated: "crm.deal_updated",
   supportEscalationResolved: "support.escalation_resolved",
 } as const;
 

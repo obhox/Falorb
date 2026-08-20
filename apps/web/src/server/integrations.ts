@@ -40,3 +40,31 @@ export async function getBundAiClient(organizationId: string): Promise<BundAiCli
   const apiKey = decryptCredential({ ciphertext: row.encryptedApiKey, iv: row.iv, authTag: row.authTag });
   return new BundAiClient({ baseUrl: row.baseUrl, apiKey });
 }
+
+export interface ConnectionView {
+  provider: "linki" | "bund_ai";
+  baseUrl: string;
+  status: "active" | "revoked" | "error";
+  lastVerifiedAt: string | null;
+  lastSyncedAt: string | null;
+  lastError: string | null;
+  updatedAt: string;
+}
+
+/** For the Settings → Integrations page. Never returns key material — there is nothing here safe to display. */
+export async function listConnections(organizationId: string): Promise<ConnectionView[]> {
+  const rows = await db()
+    .select()
+    .from(schema.integrationConnections)
+    .where(eq(schema.integrationConnections.organizationId, organizationId));
+
+  return rows.map((r) => ({
+    provider: r.provider,
+    baseUrl: r.baseUrl,
+    status: r.status,
+    lastVerifiedAt: r.lastVerifiedAt?.toISOString() ?? null,
+    lastSyncedAt: r.lastSyncedAt?.toISOString() ?? null,
+    lastError: r.lastError,
+    updatedAt: r.updatedAt.toISOString(),
+  }));
+}

@@ -8,6 +8,9 @@ import { db, schema } from "@falorb/db";
  */
 
 export type SupportEscalationRow = typeof schema.supportEscalations.$inferSelect;
+export type SupportConversationRow = typeof schema.supportConversations.$inferSelect;
+export type SupportLeadRow = typeof schema.supportLeads.$inferSelect;
+export type SupportTicketRow = typeof schema.supportTickets.$inferSelect;
 
 export async function listEscalations(organizationId: string): Promise<SupportEscalationRow[]> {
   return db()
@@ -15,6 +18,33 @@ export async function listEscalations(organizationId: string): Promise<SupportEs
     .from(schema.supportEscalations)
     .where(eq(schema.supportEscalations.organizationId, organizationId))
     .orderBy(desc(schema.supportEscalations.bundAiCreatedAt))
+    .limit(200);
+}
+
+export async function listConversations(organizationId: string): Promise<SupportConversationRow[]> {
+  return db()
+    .select()
+    .from(schema.supportConversations)
+    .where(eq(schema.supportConversations.organizationId, organizationId))
+    .orderBy(desc(schema.supportConversations.lastActivityAt))
+    .limit(200);
+}
+
+export async function listLeads(organizationId: string): Promise<SupportLeadRow[]> {
+  return db()
+    .select()
+    .from(schema.supportLeads)
+    .where(eq(schema.supportLeads.organizationId, organizationId))
+    .orderBy(desc(schema.supportLeads.bundAiUpdatedAt))
+    .limit(200);
+}
+
+export async function listTickets(organizationId: string): Promise<SupportTicketRow[]> {
+  return db()
+    .select()
+    .from(schema.supportTickets)
+    .where(eq(schema.supportTickets.organizationId, organizationId))
+    .orderBy(desc(schema.supportTickets.bundAiUpdatedAt))
     .limit(200);
 }
 

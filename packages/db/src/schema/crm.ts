@@ -12,19 +12,26 @@ import {
 } from "drizzle-orm/pg-core";
 import { organizations } from "./tenancy";
 import { persons } from "./persons";
+import { user } from "./auth";
 
 /**
- * A read-only mirror of Linki (sales/outreach) data, pulled by
- * `apps/worker/src/jobs/linki-sync.ts` — see the integration plan
- * (`/Users/obhox/.claude/plans/modular-gathering-cocoa.md`, Part 1).
+ * Two kinds of table live here — see the integration plan
+ * (`/Users/obhox/.claude/plans/modular-gathering-cocoa.md`, Part 1 / 1a).
  *
- * Every table carries `organizationId` + `linkiId` (Linki's own id for the
- * row), unique together, so re-syncing is an upsert regardless of pagination
- * order. `syncedAt` is per-row so a stale mirror row is visible as such
- * rather than silently indistinguishable from a fresh one. Falorb never
- * writes any of this back to Linki except through the narrow, explicitly
- * gated paths in `linki-signal-push.ts` (Phase L5+) — this schema exists to
- * make Linki's state *visible* in Falorb, not to become Linki's database.
+ * Most of this file is a read-only **mirror** of Linki (sales/outreach)
+ * data, pulled by `apps/worker/src/jobs/linki-sync.ts`. Every mirror table
+ * carries `organizationId` + `linkiId` (Linki's own id for the row), unique
+ * together, so re-syncing is an upsert regardless of pagination order.
+ * `syncedAt` is per-row so a stale mirror row is visible as such rather than
+ * silently indistinguishable from a fresh one. Falorb never writes any of it
+ * back to Linki except through the narrow, explicitly gated paths in
+ * `linki-signal-push.ts` (Phase L5+).
+ *
+ * `crmProfiles`, `crmDealStages` and `crmDeals` are the exception: **Falorb
+ * owns these natively** (Part 1a). They are not synced from anywhere — a
+ * human creates and edits them in Falorb, and (for `crmProfiles`) that data
+ * can be *pushed out* to Linki, the reverse direction of everything else in
+ * this file.
  */
 
 const orgId = () =>
@@ -173,42 +180,96 @@ export const crmRunProfileTracks = pgTable(
   ],
 );
 
-export const crmPipelineStages = pgTable(
-  "crm_pipeline_stages",
+/**
+ * The Falorb-owned CRM-contact extension — title/phone/LinkedIn/status/owner
+ * for a person, entered or edited in Falorb rather than pulled from Linki.
+ *
+ * Created explicitly (an "Add to CRM" action), never automatically for every
+ * visitor — most `persons` rows are anonymous traffic, not sales contacts.
+ * This row is what marks the boundary between "someone we have analytics on"
+ * and "someone in the CRM." One per person, hence the unique `personId`.
+ *
+ * `crmContacts` still exists and is unaffected by this table — it stays a
+ * reconciliation layer (which Linki targets exist, which are email-matched
+ * to a person), not the authoritative contact record. This table is that
+ * record now.
+ */
+export const crmProfiles = pgTable(
+  "crm_profiles",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     organizationId: orgId(),
-    linkiId: text("linki_id").notNull(),
+    personId: uuid("person_id")
+      .notNull()
+      .unique()
+      .references(() => persons.id, { onDelete: "cascade" }),
+    title: text("title"),
+    phone: text("phone"),
+    linkedinUrl: text("linkedin_url"),
+    /** "lead" | "prospect" | "customer" | "churned" — free text, not an enum: a status vocabulary is a business decision, not a schema one. */
+    status: text("status").notNull().default("lead"),
+    ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
+    notes: text("notes"),
+    createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("crm_profiles_org_idx").on(t.organizationId)],
+);
+
+/**
+ * Falorb-native deal pipeline — replaces the old Linki-mirrored
+ * `crmPipelineStages`. Seeded lazily per org (`ensureDealStages` in
+ * `apps/web/src/server/crm.ts`) rather than synced from anywhere.
+ */
+export const crmDealStages = pgTable(
+  "crm_deal_stages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: orgId(),
     name: text("name").notNull(),
     position: integer("position").notNull().default(0),
     probability: integer("probability").notNull().default(0),
     isWon: boolean("is_won").notNull().default(false),
     isLost: boolean("is_lost").notNull().default(false),
-    syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("crm_pipeline_stages_org_linki_uq").on(t.organizationId, t.linkiId)],
+  (t) => [uniqueIndex("crm_deal_stages_org_name_uq").on(t.organizationId, t.name)],
 );
 
-export const crmOpportunities = pgTable(
-  "crm_opportunities",
+/**
+ * Falorb-native deals — replaces the old Linki-mirrored `crmOpportunities`.
+ * References `persons` directly, not `crmProfiles`: matches how every other
+ * person-linked table in this file already handles the relationship
+ * (`set null`, tombstone-tolerant), and avoids forcing an FK lifecycle
+ * decision `crmProfiles` has no protection story for yet. The "no deal
+ * without a CRM profile" invariant is enforced in `createDeal` itself
+ * (auto-provisions a profile in the same transaction), not by the schema.
+ */
+export const crmDeals = pgTable(
+  "crm_deals",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     organizationId: orgId(),
-    linkiId: text("linki_id").notNull(),
-    targetLinkiId: text("target_linki_id"),
-    stageLinkiId: text("stage_linki_id"),
-    contactId: uuid("contact_id").references(() => crmContacts.id, { onDelete: "set null" }),
-    stageId: uuid("stage_id").references(() => crmPipelineStages.id, { onDelete: "set null" }),
+    personId: uuid("person_id").references(() => persons.id, { onDelete: "set null" }),
+    stageId: uuid("stage_id").references(() => crmDealStages.id, { onDelete: "set null" }),
+    ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
     name: text("name").notNull(),
     amount: numeric("amount"),
     currency: text("currency"),
     expectedCloseDate: timestamp("expected_close_date", { withTimezone: true }),
     source: text("source"),
-    linkiCreatedAt: timestamp("linki_created_at", { withTimezone: true }),
-    linkiUpdatedAt: timestamp("linki_updated_at", { withTimezone: true }),
-    syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
+    notes: text("notes"),
+    createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
   },
-  (t) => [uniqueIndex("crm_opportunities_org_linki_uq").on(t.organizationId, t.linkiId)],
+  (t) => [
+    index("crm_deals_org_idx").on(t.organizationId),
+    index("crm_deals_person_idx").on(t.personId),
+    index("crm_deals_stage_idx").on(t.stageId),
+  ],
 );
 
 /**

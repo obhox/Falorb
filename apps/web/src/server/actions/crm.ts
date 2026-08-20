@@ -6,6 +6,7 @@ import { AUDIT_ACTIONS, audit, db, schema } from "@falorb/db";
 import { LinkiApiError, type LinkiSignalType } from "@falorb/linki-client";
 import { requireSession } from "@/server/session";
 import { getLinkiClient } from "@/server/integrations";
+import { ensureDealStages, getCrmProfile as getCrmProfileRow } from "@/server/crm";
 import type { ActionResult } from "./project";
 import { deny } from "./guard";
 
@@ -237,16 +238,26 @@ export async function updateLinkiContact(personId: string): Promise<ActionResult
     ? await db().select().from(schema.companies).where(eq(schema.companies.id, person.companyId)).limit(1)
     : [null];
 
+  // Prefer Falorb's own CRM profile once one exists — edits made here are
+  // what should get pushed outward, not the raw analytics fields. Falls
+  // back to person/company data for anyone not yet added to the CRM.
+  const profile = await getCrmProfileRow(orgId, personId);
+
   const client = await getLinkiClient(orgId);
   if (!client) {
     return { ok: false, message: "Linki isn't connected. Connect it in Settings → Integrations." };
   }
 
   try {
+    // Linki's PATCH endpoint has no `linkedin_url` field — only its create
+    // endpoint does — so it is deliberately not sent here; it would silently
+    // no-op.
     const updated = await client.updateContact(contact.linkiId, {
       email: person.email ?? undefined,
       company: company?.name ?? undefined,
       location: person.lastCountry ?? undefined,
+      title: profile?.title ?? undefined,
+      phone: profile?.phone ?? undefined,
     });
 
     await db()
@@ -274,6 +285,285 @@ export async function updateLinkiContact(personId: string): Promise<ActionResult
     const detail = error instanceof LinkiApiError ? error.message : String(error);
     return { ok: false, message: `Linki rejected the update: ${detail}` };
   }
+}
+
+// --- Falorb-owned CRM (Part 1a) ---------------------------------------------
+
+function trimmedOrNull(formData: FormData, key: string): string | null {
+  const value = String(formData.get(key) ?? "").trim();
+  return value ? value : null;
+}
+
+export async function addPersonToCrm(personId: string): Promise<ActionResult> {
+  const session = await requireSession();
+  const refusal = deny(session.workspace.role, "manageCrm", "add a person to the CRM");
+  if (refusal) return refusal;
+
+  const orgId = session.workspace.organizationId;
+  const [person] = await db()
+    .select({ id: schema.persons.id })
+    .from(schema.persons)
+    .where(and(eq(schema.persons.id, personId), eq(schema.persons.organizationId, orgId)))
+    .limit(1);
+  if (!person) return { ok: false, message: "No such person." };
+
+  const existing = await getCrmProfileRow(orgId, personId);
+  if (existing) return { ok: false, message: "This person is already in the CRM." };
+
+  await db().insert(schema.crmProfiles).values({
+    organizationId: orgId,
+    personId,
+    createdBy: session.user.id,
+  });
+
+  audit(db(), {
+    organizationId: orgId,
+    actorId: session.user.id,
+    action: AUDIT_ACTIONS.crmProfileCreated,
+    targetType: "person",
+    targetId: personId,
+    metadata: {},
+  });
+
+  revalidatePath(`/people/${personId}`);
+  revalidatePath("/crm");
+  return { ok: true, message: "Added to CRM." };
+}
+
+/**
+ * The "From Linki" tab's entry point for the pre-existing contact backlog —
+ * a `crmContacts` row Linki already knows about that nobody has brought into
+ * Falorb's own CRM yet. Unlike `addPersonToCrm`, there's no `persons` row to
+ * attach to: one is created here, prefilled from the Linki contact, in the
+ * same step as the profile — otherwise this would leave an orphaned contact
+ * with the CRM boundary crossed for tracking but not for who they are.
+ */
+export async function promoteLinkiContact(contactId: string): Promise<ActionResult> {
+  const session = await requireSession();
+  const refusal = deny(session.workspace.role, "manageCrm", "add a Linki contact to the CRM");
+  if (refusal) return refusal;
+
+  const orgId = session.workspace.organizationId;
+  const [contact] = await db()
+    .select()
+    .from(schema.crmContacts)
+    .where(and(eq(schema.crmContacts.id, contactId), eq(schema.crmContacts.organizationId, orgId)))
+    .limit(1);
+  if (!contact) return { ok: false, message: "No such Linki contact." };
+  if (contact.personId) return { ok: false, message: "This contact is already in the CRM." };
+
+  const personId = await db().transaction(async (tx) => {
+    const [person] = await tx
+      .insert(schema.persons)
+      .values({
+        organizationId: orgId,
+        name: contact.fullName,
+        email: contact.email,
+        firstChannel: "crm",
+        firstSource: "linki",
+        lastChannel: "crm",
+        lastSource: "linki",
+      })
+      .returning({ id: schema.persons.id });
+    if (!person) throw new Error("Person insert returned no row.");
+
+    await tx.update(schema.crmContacts).set({ personId: person.id }).where(eq(schema.crmContacts.id, contactId));
+
+    await tx.insert(schema.crmProfiles).values({
+      organizationId: orgId,
+      personId: person.id,
+      linkedinUrl: contact.linkedinUrl,
+      createdBy: session.user.id,
+    });
+
+    return person.id;
+  });
+
+  audit(db(), {
+    organizationId: orgId,
+    actorId: session.user.id,
+    action: AUDIT_ACTIONS.crmProfileCreated,
+    targetType: "person",
+    targetId: personId,
+    metadata: { source: "linki", linkiContactId: contact.linkiId },
+  });
+
+  revalidatePath("/crm");
+  return { ok: true, message: "Added to CRM." };
+}
+
+export async function updateCrmProfile(personId: string, formData: FormData): Promise<ActionResult> {
+  const session = await requireSession();
+  const refusal = deny(session.workspace.role, "manageCrm", "update a CRM profile");
+  if (refusal) return refusal;
+
+  const orgId = session.workspace.organizationId;
+  const profile = await getCrmProfileRow(orgId, personId);
+  if (!profile) return { ok: false, message: "This person isn't in the CRM yet." };
+
+  // As in `updateDeal`, a field absent from the FormData means "this caller
+  // didn't touch it," not "clear it" — the edit dialog doesn't surface
+  // notes, and a save from it would otherwise silently wipe them.
+  const title = formData.has("title") ? trimmedOrNull(formData, "title") : profile.title;
+  const phone = formData.has("phone") ? trimmedOrNull(formData, "phone") : profile.phone;
+  const status = formData.has("status") ? (trimmedOrNull(formData, "status") ?? profile.status) : profile.status;
+  const ownerId = formData.has("owner_id") ? trimmedOrNull(formData, "owner_id") : profile.ownerId;
+  const notes = formData.has("notes") ? trimmedOrNull(formData, "notes") : profile.notes;
+
+  await db()
+    .update(schema.crmProfiles)
+    .set({ title, phone, status, ownerId, notes, updatedAt: new Date() })
+    .where(eq(schema.crmProfiles.id, profile.id));
+
+  audit(db(), {
+    organizationId: orgId,
+    actorId: session.user.id,
+    action: AUDIT_ACTIONS.crmProfileUpdated,
+    targetType: "person",
+    targetId: personId,
+    metadata: { status },
+  });
+
+  revalidatePath(`/people/${personId}`);
+  revalidatePath("/crm");
+  return { ok: true, message: "CRM profile updated." };
+}
+
+export async function createDeal(personId: string, formData: FormData): Promise<ActionResult> {
+  const session = await requireSession();
+  const refusal = deny(session.workspace.role, "manageCrm", "create a deal");
+  if (refusal) return refusal;
+
+  const orgId = session.workspace.organizationId;
+  const name = trimmedOrNull(formData, "name");
+  if (!name) return { ok: false, message: "A deal name is required." };
+
+  const [person] = await db()
+    .select({ id: schema.persons.id })
+    .from(schema.persons)
+    .where(and(eq(schema.persons.id, personId), eq(schema.persons.organizationId, orgId)))
+    .limit(1);
+  if (!person) return { ok: false, message: "No such person." };
+
+  const stages = await ensureDealStages(orgId);
+  const defaultStage = stages.find((s) => s.position === 0) ?? stages[0] ?? null;
+  const amount = trimmedOrNull(formData, "amount");
+  const currency = trimmedOrNull(formData, "currency");
+  const source = trimmedOrNull(formData, "source");
+
+  const dealId = await db().transaction(async (tx) => {
+    const [existingProfile] = await tx
+      .select({ id: schema.crmProfiles.id })
+      .from(schema.crmProfiles)
+      .where(and(eq(schema.crmProfiles.organizationId, orgId), eq(schema.crmProfiles.personId, personId)))
+      .limit(1);
+
+    // "No deal without a CRM profile" — enforced here, not in the schema:
+    // a deal created straight from a person who isn't in the CRM yet should
+    // still leave them with a profile, not a deal orphaned from the contact
+    // record. onConflictDoNothing makes this safe if a profile was created
+    // concurrently between the check above and here.
+    if (!existingProfile) {
+      await tx
+        .insert(schema.crmProfiles)
+        .values({ organizationId: orgId, personId, createdBy: session.user.id })
+        .onConflictDoNothing();
+    }
+
+    const [deal] = await tx
+      .insert(schema.crmDeals)
+      .values({
+        organizationId: orgId,
+        personId,
+        stageId: defaultStage?.id ?? null,
+        name,
+        amount: amount ?? undefined,
+        currency,
+        source,
+        createdBy: session.user.id,
+      })
+      .returning({ id: schema.crmDeals.id });
+    if (!deal) throw new Error("Deal insert returned no row.");
+
+    return deal.id;
+  });
+
+  audit(db(), {
+    organizationId: orgId,
+    actorId: session.user.id,
+    action: AUDIT_ACTIONS.crmDealCreated,
+    targetType: "person",
+    targetId: personId,
+    metadata: { dealId, name },
+  });
+
+  revalidatePath(`/people/${personId}`);
+  revalidatePath("/crm");
+  return { ok: true, message: "Deal created." };
+}
+
+export async function updateDeal(dealId: string, formData: FormData): Promise<ActionResult> {
+  const session = await requireSession();
+  const refusal = deny(session.workspace.role, "manageCrm", "update a deal");
+  if (refusal) return refusal;
+
+  const orgId = session.workspace.organizationId;
+  const [deal] = await db()
+    .select()
+    .from(schema.crmDeals)
+    .where(and(eq(schema.crmDeals.id, dealId), eq(schema.crmDeals.organizationId, orgId)))
+    .limit(1);
+  if (!deal) return { ok: false, message: "No such deal." };
+
+  // Each inline control (the stage select, the owner select) posts a
+  // FormData with only its own field — everything else must fall back to
+  // the deal's current value, not be wiped. Checking `.has()` rather than
+  // treating a missing key the same as an explicitly-cleared one is the
+  // difference between "the stage select changed the stage" and "the stage
+  // select accidentally blanked the amount and currency too."
+  const stageId = formData.has("stage_id") ? trimmedOrNull(formData, "stage_id") : deal.stageId;
+  const ownerId = formData.has("owner_id") ? trimmedOrNull(formData, "owner_id") : deal.ownerId;
+  const name = formData.has("name") ? (trimmedOrNull(formData, "name") ?? deal.name) : deal.name;
+  const amount = formData.has("amount") ? trimmedOrNull(formData, "amount") : deal.amount;
+  const currency = formData.has("currency") ? trimmedOrNull(formData, "currency") : deal.currency;
+  const notes = formData.has("notes") ? trimmedOrNull(formData, "notes") : deal.notes;
+
+  let closedAt = deal.closedAt;
+  if (stageId && stageId !== deal.stageId) {
+    const [stage] = await db()
+      .select({ isWon: schema.crmDealStages.isWon, isLost: schema.crmDealStages.isLost })
+      .from(schema.crmDealStages)
+      .where(and(eq(schema.crmDealStages.id, stageId), eq(schema.crmDealStages.organizationId, orgId)))
+      .limit(1);
+    closedAt = stage && (stage.isWon || stage.isLost) ? new Date() : null;
+  }
+
+  await db()
+    .update(schema.crmDeals)
+    .set({
+      name,
+      stageId,
+      ownerId,
+      amount,
+      currency,
+      notes,
+      closedAt,
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.crmDeals.id, dealId));
+
+  audit(db(), {
+    organizationId: orgId,
+    actorId: session.user.id,
+    action: AUDIT_ACTIONS.crmDealUpdated,
+    targetType: "person",
+    targetId: deal.personId ?? undefined,
+    metadata: { dealId, stageId },
+  });
+
+  if (deal.personId) revalidatePath(`/people/${deal.personId}`);
+  revalidatePath("/crm");
+  return { ok: true, message: "Deal updated." };
 }
 
 export interface LinkedContactView {

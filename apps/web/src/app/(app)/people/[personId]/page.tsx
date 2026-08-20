@@ -14,6 +14,9 @@ import { PageBody, PageHeader } from "@/components/shell/PageHeader";
 import { StatStrip } from "@/components/StatStrip";
 import { Empty } from "@/components/Empty";
 import { PersonTimeline } from "@/components/PersonTimeline";
+import { CrmActionsCard } from "./CrmActionsCard";
+import { CompanyResearchCard } from "./CompanyResearchCard";
+import { getLinkedContact, isLinkiConnected } from "@/server/actions/crm";
 import {
   countryLabel,
   dateTime,
@@ -66,11 +69,13 @@ export default async function PersonPage({
   const projectIds = session.projects.map((p) => p.id);
   const projectsById = new Map(session.projects.map((p) => [p.id, p]));
 
-  const [usage, timeline, acquisition, interests] = await Promise.all([
+  const [usage, timeline, acquisition, interests, linkiConnected, linkedContact] = await Promise.all([
     personProjects({ personId: person.id, projectIds }),
     personTimeline({ personId: person.id, projectIds, limit: 100 }),
     acquisitionChain({ personId: person.id, projectIds, limit: 25 }),
     personInterests({ personId: person.id, projectIds, limit: 12 }),
+    isLinkiConnected(session.workspace.organizationId),
+    getLinkedContact(session.workspace.organizationId, person.id),
   ]);
 
   const now = Date.now();
@@ -338,18 +343,9 @@ export default async function PersonPage({
               </div>
             </Card>
 
-            {company && (
-              <Card title="Company" subtitle="Resolved from the network operator, not a person">
-                <div style={{ display: "grid", gap: 10 }}>
-                  <Attribute label="Domain" value={company.domain} mono />
-                  {company.name && <Attribute label="Name" value={company.name} />}
-                  {company.industry && <Attribute label="Industry" value={company.industry} />}
-                  {company.employeeRange && (
-                    <Attribute label="Employees" value={company.employeeRange} mono />
-                  )}
-                </div>
-              </Card>
-            )}
+            <CrmActionsCard personId={person.id} connected={linkiConnected} contact={linkedContact} />
+
+            <CompanyResearchCard personId={person.id} company={company} />
 
             <Card title="Context" subtitle="Most recent observed">
               <div style={{ display: "grid", gap: 10 }}>

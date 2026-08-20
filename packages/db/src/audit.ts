@@ -34,6 +34,12 @@ export const AUDIT_ACTIONS = {
   webhookDeleted: "webhook.deleted",
   alertCreated: "alert.created",
   alertDeleted: "alert.deleted",
+  integrationConnected: "integration.connected",
+  integrationRevoked: "integration.revoked",
+  crmSignalPushed: "crm.signal_pushed",
+  crmContactCreated: "crm.contact_created",
+  crmContactUpdated: "crm.contact_updated",
+  supportEscalationResolved: "support.escalation_resolved",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

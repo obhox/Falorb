@@ -3,3 +3,4 @@ export * from "./tenancy";
 export * from "./persons";
 export * from "./analysis";
 export * from "./ops";
+export * from "./prospecting";

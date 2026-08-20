@@ -2,7 +2,7 @@
 
 Living record of what exists, what is half-built, and what has not been started.
 
-**Last updated:** 2026-08-18
+**Last updated:** 2026-08-20
 
 | Status | Meaning |
 |---|---|
@@ -22,8 +22,9 @@ referral-boosted waitlist (§14e–§14j below) — are verified manually
 (typecheck, production build, and live requests against the dev stack) and
 not yet in that suite. It does
 not yet cover the whole backend: see *Backend surface not yet in the dashboard*.
-The integrations layer is design-only. Verification commands are in
-[README.md](README.md).
+Most of the integrations layer is still design-only — Clay (§17, contact
+enrichment for discovered prospects) is the first real instance. Verification
+commands are in [README.md](README.md).
 
 ---
 
@@ -262,10 +263,14 @@ own AI reading it over MCP.
 | ⬜ | OAuth providers | `account` table ready; none configured |
 | ⬜ | Billing / plan limits | |
 
-## 13. Integrations — 📋 design only
+## 13. Integrations — 🟡 first instance built (Clay), rest design only
 
-Requested as planning, **not built**. Recorded here so the design is settled
-before any code exists.
+The general shape below was planning, **not built**, until §17's prospecting
+feature needed contact enrichment: `integrations`, `integration_syncs` and the
+envelope-encryption utility this section called for now exist for real, with
+Clay as the first (and so far only) connected kind. Everything else in this
+section — Stripe, Slack, HubSpot, the rest of the candidate list — is still
+design only. See §17 for what's actually running.
 
 ### Shape
 
@@ -284,11 +289,11 @@ scheduled syncs over a segment definition, so they build on `segments`.
 
 ### Proposed schema
 
-| Table | Purpose |
-|---|---|
-| `integrations` | One row per connected service: org, kind, status, config, encrypted credentials |
-| `integration_syncs` | Run history — started, finished, records in/out, error |
-| `integration_mappings` | Field mapping between the external object and Falorb's person/company |
+| Table | Purpose | Status |
+|---|---|---|
+| `integrations` | One row per connected service: org, kind, status, config, encrypted credentials | ✅ built, §17 |
+| `integration_syncs` | Run history — started, finished, records in/out, error | ✅ built, §17 |
+| `integration_mappings` | Field mapping between the external object and Falorb's person/company | ⬜ not needed yet — Clay's request/response shape is fixed on both ends; add when a second integration needs configurable mapping |
 
 `person_aliases.kind` gains values like `stripe_customer`, `hubspot_contact`,
 so an external id is resolved through the same graph as a device id.
@@ -297,6 +302,7 @@ so an external id is resolved through the same graph as a device id.
 
 | Priority | Service | Direction | Why |
 |---|---|---|---|
+| — | **Clay** | in | ✅ Built — see §17. Contact enrichment for discovered prospects, not the person graph directly. |
 | 1 | **Stripe** | in | Real revenue per person, replacing tracker-reported `revenue()`. Highest value for a SaaS portfolio. |
 | 1 | **Slack** | out | Alert delivery — the channel already exists in `alert_channels`, only the connect flow is missing |
 | 2 | **HubSpot / Attio** | both | Push high-intent people to the CRM; pull deal stage back for closed-loop attribution |
@@ -310,6 +316,8 @@ so an external id is resolved through the same graph as a device id.
 - **Credentials encrypted at rest**, never returned by an API. The `api_keys`
   hashing approach does not transfer — OAuth tokens must be decryptable to be
   used, so this needs envelope encryption with a key outside the database.
+  ✅ Built: `packages/db/src/crypto.ts`, AES-256-GCM keyed by
+  `FALORB_CREDENTIAL_KEY`. Only the last-4 preview is ever shown back.
 - **Every integration is per-organization**, resolved through the same scope
   boundary as everything else.
 - **Inbound writes go through the identity graph**, never straight to
@@ -363,6 +371,7 @@ layer.
 | ✅ | `/settings/mcp` | API keys + MCP connection config |
 | ✅ | `/settings/new` | Add a property |
 | ✅ | `/insights` | Cross-project builder — metric × dimension × chart, people across products |
+| ✅ | `/prospecting` | Org-wide list of prospects discovered off-site (social listening) with contact enrichment and outreach drafting — see §17 |
 | ✅ | `/alerts` | Delivery channels, rules, firing history |
 | ✅ | `/share/[token]` | Public read-only property summary |
 | ✅ | `/badge/[token]` | Public embeddable "N visitors this month" widget, meant for an `<iframe>` on the property owner's own site; see §14i |
@@ -531,6 +540,30 @@ pre-launch to attach it to.
 | ✅ | Caddy config | `infra/Caddyfile` — `a.` / `dashboard.` / `mcp.` on separate hostnames |
 | ✅ | Backups | `infra/backup.sh` — incremental ClickHouse, verified gzip for Postgres |
 | ⬜ | Rollout to the operator's own live sites | one deployment instrumenting every property in the portfolio |
+
+## 17. Prospecting — social listening & contact enrichment
+
+The other half of "who to contact" alongside §14e's on-site hot leads: people
+discovered talking about the product somewhere the organization doesn't own,
+not people already tracked as visitors. Deliberately a new table
+(`prospects`) rather than a `persons` row with no site history —
+`persons.ts`'s docblock is an explicit privacy boundary ("every field is
+derived from first-party activity on the org's own properties") that an
+externally-discovered person does not fit.
+
+| | Feature | Notes |
+|---|---|---|
+| ✅ | `prospects` schema | Source, excerpt, matched keywords, AI relevance score, contact-enrichment cache (mirrors `companies`'s `raw`/`enrichedAt`/`lookupFailedAt` shape), status, owner-set `contactedAt`/`contactedBy`, optional `personId` for a future **human-confirmed** merge only |
+| ✅ | `prospect_keywords` | Per-project listening config — configured on that property's own Settings tab even though results are consumed org-wide, same split as goals/referral links |
+| ✅ | `integrations` + `integration_syncs` | First real instance of §13's design, Clay only. `encryptedCredential` via the new envelope-encryption utility (`packages/db/src/crypto.ts`, AES-256-GCM, `FALORB_CREDENTIAL_KEY`) |
+| ✅ | `reddit-listener` worker job | 15m. Platform-wide Reddit app-only OAuth (no per-org credential needed — unlike Clay, nothing here is org-specific), soft-disables without `REDDIT_CLIENT_ID`/`REDDIT_CLIENT_SECRET`. Per-keyword try/catch, dedup on `(org, source, source_id)`, AI relevance scoring via `@falorb/ai` that never blocks insertion on a scoring failure. In `verify:jobs` |
+| ✅ | `clay-enrichment` worker job | 30m. Per-org loop, each org's own try/catch so one bad/rotated key can't stop the sweep; negative-result caching like `enrichCompanies`. Deliberately **excluded** from `verify:jobs` — unlike every other job there, a live run spends a connected org's own paid Clay credits. Covered instead by a unit test of the response parsing (`clay-enrichment.test.ts`) plus the encryption round-trip (`crypto.test.ts`) |
+| ✅ | `/prospecting` | Top-level route, not a per-project tab — a prospect is discovered via one project's keywords but the useful view is portfolio-wide, same reasoning as `hotLeads`'s `"portfolio"` scope. Mark contacted, dismiss, draft outreach (AI, grounded in the specific public post — never implies an on-site relationship that never happened) |
+| ✅ | Clay connection panel | `/settings`, gated `manageProject` (admin+) — stricter than every other prospecting action (`writeAnalysis`, member+), deliberately: a Clay key is the org's own paid third-party credential, not an analysis object like a goal |
+| ✅ | MCP tools | `apps/mcp/src/tools/prospects.ts` — `list_prospects`, `get_prospect`, `list_prospect_keywords` (read); `mark_prospect_contacted`, `dismiss_prospect`, `draft_prospect_outreach`, `add_prospect_keyword`, `remove_prospect_keyword` (write). Connect/disconnect deliberately **not** exposed, per §13's stated integrations rule |
+| ✅ | Verified | Full monorepo typecheck + test suite, production build (31 routes total, including `/prospecting`), `verify:jobs` (`reddit-listener` soft-disables cleanly without credentials), and a live walkthrough against the dev stack: signed up, connected a test Clay key (encrypted, previewed as last-4, disconnect available), added a listening keyword on a property, confirmed it renders on `/prospecting` |
+| 🟡 | Playwright coverage | Verified manually as above; no automated end-to-end coverage yet, same gap as every other §14d–§14j feature |
+| ⬜ | Comment/social platforms beyond Reddit | X/LinkedIn need a paid API tier or a listening-as-a-service vendor; deliberately deferred to keep the first version's cost at zero |
 
 ---
 

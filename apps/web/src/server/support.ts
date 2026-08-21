@@ -1,5 +1,5 @@
 import "server-only";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@falorb/db";
 
 /**
@@ -122,6 +122,7 @@ export async function listConversationActivity(
   return { escalations, leads, tickets };
 }
 
+/** Org-level connection only — a property-only override doesn't light up this org-wide "Bund AI connected" check; see `packages/db/src/schema/integrations.ts`. */
 export async function isBundAiConnected(organizationId: string): Promise<boolean> {
   const [row] = await db()
     .select({ id: schema.integrationConnections.id })
@@ -129,6 +130,7 @@ export async function isBundAiConnected(organizationId: string): Promise<boolean
     .where(
       and(
         eq(schema.integrationConnections.organizationId, organizationId),
+        isNull(schema.integrationConnections.projectId),
         eq(schema.integrationConnections.provider, "bund_ai"),
         eq(schema.integrationConnections.status, "active"),
       ),

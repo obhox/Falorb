@@ -1,5 +1,5 @@
 import "server-only";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@falorb/db";
 
 /**
@@ -28,6 +28,7 @@ export async function listPosts(organizationId: string): Promise<SocialPostRow[]
     .limit(200);
 }
 
+/** Org-level connection only — a property-only override doesn't light up this org-wide "Buffer connected" check; see `packages/db/src/schema/integrations.ts`. */
 export async function isBufferConnected(organizationId: string): Promise<boolean> {
   const [row] = await db()
     .select({ id: schema.integrationConnections.id })
@@ -35,6 +36,7 @@ export async function isBufferConnected(organizationId: string): Promise<boolean
     .where(
       and(
         eq(schema.integrationConnections.organizationId, organizationId),
+        isNull(schema.integrationConnections.projectId),
         eq(schema.integrationConnections.provider, "buffer"),
         eq(schema.integrationConnections.status, "active"),
       ),

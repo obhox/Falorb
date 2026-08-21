@@ -15,22 +15,26 @@ import type { ConnectionView } from "@/server/integrations";
 const LABELS: Record<Provider, string> = {
   linki: "Linki",
   bund_ai: "Bund AI",
+  buffer: "Buffer",
   clay: "Clay",
   elevenlabs: "ElevenLabs",
 };
 const BLURBS: Record<Provider, string> = {
   linki: "Sales outreach & CRM. Generate a scoped key in Linki at Platform → Workspace & API.",
   bund_ai: "AI customer support. Generate a key in Bund AI at Settings → API access.",
+  buffer:
+    "Social post scheduling. Generate a personal API key in Buffer at Settings → API. One Buffer account per Falorb org — Buffer doesn't offer third-party OAuth today.",
   clay: "Contact enrichment for prospects discovered off-site (see Prospecting). Generate a key in Clay at Settings → API.",
   elevenlabs: "Script, voice, and talking-video generation for UGC videos (see UGC videos). Generate a key in ElevenLabs at Settings → API Keys.",
 };
 
-/** Clay and ElevenLabs each have one fixed API root — unlike Linki/Bund AI's
- * self-hosted deployments, their connect dialogs have no Base URL field to
- * fill in. */
+/** Buffer, Clay, and ElevenLabs each have one fixed API root — unlike
+ * Linki/Bund AI's self-hosted deployments, their connect dialogs have no
+ * Base URL field to fill in. */
 const HAS_BASE_URL: Record<Provider, boolean> = {
   linki: true,
   bund_ai: true,
+  buffer: false,
   clay: false,
   elevenlabs: false,
 };
@@ -48,7 +52,7 @@ export function IntegrationsPanel({
 
   return (
     <div style={{ display: "grid", gap: "var(--space-6)" }}>
-      {(["linki", "bund_ai", "clay", "elevenlabs"] as Provider[]).map((provider) => (
+      {(["linki", "bund_ai", "buffer", "clay", "elevenlabs"] as Provider[]).map((provider) => (
         <ProviderCard
           key={provider}
           provider={provider}
@@ -222,9 +226,11 @@ function ProviderCard({
                 ? "lnk_…"
                 : provider === "bund_ai"
                   ? "bund_sk_…"
-                  : provider === "elevenlabs"
-                    ? "Your ElevenLabs API key"
-                    : "clay_…"
+                  : provider === "buffer"
+                    ? "buf_…"
+                    : provider === "elevenlabs"
+                      ? "Your ElevenLabs API key"
+                      : "clay_…"
             }
             hint="Stored encrypted (AES-256-GCM). Never shown again after this."
           />

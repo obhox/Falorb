@@ -12,16 +12,28 @@ import {
 } from "@/server/actions/integrations";
 import type { ConnectionView } from "@/server/integrations";
 
-const LABELS: Record<Provider, string> = { linki: "Linki", bund_ai: "Bund AI", clay: "Clay" };
+const LABELS: Record<Provider, string> = {
+  linki: "Linki",
+  bund_ai: "Bund AI",
+  clay: "Clay",
+  elevenlabs: "ElevenLabs",
+};
 const BLURBS: Record<Provider, string> = {
   linki: "Sales outreach & CRM. Generate a scoped key in Linki at Platform → Workspace & API.",
   bund_ai: "AI customer support. Generate a key in Bund AI at Settings → API access.",
   clay: "Contact enrichment for prospects discovered off-site (see Prospecting). Generate a key in Clay at Settings → API.",
+  elevenlabs: "Script, voice, and talking-video generation for UGC videos (see UGC videos). Generate a key in ElevenLabs at Settings → API Keys.",
 };
 
-/** Clay has one fixed API root — unlike Linki/Bund AI's self-hosted
- * deployments, its connect dialog has no Base URL field to fill in. */
-const HAS_BASE_URL: Record<Provider, boolean> = { linki: true, bund_ai: true, clay: false };
+/** Clay and ElevenLabs each have one fixed API root — unlike Linki/Bund AI's
+ * self-hosted deployments, their connect dialogs have no Base URL field to
+ * fill in. */
+const HAS_BASE_URL: Record<Provider, boolean> = {
+  linki: true,
+  bund_ai: true,
+  clay: false,
+  elevenlabs: false,
+};
 
 export function IntegrationsPanel({
   connections,
@@ -36,7 +48,7 @@ export function IntegrationsPanel({
 
   return (
     <div style={{ display: "grid", gap: "var(--space-6)" }}>
-      {(["linki", "bund_ai", "clay"] as Provider[]).map((provider) => (
+      {(["linki", "bund_ai", "clay", "elevenlabs"] as Provider[]).map((provider) => (
         <ProviderCard
           key={provider}
           provider={provider}
@@ -155,7 +167,9 @@ function ProviderCard({
                   ? relative(connection.lastSyncedAt, now)
                   : provider === "clay"
                     ? "never — enrichment runs every 30 minutes against discovered prospects"
-                    : "never — the mirror job runs every 15 minutes"}
+                    : provider === "elevenlabs"
+                      ? "never — used on demand each time you generate a UGC video, not on a schedule"
+                      : "never — the mirror job runs every 15 minutes"}
               </div>
               <div>
                 last verified:{" "}
@@ -203,7 +217,15 @@ function ProviderCard({
             mono
             value={apiKey}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setApiKey(e.target.value)}
-            placeholder={provider === "linki" ? "lnk_…" : provider === "bund_ai" ? "bund_sk_…" : "clay_…"}
+            placeholder={
+              provider === "linki"
+                ? "lnk_…"
+                : provider === "bund_ai"
+                  ? "bund_sk_…"
+                  : provider === "elevenlabs"
+                    ? "Your ElevenLabs API key"
+                    : "clay_…"
+            }
             hint="Stored encrypted (AES-256-GCM). Never shown again after this."
           />
         </div>

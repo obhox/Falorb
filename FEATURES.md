@@ -13,7 +13,7 @@ Living record of what exists, what is half-built, and what has not been started.
 
 **Where things stand:** the collection pipeline, storage layer, identity graph,
 query layer, background workers, MCP server and self-serve account system are
-complete and verified. The dashboard is built — 33 routes on the Falorb design
+complete and verified. The dashboard is built — 36 routes on the Falorb design
 system, light and dark, role-enforced. Most routes are driven end to end by
 Playwright; the eight newest — sales lead actions, the weekly digest, the
 product signal's drop-off data, the public benchmark report, the referral
@@ -293,18 +293,20 @@ in Bund AI — and Falorb is a client + a read mirror:
 
 - **Credential storage** — `schema.integrationConnections`
   (`packages/db/src/schema/integrations.ts`), one `provider`-discriminated
-  table (`linki` | `bund_ai`) rather than one table per service, so a third
-  integration (e.g. a queued Postiz connection for social posting) reuses it.
-  API keys are AES-256-GCM encrypted (`packages/db/src/crypto.ts`,
+  table (`linki` | `bund_ai` | `clay` | `elevenlabs`) rather than one table
+  per service. API keys are AES-256-GCM encrypted (`packages/db/src/crypto.ts`,
   `INTEGRATION_CREDENTIAL_ENC_KEY`) — envelope encryption with a key outside
   the database, exactly as the old design constraints called for, since these
   must be decryptable to use, unlike `api_keys.keyHash`.
 - **Typed clients** — `packages/linki-client`, `packages/bund-ai-client`,
-  `packages/clay-client`, thin wrappers confirmed against each product's real
-  API contract (not guessed). `ClayClient` is the proof the one-table design
-  scales past two providers: no schema change was needed to add it, just a
-  new `provider` enum value and a new client with the same `verifyConnection()`
-  shape the generic connect/test/revoke actions already call.
+  `packages/clay-client`, `packages/elevenlabs-client`, thin wrappers
+  confirmed against each product's real API contract (not guessed). Clay and
+  ElevenLabs are the proof the one-table design scales past the original two
+  providers: neither needed a schema change to add, just a new `provider`
+  enum value and a new client with the same `verifyConnection()` shape the
+  generic connect/test/revoke actions already call — ElevenLabs' UGC video
+  pipeline (§18) is a second consumer of that same machinery, not a special
+  case bolted on beside it.
 - **Mirror** — `packages/db/src/schema/crm.ts` (13 tables) and
   `packages/db/src/schema/support.ts` (5 tables), pulled by
   `apps/worker/src/jobs/{linki-sync,bund-ai-sync}.ts` — see §7. Sync health is
@@ -356,7 +358,8 @@ in Bund AI — and Falorb is a client + a read mirror:
 - Sync failures are visible (`integrationConnections.status`/`lastError`),
   not silently indistinguishable from "nothing changed."
 - Connect/disconnect stays a dashboard-only action for every provider,
-  including Clay — no MCP tool can create, rotate, or revoke a credential.
+  including Clay and ElevenLabs — no MCP tool can create, rotate, or revoke
+  a credential.
 
 ### Not planned
 
@@ -406,6 +409,7 @@ layer.
 | ✅ | `/settings/new` | Add a property |
 | ✅ | `/insights` | Cross-project builder — metric × dimension × chart, people across products |
 | ✅ | `/prospecting` | Org-wide list of prospects discovered off-site (social listening) with contact enrichment and outreach drafting — see §17 |
+| 🟡 | `/ugc-videos`, `/ugc-videos/[id]` | Generate and review AI UGC-style videos, queue them for posting — see §18. Typechecks, never exercised against a live ElevenLabs connection |
 | ✅ | `/alerts` | Delivery channels, rules, firing history |
 | 🟡 | `/support` | Bund AI escalations mirrored from a connected business, resolvable in one click; see §13. Typechecks, never exercised against a live connection |
 | ✅ | `/share/[token]` | Public read-only property summary |
@@ -616,6 +620,46 @@ externally-discovered person does not fit.
 
 ---
 
+## 18. UGC AI video generation — script, voice, and a talking avatar video
+
+Built in-house rather than integrating a single UGC vendor (Arcads, HeyGen,
+Synthesia) — a chain of calls Falorb owns end to end: a script
+(`@falorb/ai`'s `complete()`, same OpenRouter path §14e's AI signals use), a
+voiceover, then a lip-synced talking video animating a user-supplied
+presenter photo. The voice and video stages both go through ElevenLabs —
+their Flows video API added an image+audio-to-video lipsync model
+(`creatify-aurora`) in 2026, so one vendor now covers both stages rather than
+a separate TTS vendor and a separate avatar vendor.
+
+ElevenLabs is connected exactly like Linki/Bund AI/Clay (§13): each org
+brings its own ElevenLabs account via `integrationConnections`
+(`provider: "elevenlabs"`) on `/settings/integrations`, not a Falorb-wide
+shared key. An org's own voices (including any clones) and its own billing —
+not a pooled credential every org draws against.
+
+Org-wide (`/ugc-videos`), not a per-project tab — same reasoning as §17: a
+UGC ad is marketing content for the business, not analysis of one property's
+traffic. A video's `projectId` is an optional tag for which property/brand
+it's for, not an ownership scope.
+
+| | Feature | Notes |
+|---|---|---|
+| ✅ | `ugc_videos` schema | Org-scoped, optional `projectId` tag. `status` is both the lifecycle and the resume point (`pending → script_ready → voice_ready → video_processing → ready`, or `failed`) — plain `text()`, UI-driven vocabulary, same convention as `prospects.status`. Presenter photo and generated voiceover stored as base64 `text` (Falorb has no object storage yet; both are small — see the table's own docblock for why introducing a blob store solely for this one feature would be premature). The final video itself is **not** re-hosted — `videoUrl` points at ElevenLabs' own output URL |
+| ✅ | `ugc_video_post_queue` schema | A human-curated "post this" to-do list, not automated posting — Postiz (queued, §13) doesn't exist yet. Nothing transitions an entry out of `queued` except a person clicking "mark posted" on the review page |
+| ✅ | `elevenlabs` on `integration_provider` | Fourth value on the enum `packages/db/src/schema/integrations.ts` already had (`linki`/`bund_ai`/`clay`) — no new table, same encrypted-credential row shape as the other three |
+| ✅ | `@falorb/elevenlabs-client` | Thin client for `POST /v1/text-to-speech/{voice_id}` (confirmed against ElevenLabs' stable docs) and the Flows video API `POST /v1/flows/video` + `GET /v1/flows/video/{id}` (2026, still beta on ElevenLabs' side — the request schema for `creatify-aurora` is confirmed, the completed-generation response shape is not, so `getVideoGeneration` checks several plausible field names rather than asserting one; same "verify before production traffic" caveat `@falorb/clay-client` carries for its own contract). `verifyConnection()` pings `GET /v1/user` — cheapest authenticated call that doesn't spend generation credits, same "who am I" reasoning `ClayClient`'s equivalent method gives |
+| ✅ | ElevenLabs on `/settings/integrations` | A fourth `ProviderCard`, not a bespoke panel — reuses the generic connect/test/revoke actions unchanged. Its connect dialog has no Base URL field (ElevenLabs has one fixed API root, set server-side, `ELEVENLABS_DEFAULT_BASE_URL`), gated `manageIntegrations` (admin+), same tier every other integration credential uses |
+| ✅ | `ugc-video-gen` worker job | 1m interval — short, deliberately, since this is user-facing and someone is on the review page waiting. Per-organization loop over connected `elevenlabs` `integrationConnections`, same shape as `clay-enrichment.ts`: each org's own decrypted key, each org's own try/catch so one bad/revoked key can't stop the sweep for other orgs, connection health (`lastSyncedAt`/`status`/`lastError`) reflects the run. Within one org's batch, advances **one stage per row per tick** rather than running the whole chain in one call, so a crash mid-chain resumes from the last persisted stage instead of re-running (and re-billing) earlier stages; a `video_processing` row stuck past 10 minutes is treated as failed rather than left stranded forever. No-ops with zero DB writes when no org has connected ElevenLabs. Deliberately **excluded** from `verify:jobs`, same reasoning as `clay-enrichment` — a live run spends a connected org's own paid ElevenLabs credits |
+| ✅ | `/ugc-videos` | Brief + optional property tag + required voice ID + a required presenter photo upload in, a `status: "pending"` row out — generation is entirely the worker job's responsibility, never awaited inside the request/response cycle. Refuses to insert the row (with a link to Settings → Integrations) if the org has no active ElevenLabs connection, rather than accepting a brief that can never advance past `pending`. List shows every video with a status badge and an inline player once `ready` |
+| ✅ | `/ugc-videos/[id]` | Script, video player, and the queue-for-posting form (platform, caption, optional target date) once `ready`; existing queue entries with mark-posted/cancel actions |
+| ✅ | Capability | New `can.manageUgcVideos` (member tier) — same trust tier as `manageCrm`/`writeAnalysis` for *using* an already-connected account; connecting/revoking the ElevenLabs credential itself is `manageIntegrations` (admin+), the same split every other provider draws between "connect it" and "use it" |
+| ⬜ | MCP tools | Not exposed — generation spends real money per call, same reasoning integrations' write actions stay out of MCP's reach (§13) |
+| ⬜ | Automated posting | Deliberately out of scope until Postiz (§13's queued third integration) lands. The post queue exists so a finished video isn't lost track of while that's built, not so it can fire anywhere today |
+| ⬜ | Durable video storage | `videoUrl` is ElevenLabs' own hosted URL; its retention window isn't confirmed. Mirroring finished videos into an object store is a natural follow-up once Falorb has one for any feature, not something to stand up solely for this |
+| 🟡 | Verified | Typechecks and builds; never exercised against a live ElevenLabs connection — no live account was available to confirm the Flows video API's actual completed-generation response shape (see the client's caveat above) or the `creatify-aurora` request contract end to end |
+
+---
+
 ## Backend surface not yet in the dashboard
 
 Audited by enumerating every schema table and every query-layer export, then
@@ -625,14 +669,16 @@ the most.
 
 | Backend | State | What is missing in the UI |
 |---|---|---|
-| `dataRequests` | worker processes them | No way to raise a GDPR export or erasure. The `data-requests` job runs every 2m against rows nothing creates |
 | `segments` | table + `segment-counts` worker | People can be filtered but not *saved* as a segment; the worker caches sizes for segments that cannot be created. No condition-tree filter builder exists anywhere in the app yet — the People page's filter bar is a flat search+checkbox, not the `Filter[]` AST `compileFilters`/`refreshSegmentCounts` already expect |
 | `dashboardWidgets` | table | The design system's custom-view builder (widget grid) is not built; `/insights` is a single fixed layout |
-| `webhooks` | table + dispatcher job | No UI to register an endpoint or see delivery history |
-| `consentRecords` | ingest writes them | No UI to read the consent log |
-| `auditLog` | API writes it | No UI to read it. Written on project, key, member and person actions and visible only in Postgres |
-| `personMerges` | resolver writes it | Merge/unmerge exists in the API; the person profile cannot trigger or reverse one |
-| `closedSessions` | query exists | Not consumed — the session list uses `sessionList` |
+
+`dataRequests`, `webhooks`, `consentRecords`, `auditLog` and `personMerges` are
+now built — see §18. `closedSessions` was removed from this list: it's a
+worker-internal ingestion query (`sessionizer.ts`/`backfill.ts` roll closed
+sessions into Postgres totals against raw `events`) with different
+correctness requirements than the UI's own `sessionList` (which reads
+`events_v` live, so identity merges are reflected) — not a missing frontend
+feature, just a different consumer.
 
 `funnels` and `insights` are now built: the funnel builder has a "Save"
 button (`apps/web/src/server/actions/funnels.ts`) alongside the existing
@@ -686,14 +732,33 @@ and correctly have no UI.
   verbatim payload shown in the event detail view was built from the *unmasked*
   props, preserving exactly what masking had just removed.
 
+## 18. Trust & ops surfaces — GDPR requests, audit log, webhooks, consent log, person merge
+
+The five highest-cost items from the old "Backend surface not yet in the
+dashboard" list — each already had a complete backend (a worker, a full API
+route, or just a written-to-but-unread table) and needed only UI wired onto
+it.
+
+| | Feature | Notes |
+|---|---|---|
+| ✅ | GDPR data requests | `/people/[personId]`'s new "Data requests" card. Duplicates `POST/GET /requests` in `apps/api/src/routes/people.ts` directly against `dataRequests` (same reasoning as every other action in `apps/web/src/server/actions`), gated `manageProject`. Verified live: requested an export, ran `processDataRequests` (`apps/worker/src/jobs/retention-gc.ts`) via `verify:jobs`, confirmed the card flipped to "completed" |
+| ✅ | Audit log viewer | `/settings/audit-log` — `listAuditLog` (new, paginated, actor joined from `user`) + an action-name filter sourced from `AUDIT_ACTIONS`. Readable by any workspace member, matching `/settings/team`'s read-open convention |
+| ✅ | Webhooks | `/settings/webhooks` — register/delete/enable-disable an `ops.webhooks` endpoint (distinct from an alert channel's webhook destination). Triggers are goal names, shown as clickable reference chips sourced from each property's real `listGoals`, not a blind text field. Secret shown once on creation, same UX as API key issuance. Gated `manageProject` |
+| ✅ | Consent log | `/p/[project]/consent-log`, linked from the property's Settings tab next to the consent-mode field (which was also carrying a stale warning — "server-side enforcement is not implemented yet" — contradicted by §3's actual `apps/ingest/src/consent.ts`; corrected in the same edit) |
+| ✅ | Person merge/unmerge | New "Merge duplicate profile" card on `/people/[personId]`: search (reuses `listPeople`'s existing search), merge, and a reversible history list with an unmerge button. Duplicates `POST /merge` / `POST /unmerge/:mergeId` in `apps/api/src/routes/people.ts`, gated `manageProject`. **Found and fixed a real bug while verifying this live**: interpolating a plain JS array (`merged.projectIds`) or `Date` (`merged.firstSeenAt`) directly into a drizzle `sql` template isn't reliably bound by this project's postgres.js setup — every merge attempt with a non-empty `projectIds` crashed. Fixed here by building the array/timestamp as an explicit SQL literal (`ARRAY[...]::integer[]`, `::timestamptz`), the same pattern already used correctly elsewhere (`identity-resolver.ts`'s other three `unnest()` calls, `backfill.ts`, `sessionizer.ts`). The identical bug still exists in `apps/api/src/routes/people.ts`'s `/merge` route and in `identity-resolver.ts`'s own automatic-merge path (line ~437) — flagged as a follow-up, not fixed here, since it's outside this branch's scope |
+| ✅ | Verified | Full monorepo typecheck + test suite, production build, and a live walkthrough of every item above against the dev stack, including the merge/unmerge round trip end to end (search → merge → totals updated correctly → unmerge → row restored) |
+| 🟡 | Playwright coverage | Verified manually as above; no automated coverage yet, same gap as every other dashboard feature in this document |
+
 ## Suggested next order
 
 1. Fix defect 1 (`SEED_OWNER_EMAIL`) and rotate `BETTER_AUTH_SECRET`, in that
    order — the first makes the dashboard show data, the second is cheap now and
    expensive after real accounts exist.
-2. Close the highest-cost integration gaps: GDPR data requests, then saved
-   segments and funnels. Each has a worker or a table already waiting on a UI.
-3. Audit log and consent log viewers — both are written today and readable only
-   in Postgres, which is the wrong place to look during an incident.
-4. Webhook management, then the custom-view widget builder.
+2. Apply §18's merge-bug fix to `apps/api/src/routes/people.ts` and
+   `identity-resolver.ts` — the automatic merge path runs continuously in
+   production and may be silently erroring right now.
+3. Saved funnels (mostly built — only save/delete is missing), then saved
+   insights, then segments (the one genuinely new UI: a condition-tree filter
+   builder doesn't exist anywhere yet).
+4. The custom-view widget builder — depends on saved insights existing first.
 5. Coolify deploy, then instrument the primary site first.

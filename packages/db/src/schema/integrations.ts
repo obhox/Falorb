@@ -13,17 +13,18 @@ import { organizations } from "./tenancy";
 
 /**
  * Credentials Falorb holds to call another product's API on the
- * organization's behalf — Linki (sales/outreach) and Bund AI (customer
- * support) today, more over time. One table, not one per provider, because
- * the shape is identical: a base URL, an encrypted key, and a status a sync
- * job can check before calling out.
+ * organization's behalf — Linki (sales/outreach), Bund AI (customer
+ * support), and Postiz (social media posting/analytics) today, more over
+ * time. One table, not one per provider, because the shape is identical: a
+ * base URL, an encrypted key, and a status a sync job can check before
+ * calling out.
  *
  * The key is stored encrypted, not hashed, unlike `api_keys`. Those keys are
  * only ever compared against a caller-presented value; this key must be
  * presented in plaintext *to* the other product on every outbound call, so a
  * one-way hash would be useless here.
  */
-export const integrationProviderEnum = pgEnum("integration_provider", ["linki", "bund_ai"]);
+export const integrationProviderEnum = pgEnum("integration_provider", ["linki", "bund_ai", "postiz"]);
 
 export const integrationStatusEnum = pgEnum("integration_status", [
   "active",

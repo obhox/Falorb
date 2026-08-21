@@ -5,12 +5,13 @@ import { and, eq } from "drizzle-orm";
 import { AUDIT_ACTIONS, audit, db, decryptCredential, encryptCredential, schema } from "@falorb/db";
 import { LinkiClient } from "@falorb/linki-client";
 import { BundAiClient } from "@falorb/bund-ai-client";
+import { BufferClient } from "@falorb/buffer-client";
 import { requireSession } from "@/server/session";
 import type { ActionResult } from "./project";
 import { deny } from "./guard";
 
 /**
- * Connect, test, or revoke Falorb's connection to Linki or Bund AI.
+ * Connect, test, or revoke Falorb's connection to Linki, Bund AI, or Buffer.
  *
  * Duplicates what `apps/api/src/routes/integrations.ts` exposes over HTTP,
  * deliberately — same reasoning as every other server action in this
@@ -24,16 +25,18 @@ import { deny } from "./guard";
  * between issuing an API key and using one.
  */
 
-export type Provider = "linki" | "bund_ai";
+export type Provider = "linki" | "bund_ai" | "buffer";
 
-const LABELS: Record<Provider, string> = { linki: "Linki", bund_ai: "Bund AI" };
+const LABELS: Record<Provider, string> = { linki: "Linki", bund_ai: "Bund AI", buffer: "Buffer" };
 
-function clientFor(provider: Provider, baseUrl: string, apiKey: string): LinkiClient | BundAiClient {
-  return provider === "linki" ? new LinkiClient({ baseUrl, apiKey }) : new BundAiClient({ baseUrl, apiKey });
+function clientFor(provider: Provider, baseUrl: string, apiKey: string): LinkiClient | BundAiClient | BufferClient {
+  if (provider === "linki") return new LinkiClient({ baseUrl, apiKey });
+  if (provider === "bund_ai") return new BundAiClient({ baseUrl, apiKey });
+  return new BufferClient({ baseUrl, apiKey });
 }
 
 function isProvider(value: string): value is Provider {
-  return value === "linki" || value === "bund_ai";
+  return value === "linki" || value === "bund_ai" || value === "buffer";
 }
 
 export async function connectIntegration(provider: string, formData: FormData): Promise<ActionResult> {

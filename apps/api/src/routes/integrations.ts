@@ -11,13 +11,14 @@ import {
 } from "@falorb/db";
 import { LinkiClient } from "@falorb/linki-client";
 import { BundAiClient } from "@falorb/bund-ai-client";
+import { BufferClient } from "@falorb/buffer-client";
 import type { Workspace } from "../onboarding";
 import { HttpError } from "../http";
 import { requireHumanSession } from "../guards";
 
 /**
  * Connection management for the external products Falorb drives on the
- * organization's behalf (Linki, Bund AI, more over time).
+ * organization's behalf (Linki, Bund AI, Buffer, more over time).
  *
  * Deliberately human-session-only end to end, not scope-gated for API keys —
  * same reasoning as `POST /api/keys` in `index.ts`: storing, testing, or
@@ -26,10 +27,11 @@ import { requireHumanSession } from "../guards";
  * revoking the leaked key would not undo what it already connected.
  *
  * `verifyConnection` delegates to each product's real typed client
- * (`packages/linki-client`, `packages/bund-ai-client`) rather than a generic
- * raw `fetch` — one implementation of "how do I reach this API" per product,
- * shared with the mirror jobs (`linki-sync.ts`, `bund-ai-sync.ts`) instead of
- * a second one living only here.
+ * (`packages/linki-client`, `packages/bund-ai-client`, `packages/buffer-client`)
+ * rather than a generic raw `fetch` — one implementation of "how do I reach
+ * this API" per product, shared with the mirror jobs (`linki-sync.ts`,
+ * `bund-ai-sync.ts`, `buffer-sync.ts`) instead of a second one living only
+ * here.
  */
 
 type Vars = {
@@ -41,6 +43,7 @@ type Vars = {
 const PROVIDERS = {
   linki: { label: "Linki" },
   bund_ai: { label: "Bund AI" },
+  buffer: { label: "Buffer" },
 } as const;
 
 type Provider = keyof typeof PROVIDERS;
@@ -55,9 +58,9 @@ async function pingProvider(
   baseUrl: string,
   apiKey: string,
 ): Promise<{ ok: boolean; detail: string }> {
-  const client =
-    provider === "linki" ? new LinkiClient({ baseUrl, apiKey }) : new BundAiClient({ baseUrl, apiKey });
-  return client.verifyConnection();
+  if (provider === "linki") return new LinkiClient({ baseUrl, apiKey }).verifyConnection();
+  if (provider === "bund_ai") return new BundAiClient({ baseUrl, apiKey }).verifyConnection();
+  return new BufferClient({ baseUrl, apiKey }).verifyConnection();
 }
 
 function publicConnection(row: typeof schema.integrationConnections.$inferSelect) {

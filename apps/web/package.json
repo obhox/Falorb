@@ -19,6 +19,7 @@
     "@clickhouse/client": "^1.10.1",
     "@falorb/ai": "workspace:*",
     "@falorb/auth": "workspace:*",
+    "@falorb/buffer-client": "workspace:*",
     "@falorb/bund-ai-client": "workspace:*",
     "@falorb/core": "workspace:*",
     "@falorb/db": "workspace:*",

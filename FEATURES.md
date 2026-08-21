@@ -146,7 +146,7 @@ Verified end to end: one person, two devices, two products, both stores agreeing
 
 ## 7. Workers — `apps/worker`
 
-13 of the 16 below verified running via `pnpm --filter @falorb/worker verify:jobs`; `digest` typechecks and doesn't touch its siblings, but isn't in that runner yet since exercising it live sends real email and makes a real OpenRouter call. `linki-sync` and `bund-ai-sync` are in the runner (no-op cleanly with zero connected orgs) but have never processed a real org, since none has connected credentials yet — see §13.
+13 of the 17 below verified running via `pnpm --filter @falorb/worker verify:jobs`; `digest` typechecks and doesn't touch its siblings, but isn't in that runner yet since exercising it live sends real email and makes a real OpenRouter call. `linki-sync`, `bund-ai-sync`, and `buffer-sync` are in the runner (no-op cleanly with zero connected orgs) but have never processed a real org, since none has connected credentials yet — see §13.
 
 | | Job | Every | Notes |
 |---|---|---|---|
@@ -164,6 +164,7 @@ Verified end to end: one person, two devices, two products, both stores agreeing
 | ✅ | `digest` | 7d, `skipOnBoot` | Regenerates all four AI signals per project and emails one summary per org to its owners/admins; opt-out per org (`organizations.weeklyDigestEnabled`, on by default) |
 | 🟡 | `linki-sync` | 15m | Full paginated poll of a connected Linki workspace into `crm.*` (contacts, lists, workflows, runs, run profiles/tracks, pipeline stages, opportunities, signal rules, suppressions, sent messages), upserted on `(organizationId, linkiId)`. Typechecks, in `verify:jobs`; never run against a real Linki workspace — see §13 |
 | 🟡 | `bund-ai-sync` | 15m | Same shape, into `support.*` (conversations, escalations, leads, tickets) from a connected Bund AI business. Poll-only — the inbound-webhook push half is not built; see §13 |
+| 🟡 | `buffer-sync` | 15m | Full poll (cursor-paginated, not `limit`/`offset`) of a connected Buffer account into `social.*` (channels, posts + metrics), upserted on `(organizationId, bufferId)`. Typechecks, in `verify:jobs`; never run against a real Buffer account — see §13b |
 | ✅ | Scheduler | — | Redis distributed locks, watermarks, overlap guard |
 | ✅ | `webhooks` | 1m | Fires on goal conversion; HMAC over `timestamp.body`, auto-disables after 20 failures |
 | ✅ | `webhook-revive` | 6h | Re-enables hooks disabled by a transient outage |
@@ -267,52 +268,98 @@ own AI reading it over MCP.
 | ⬜ | OAuth providers | `account` table ready; none configured |
 | ⬜ | Billing / plan limits | |
 
-## 13. Integrations — Linki + Bund AI built; generic multi-service design superseded
+## 13. Integrations — Linki + Bund AI + Buffer built; generic multi-service design superseded
 
 The generic "any service, inbound or outbound, via `integrations` /
 `integration_syncs` / `integration_mappings`" design that used to live here
 was never built. What got built instead is more specific: deep, two-way
 integration with two of the operator's own products — **Linki** (sales
-outreach/CRM) and **Bund AI** (AI customer support) — each running as its own
-independently-deployed service that Falorb calls into and mirrors, rather
-than a generic connector framework. The full phased plan (with named risk
-gates for the parts that touch live external systems) lives outside this repo
-at `~/.claude/plans/modular-gathering-cocoa.md`; this section tracks what of
-it actually exists in code.
+outreach/CRM) and **Bund AI** (AI customer support) — plus **Buffer** (social
+post scheduling), each calling into and mirroring one external service rather
+than a generic connector framework. The full phased plan for Linki/Bund AI
+(with named risk gates for the parts that touch live external systems) lives
+outside this repo at `~/.claude/plans/modular-gathering-cocoa.md`; Buffer's
+plan is `~/.claude/plans/composed-drifting-crystal.md`. This section tracks
+what of it actually exists in code.
 
 ### Shape (what was actually built)
 
-Falorb never becomes Linki's or Bund AI's database. Each stays the owner of
-its own execution — real LinkedIn/email sending in Linki, real customer chat
-in Bund AI — and Falorb is a client + a read mirror:
+Falorb never becomes Linki's, Bund AI's, or Buffer's database. Linki and Bund
+AI stay the owner of their own execution — real LinkedIn/email sending in
+Linki, real customer chat in Bund AI; Buffer is a hosted third-party SaaS with
+no execution of Falorb's to own. In all three cases Falorb is a client + a
+read mirror:
 
 - **Credential storage** — `schema.integrationConnections`
   (`packages/db/src/schema/integrations.ts`), one `provider`-discriminated
-  table (`linki` | `bund_ai`) rather than one table per service, so a third
-  integration (e.g. a queued Postiz connection for social posting) reuses it.
+  table (`linki` | `bund_ai` | `buffer`) rather than one table per service.
   API keys are AES-256-GCM encrypted (`packages/db/src/crypto.ts`,
   `INTEGRATION_CREDENTIAL_ENC_KEY`) — envelope encryption with a key outside
-  the database, exactly as the old design constraints called for, since these
-  must be decryptable to use, unlike `api_keys.keyHash`.
+  the database, since these must be decryptable to use, unlike
+  `api_keys.keyHash`.
 - **Typed clients** — `packages/linki-client`, `packages/bund-ai-client`,
   thin wrappers confirmed against each product's real `/api/v1/*` contract
-  (not guessed).
-- **Mirror** — `packages/db/src/schema/crm.ts` (13 tables) and
-  `packages/db/src/schema/support.ts` (5 tables), pulled by
-  `apps/worker/src/jobs/{linki-sync,bund-ai-sync}.ts` — see §7. Sync health is
-  `integrationConnections.lastSyncedAt`, not a separate `integration_syncs`
-  table.
+  (not guessed). `packages/buffer-client` is built against Buffer's public
+  GraphQL docs instead, not a live account — see §13b for why, and for the
+  resulting caveats.
+- **Mirror** — `packages/db/src/schema/crm.ts` (13 tables),
+  `packages/db/src/schema/support.ts` (5 tables), and
+  `packages/db/src/schema/social.ts` (2 tables: channels, posts), pulled by
+  `apps/worker/src/jobs/{linki-sync,bund-ai-sync,buffer-sync}.ts` — see §7.
+  Sync health is `integrationConnections.lastSyncedAt`, not a separate
+  `integration_syncs` table.
 - **Identity resolution** — a set-based SQL backfill after each sync links a
   mirrored contact/lead/conversation to a Falorb `person` by email match (or,
   for Bund AI conversations, `identifiedId` == the widget's `externalUserRef`,
   best-effort). This is the `person_aliases`-adjacent resolution the old
   design called out as "the hard part" — implemented directly rather than via
   a new alias kind, since a CRM contact isn't a device/session identity the
-  way `person_aliases` models.
-- **Manual actions** — `apps/web/src/server/actions/{crm,support}.ts`: push a
-  signal to Linki, create/update a Linki contact, resolve a Bund AI
-  escalation. Deliberately per-record and human-clicked (`can.actOnIntegrations`,
-  member tier), not the bulk/automated flow described below.
+  way `person_aliases` models. Buffer's mirror has no equivalent: a scheduled
+  or sent post isn't naturally scoped to one analytics person, so
+  `social.ts` carries no `personId` column.
+- **Manual actions** — `apps/web/src/server/actions/{crm,support,social}.ts`:
+  push a signal to Linki, create/update a Linki contact, resolve a Bund AI
+  escalation, compose and publish a Buffer post. Deliberately per-record and
+  human-clicked (`can.actOnIntegrations`, member tier), not a bulk/automated
+  flow.
+
+### 13b. Buffer specifics
+
+Buffer's third-party API access has a messy history that shaped this
+integration's auth model:
+
+- Buffer closed third-party OAuth app registration in 2019, revoking existing
+  integrations. A new GraphQL API (`api.buffer.com`) relaunched in beta in
+  early 2026, but — per Buffer's own docs plus independent developer
+  write-ups — it issues **personal API keys scoped to one Buffer account**,
+  with no "connect someone else's account" OAuth flow for third parties. The
+  legacy REST API, which did support real OAuth, accepts no new app
+  registrations and is being retired February 1, 2027.
+- Given that, this integration deliberately uses the personal-key model —
+  the same shape as Linki/Bund AI's connect form — rather than building
+  speculative OAuth/token-refresh infrastructure against an approval process
+  of unknown availability. The real limitation this carries: **each Falorb
+  organization can only connect one Buffer account it personally controls**,
+  not an arbitrary customer's, unlike a true third-party OAuth integration
+  would allow. This is a Buffer platform restriction, not a Falorb gap —
+  documented here rather than silently designed around.
+- Buffer's endpoint is fixed (`https://api.buffer.com`), unlike Linki/Bund
+  AI which are self-hosted — `IntegrationsPanel.tsx`'s connect dialog skips
+  the base-URL field for this provider and sends the fixed constant instead,
+  so `integration_connections.base_url` still has a value for every provider
+  without a schema exception.
+- Buffer's GraphQL API is Relay-cursor-paginated (`after`/`first` →
+  `edges`/`pageInfo`), unlike Linki/Bund AI's `limit`/`offset` REST
+  pagination — `BufferClient.listPosts` cursor-walks internally rather than
+  `buffer-sync.ts` driving pages itself, so there's no `paginateAll` helper
+  reused there.
+- **Caveat, stated rather than hidden**: `packages/buffer-client` was written
+  against Buffer's documented schema, not a live account — no personal API
+  key was available while building this. Field names, the exact auth header
+  format, and whether `dueAt`/`sentAt`/`metricsUpdatedAt` serialize as ISO
+  strings or Unix seconds are unconfirmed until a real key is connected and
+  `buffer-sync` runs against it. `buffer-sync.ts`'s `toDate()` handles both
+  serializations defensively for that reason.
 
 ### Not yet built
 
@@ -331,6 +378,13 @@ in Bund AI — and Falorb is a client + a read mirror:
   `/people/[personId]`) and Bund AI escalations (`/support`) are visible.
   Contacts/lists/workflows/runs/opportunities list views, and Bund AI
   conversations/leads/tickets views, are not built.
+- **Buffer post editing/deletion/queue reordering.** Only `createPost` is
+  wired to a manual action (`/social`); `BufferClient.deletePost` exists but
+  nothing in the UI calls it yet, and `movePostInQueue`/`editPost` aren't in
+  the client at all.
+- **Buffer aggregated analytics.** Per-post metrics mirror into
+  `socialPosts.metrics`, but Buffer's `aggregatedPostMetrics` query (rollups
+  across a filtered post set) isn't pulled — no dashboard view needs it yet.
 - **MCP exposure** — no `list_crm_contacts`/`get_sync_status`-style tools yet,
   matching the old design's intent that connect/disconnect and any write stay
   out of MCP's reach regardless.
@@ -350,9 +404,12 @@ Anything that ships personal data to an ad network for cross-site retargeting.
 That would reintroduce, through a side door, exactly the tracking this platform
 deliberately does not do. Generic, arbitrary-service integrations (Stripe,
 HubSpot, Slack, Shopify, Search Console) remain unbuilt and are no longer the
-near-term direction — Linki and Bund AI cover sales/support, and a queued
-third integration (Postiz, for social posting) follows the same
-provider-specific pattern rather than a generic connector framework.
+near-term direction — Linki and Bund AI cover sales/support, and Buffer now
+covers social posting. Postiz (the open-source, self-hosted social scheduler
+originally queued for this slot) was not built — Buffer was chosen instead
+once this specific integration was requested; Postiz remains a separate,
+undecided possibility if a self-hosted alternative is wanted later, not
+something this work replaced.
 
 ## 14. Dashboard — `apps/web`
 

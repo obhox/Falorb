@@ -3,16 +3,17 @@ import { and, eq } from "drizzle-orm";
 import { db, decryptCredential, schema } from "@falorb/db";
 import { LinkiClient } from "@falorb/linki-client";
 import { BundAiClient } from "@falorb/bund-ai-client";
+import { BufferClient } from "@falorb/buffer-client";
 
 /**
  * Builds a typed client from a stored `integrationConnections` row, for
- * server actions that take a real action on Linki/Bund AI (not just reading
- * the mirror). Returns null when the org has never connected, or has
+ * server actions that take a real action on Linki/Bund AI/Buffer (not just
+ * reading the mirror). Returns null when the org has never connected, or has
  * revoked/errored — callers turn that into "connect it in Settings" rather
  * than a stack trace.
  */
 
-async function activeConnection(organizationId: string, provider: "linki" | "bund_ai") {
+async function activeConnection(organizationId: string, provider: "linki" | "bund_ai" | "buffer") {
   const [row] = await db()
     .select()
     .from(schema.integrationConnections)
@@ -41,8 +42,15 @@ export async function getBundAiClient(organizationId: string): Promise<BundAiCli
   return new BundAiClient({ baseUrl: row.baseUrl, apiKey });
 }
 
+export async function getBufferClient(organizationId: string): Promise<BufferClient | null> {
+  const row = await activeConnection(organizationId, "buffer");
+  if (!row) return null;
+  const apiKey = decryptCredential({ ciphertext: row.encryptedApiKey, iv: row.iv, authTag: row.authTag });
+  return new BufferClient({ baseUrl: row.baseUrl, apiKey });
+}
+
 export interface ConnectionView {
-  provider: "linki" | "bund_ai";
+  provider: "linki" | "bund_ai" | "buffer";
   baseUrl: string;
   status: "active" | "revoked" | "error";
   lastVerifiedAt: string | null;

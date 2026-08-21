@@ -12,11 +12,16 @@ import {
 } from "@/server/actions/integrations";
 import type { ConnectionView } from "@/server/integrations";
 
-const LABELS: Record<Provider, string> = { linki: "Linki", bund_ai: "Bund AI" };
+const LABELS: Record<Provider, string> = { linki: "Linki", bund_ai: "Bund AI", buffer: "Buffer" };
 const BLURBS: Record<Provider, string> = {
   linki: "Sales outreach & CRM. Generate a scoped key in Linki at Platform → Workspace & API.",
   bund_ai: "AI customer support. Generate a key in Bund AI at Settings → API access.",
+  buffer:
+    "Social post scheduling. Generate a personal API key in Buffer at Settings → API. One Buffer account per Falorb org — Buffer doesn't offer third-party OAuth today.",
 };
+
+/** Buffer's endpoint is fixed (it isn't self-hosted like Linki/Bund AI), so the connect dialog never asks for it. */
+const BUFFER_ENDPOINT = "https://api.buffer.com";
 
 export function IntegrationsPanel({
   connections,
@@ -31,7 +36,7 @@ export function IntegrationsPanel({
 
   return (
     <div style={{ display: "grid", gap: "var(--space-6)" }}>
-      {(["linki", "bund_ai"] as Provider[]).map((provider) => (
+      {(["linki", "bund_ai", "buffer"] as Provider[]).map((provider) => (
         <ProviderCard
           key={provider}
           provider={provider}
@@ -59,13 +64,14 @@ function ProviderCard({
   const [open, setOpen] = useState(false);
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const fixedEndpoint = provider === "buffer";
 
   const connected = connection?.status === "active";
   const errored = connection?.status === "error";
 
   async function submit() {
     const data = new FormData();
-    data.set("baseUrl", baseUrl);
+    data.set("baseUrl", fixedEndpoint ? BUFFER_ENDPOINT : baseUrl);
     data.set("apiKey", apiKey);
     const result = await run(() => connectIntegration(provider, data));
     if (result?.ok) {
@@ -168,7 +174,7 @@ function ProviderCard({
             <Button
               variant="primary"
               onClick={submit}
-              disabled={pending || !baseUrl.trim() || !apiKey.trim()}
+              disabled={pending || (!fixedEndpoint && !baseUrl.trim()) || !apiKey.trim()}
             >
               {pending ? "Connecting…" : "Connect"}
             </Button>
@@ -176,19 +182,28 @@ function ProviderCard({
         }
       >
         <div style={{ display: "grid", gap: "var(--space-6)" }}>
-          <Input
-            label="Base URL"
-            value={baseUrl}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBaseUrl(e.target.value)}
-            placeholder="https://your-instance.example.com"
-            hint={`Where your ${LABELS[provider]} deployment is reachable from this server.`}
-          />
+          {fixedEndpoint ? (
+            <div style={{ display: "grid", gap: 4 }}>
+              <span style={{ fontSize: "var(--size-label)", color: "var(--text-secondary)" }}>Endpoint</span>
+              <span style={{ fontFamily: "var(--font-mono)", fontSize: "var(--size-body-sm)", color: "var(--text-muted)" }}>
+                {BUFFER_ENDPOINT}
+              </span>
+            </div>
+          ) : (
+            <Input
+              label="Base URL"
+              value={baseUrl}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBaseUrl(e.target.value)}
+              placeholder="https://your-instance.example.com"
+              hint={`Where your ${LABELS[provider]} deployment is reachable from this server.`}
+            />
+          )}
           <Input
             label="API key"
             mono
             value={apiKey}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setApiKey(e.target.value)}
-            placeholder={provider === "linki" ? "lnk_…" : "bund_sk_…"}
+            placeholder={provider === "linki" ? "lnk_…" : provider === "bund_ai" ? "bund_sk_…" : "buf_…"}
             hint="Stored encrypted (AES-256-GCM). Never shown again after this."
           />
         </div>

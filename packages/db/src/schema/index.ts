@@ -6,3 +6,4 @@ export * from "./ops";
 export * from "./integrations";
 export * from "./crm";
 export * from "./support";
+export * from "./social";

@@ -10,6 +10,7 @@ import { dispatchWebhooks, reviveWebhooks } from "./jobs/webhooks";
 import { enforceRetention, processDataRequests, pruneOrphanedPersons } from "./jobs/retention-gc";
 import { syncLinki } from "./jobs/linki-sync";
 import { syncBundAi } from "./jobs/bund-ai-sync";
+import { syncBuffer } from "./jobs/buffer-sync";
 
 /**
  * Runs every scheduled job once, in dependency order.
@@ -63,6 +64,7 @@ await run("data-requests", () => processDataRequests(context));
 // broken query surfaces the moment a first org connects, not weeks later.
 await run("linki-sync", () => syncLinki(context));
 await run("bund-ai-sync", () => syncBundAi(context));
+await run("buffer-sync", () => syncBuffer(context));
 await run("retention", () => enforceRetention(context));
 await run("prune-orphans", () => pruneOrphanedPersons(context));
 await run("optimize", () => optimizeAggregates(context));

@@ -70,6 +70,9 @@ await run("data-requests", () => processDataRequests(context));
 await run("linki-sync", () => syncLinki(context));
 await run("bund-ai-sync", () => syncBundAi(context));
 await run("buffer-sync", () => syncBuffer(context));
+// ugc-video-gen deliberately excluded, same reasoning as clay-enrichment
+// above it: a live run spends a connected org's own paid ElevenLabs
+// credits, unlike every other job here.
 await run("retention", () => enforceRetention(context));
 await run("prune-orphans", () => pruneOrphanedPersons(context));
 await run("optimize", () => optimizeAggregates(context));

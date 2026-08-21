@@ -18,6 +18,7 @@ import { sendWeeklyDigests } from "./jobs/digest";
 import { syncLinki } from "./jobs/linki-sync";
 import { syncBundAi } from "./jobs/bund-ai-sync";
 import { syncBuffer } from "./jobs/buffer-sync";
+import { generateUgcVideos } from "./jobs/ugc-video-gen";
 
 /**
  * Worker entrypoint.
@@ -195,6 +196,18 @@ scheduler.add({
   timeoutMs: 20 * MINUTE,
   run: async () => {
     await syncBuffer(context);
+  },
+});
+
+// Short interval: this is user-facing, someone is on the review page
+// waiting for their video to finish rendering. No-ops with zero DB writes
+// when no org has connected ElevenLabs (Settings -> Integrations).
+scheduler.add({
+  name: "ugc-video-gen",
+  intervalMs: MINUTE,
+  timeoutMs: 5 * MINUTE,
+  run: async () => {
+    await generateUgcVideos(context);
   },
 });
 

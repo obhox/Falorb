@@ -7,12 +7,14 @@ import { LinkiClient } from "@falorb/linki-client";
 import { BundAiClient } from "@falorb/bund-ai-client";
 import { BufferClient, BUFFER_API_ENDPOINT } from "@falorb/buffer-client";
 import { ClayClient, CLAY_DEFAULT_BASE_URL } from "@falorb/clay-client";
+import { ElevenLabsClient, ELEVENLABS_DEFAULT_BASE_URL } from "@falorb/elevenlabs-client";
 import { requireSession } from "@/server/session";
 import type { ActionResult } from "./project";
 import { deny } from "./guard";
 
 /**
- * Connect, test, or revoke Falorb's connection to Linki, Bund AI, Buffer, or Clay.
+ * Connect, test, or revoke Falorb's connection to Linki, Bund AI, Buffer,
+ * Clay, or ElevenLabs.
  *
  * Duplicates what `apps/api/src/routes/integrations.ts` exposes over HTTP,
  * deliberately — same reasoning as every other server action in this
@@ -26,33 +28,44 @@ import { deny } from "./guard";
  * between issuing an API key and using one.
  */
 
-export type Provider = "linki" | "bund_ai" | "buffer" | "clay";
+export type Provider = "linki" | "bund_ai" | "buffer" | "clay" | "elevenlabs";
 
 const LABELS: Record<Provider, string> = {
   linki: "Linki",
   bund_ai: "Bund AI",
   buffer: "Buffer",
   clay: "Clay",
+  elevenlabs: "ElevenLabs",
+};
+
+/** Providers with one fixed API root, unlike Linki/Bund AI's self-hosted
+ * deployments — their connect form carries no baseUrl field. */
+const FIXED_BASE_URL: Partial<Record<Provider, string>> = {
+  buffer: BUFFER_API_ENDPOINT,
+  clay: CLAY_DEFAULT_BASE_URL,
+  elevenlabs: ELEVENLABS_DEFAULT_BASE_URL,
 };
 
 function clientFor(
   provider: Provider,
   baseUrl: string,
   apiKey: string,
-): LinkiClient | BundAiClient | BufferClient | ClayClient {
+): LinkiClient | BundAiClient | BufferClient | ClayClient | ElevenLabsClient {
   if (provider === "linki") return new LinkiClient({ baseUrl, apiKey });
   if (provider === "bund_ai") return new BundAiClient({ baseUrl, apiKey });
   if (provider === "buffer") return new BufferClient({ baseUrl, apiKey });
+  if (provider === "elevenlabs") return new ElevenLabsClient({ baseUrl, apiKey });
   return new ClayClient({ baseUrl, apiKey });
 }
 
 function isProvider(value: string): value is Provider {
-  return value === "linki" || value === "bund_ai" || value === "buffer" || value === "clay";
-}
-
-/** The fixed API root for a provider with no self-hosted deployment. */
-function fixedBaseUrl(provider: "buffer" | "clay"): string {
-  return provider === "buffer" ? BUFFER_API_ENDPOINT : CLAY_DEFAULT_BASE_URL;
+  return (
+    value === "linki" ||
+    value === "bund_ai" ||
+    value === "buffer" ||
+    value === "clay" ||
+    value === "elevenlabs"
+  );
 }
 
 export async function connectIntegration(provider: string, formData: FormData): Promise<ActionResult> {
@@ -62,13 +75,10 @@ export async function connectIntegration(provider: string, formData: FormData): 
   const refusal = deny(session.workspace.role, "manageIntegrations", `connect ${LABELS[provider]}`);
   if (refusal) return refusal;
 
-  // Buffer and Clay each have one fixed API root, unlike Linki/Bund AI's
-  // self-hosted deployments — their connect forms carry no baseUrl field at
-  // all, so don't require the user to have supplied one.
-  const hasFixedBaseUrl = provider === "buffer" || provider === "clay";
-  const baseUrl = hasFixedBaseUrl ? fixedBaseUrl(provider) : String(formData.get("baseUrl") ?? "").trim();
+  const fixedBaseUrl = FIXED_BASE_URL[provider];
+  const baseUrl = fixedBaseUrl ?? String(formData.get("baseUrl") ?? "").trim();
   const apiKey = String(formData.get("apiKey") ?? "").trim();
-  if (!hasFixedBaseUrl && !/^https?:\/\/.+/i.test(baseUrl)) {
+  if (!fixedBaseUrl && !/^https?:\/\/.+/i.test(baseUrl)) {
     return { ok: false, message: "Enter a valid base URL." };
   }
   if (!apiKey) return { ok: false, message: "Enter the API key." };

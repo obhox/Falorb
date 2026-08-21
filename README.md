@@ -22,7 +22,8 @@ whole backend; see [FEATURES.md](FEATURES.md) for the gaps.
 - **Growth signals** — page-performance and interest-graph insights per property, plus on-demand AI recommendations (via OpenRouter) for content, product gaps, channels, and who to contact.
 - **Privacy-first** — no raw IP stored anywhere, GDPR export/erasure, per-project retention.
 - **AI-native** — an MCP server (25 tools) so an assistant can query the platform directly, and a dashboard panel tracking what AI crawlers read on your sites.
-- **Integrations** — deep, two-way connections to Linki (sales outreach/CRM), [Bund AI](https://usebund.com) (customer support), and Buffer (social post scheduling): their data mirrors into Falorb, joinable with product analytics, and a few manual actions (push a signal, create/update a contact, resolve an escalation, publish a post) run from here without switching tabs. See [FEATURES.md §13](FEATURES.md#13-integrations--linki--bund-ai--buffer-built-generic-multi-service-design-superseded).
+- **Integrations** — deep, two-way connections to Linki (sales outreach/CRM), [Bund AI](https://usebund.com) (customer support), and Buffer (social post scheduling): their data mirrors into Falorb, joinable with product analytics, and a few manual actions (push a signal, create/update a contact, resolve an escalation, publish a post) run from here without switching tabs. See [FEATURES.md §13](FEATURES.md#13-integrations--linki--bund-ai--buffer--clay-built-generic-multi-service-design-superseded).
+- **UGC AI video** — generate a script, voiceover, and a lip-synced talking video from a presenter photo, built in-house on top of ElevenLabs, then queue it for posting. See [FEATURES.md §18](FEATURES.md#18-ugc-ai-video-generation--script-voice-and-a-talking-avatar-video).
 
 ### Scope boundary
 

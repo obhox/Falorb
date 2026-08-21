@@ -10,9 +10,10 @@ import { BufferClient } from "@falorb/buffer-client";
  * server actions that take a real action on Linki/Bund AI/Buffer (not just
  * reading the mirror). Returns null when the org has never connected, or has
  * revoked/errored — callers turn that into "connect it in Settings" rather
- * than a stack trace. Clay has no equivalent getter here — nothing in the
- * web app calls Clay directly; only `apps/worker/src/jobs/clay-enrichment.ts`
- * does, and it builds its own `ClayClient` from the connection row.
+ * than a stack trace. Clay and ElevenLabs have no equivalent getter here —
+ * nothing in the web app calls either directly; only
+ * `apps/worker/src/jobs/clay-enrichment.ts`/`ugc-video-gen.ts` do, and each
+ * builds its own client from the connection row.
  */
 
 async function activeConnection(organizationId: string, provider: "linki" | "bund_ai" | "buffer") {
@@ -52,7 +53,7 @@ export async function getBufferClient(organizationId: string): Promise<BufferCli
 }
 
 export interface ConnectionView {
-  provider: "linki" | "bund_ai" | "buffer" | "clay";
+  provider: "linki" | "bund_ai" | "buffer" | "clay" | "elevenlabs";
   baseUrl: string;
   status: "active" | "revoked" | "error";
   lastVerifiedAt: string | null;

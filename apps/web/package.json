@@ -24,6 +24,7 @@
     "@falorb/clay-client": "workspace:*",
     "@falorb/core": "workspace:*",
     "@falorb/db": "workspace:*",
+    "@falorb/elevenlabs-client": "workspace:*",
     "@falorb/linki-client": "workspace:*",
     "@falorb/queries": "workspace:*",
     "@falorb/research": "workspace:*",

@@ -13,13 +13,14 @@ import { LinkiClient } from "@falorb/linki-client";
 import { BundAiClient } from "@falorb/bund-ai-client";
 import { BufferClient, BUFFER_API_ENDPOINT } from "@falorb/buffer-client";
 import { ClayClient, CLAY_DEFAULT_BASE_URL } from "@falorb/clay-client";
+import { ElevenLabsClient, ELEVENLABS_DEFAULT_BASE_URL } from "@falorb/elevenlabs-client";
 import type { Workspace } from "../onboarding";
 import { HttpError } from "../http";
 import { requireHumanSession } from "../guards";
 
 /**
  * Connection management for the external products Falorb drives on the
- * organization's behalf (Linki, Bund AI, Buffer, Clay, more over time).
+ * organization's behalf (Linki, Bund AI, Buffer, Clay, ElevenLabs, more over time).
  *
  * Deliberately human-session-only end to end, not scope-gated for API keys —
  * same reasoning as `POST /api/keys` in `index.ts`: storing, testing, or
@@ -45,22 +46,25 @@ type Vars = {
 const PROVIDERS = {
   linki: { label: "Linki", hasBaseUrl: true },
   bund_ai: { label: "Bund AI", hasBaseUrl: true },
-  // Buffer and Clay each have one fixed API root, unlike Linki/Bund AI's
-  // self-hosted deployments — callers don't supply a baseUrl for either.
+  // Buffer, Clay, and ElevenLabs each have one fixed API root, unlike
+  // Linki/Bund AI's self-hosted deployments — callers don't supply a
+  // baseUrl for any of them.
   buffer: { label: "Buffer", hasBaseUrl: false },
   clay: { label: "Clay", hasBaseUrl: false },
+  elevenlabs: { label: "ElevenLabs", hasBaseUrl: false },
 } as const;
 
 type Provider = keyof typeof PROVIDERS;
 
+const FIXED_BASE_URL: Partial<Record<Provider, string>> = {
+  buffer: BUFFER_API_ENDPOINT,
+  clay: CLAY_DEFAULT_BASE_URL,
+  elevenlabs: ELEVENLABS_DEFAULT_BASE_URL,
+};
+
 function parseProvider(raw: string): Provider {
   if (raw in PROVIDERS) return raw as Provider;
   throw new HttpError(404, `Unknown integration provider "${raw}".`);
-}
-
-/** The fixed API root for a provider with no self-hosted deployment. */
-function fixedBaseUrl(provider: "buffer" | "clay"): string {
-  return provider === "buffer" ? BUFFER_API_ENDPOINT : CLAY_DEFAULT_BASE_URL;
 }
 
 async function pingProvider(
@@ -71,6 +75,7 @@ async function pingProvider(
   if (provider === "linki") return new LinkiClient({ baseUrl, apiKey }).verifyConnection();
   if (provider === "bund_ai") return new BundAiClient({ baseUrl, apiKey }).verifyConnection();
   if (provider === "buffer") return new BufferClient({ baseUrl, apiKey }).verifyConnection();
+  if (provider === "elevenlabs") return new ElevenLabsClient({ baseUrl, apiKey }).verifyConnection();
   return new ClayClient({ baseUrl, apiKey }).verifyConnection();
 }
 
@@ -115,9 +120,7 @@ export function integrationsRoutes(db: Database): Hono<{ Variables: Vars }> {
     if (PROVIDERS[provider].hasBaseUrl && !parsed.data.baseUrl) {
       throw new HttpError(422, "baseUrl is required.");
     }
-    const baseUrl = PROVIDERS[provider].hasBaseUrl
-      ? parsed.data.baseUrl!
-      : fixedBaseUrl(provider as "buffer" | "clay");
+    const baseUrl = PROVIDERS[provider].hasBaseUrl ? parsed.data.baseUrl! : FIXED_BASE_URL[provider]!;
 
     const check = await pingProvider(provider, baseUrl, parsed.data.apiKey);
     const encrypted = encryptCredential(parsed.data.apiKey);

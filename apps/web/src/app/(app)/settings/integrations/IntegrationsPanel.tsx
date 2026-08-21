@@ -17,6 +17,7 @@ const LABELS: Record<Provider, string> = {
   bund_ai: "Bund AI",
   buffer: "Buffer",
   clay: "Clay",
+  elevenlabs: "ElevenLabs",
 };
 const BLURBS: Record<Provider, string> = {
   linki: "Sales outreach & CRM. Generate a scoped key in Linki at Platform → Workspace & API.",
@@ -24,15 +25,18 @@ const BLURBS: Record<Provider, string> = {
   buffer:
     "Social post scheduling. Generate a personal API key in Buffer at Settings → API. One Buffer account per Falorb org — Buffer doesn't offer third-party OAuth today.",
   clay: "Contact enrichment for prospects discovered off-site (see Prospecting). Generate a key in Clay at Settings → API.",
+  elevenlabs: "Script, voice, and talking-video generation for UGC videos (see UGC videos). Generate a key in ElevenLabs at Settings → API Keys.",
 };
 
-/** Buffer and Clay each have one fixed API root — unlike Linki/Bund AI's
- * self-hosted deployments, their connect dialogs have no Base URL field. */
+/** Buffer, Clay, and ElevenLabs each have one fixed API root — unlike
+ * Linki/Bund AI's self-hosted deployments, their connect dialogs have no
+ * Base URL field to fill in. */
 const HAS_BASE_URL: Record<Provider, boolean> = {
   linki: true,
   bund_ai: true,
   buffer: false,
   clay: false,
+  elevenlabs: false,
 };
 
 export function IntegrationsPanel({
@@ -48,7 +52,7 @@ export function IntegrationsPanel({
 
   return (
     <div style={{ display: "grid", gap: "var(--space-6)" }}>
-      {(["linki", "bund_ai", "buffer", "clay"] as Provider[]).map((provider) => (
+      {(["linki", "bund_ai", "buffer", "clay", "elevenlabs"] as Provider[]).map((provider) => (
         <ProviderCard
           key={provider}
           provider={provider}
@@ -167,7 +171,9 @@ function ProviderCard({
                   ? relative(connection.lastSyncedAt, now)
                   : provider === "clay"
                     ? "never — enrichment runs every 30 minutes against discovered prospects"
-                    : "never — the mirror job runs every 15 minutes"}
+                    : provider === "elevenlabs"
+                      ? "never — used on demand each time you generate a UGC video, not on a schedule"
+                      : "never — the mirror job runs every 15 minutes"}
               </div>
               <div>
                 last verified:{" "}
@@ -222,7 +228,9 @@ function ProviderCard({
                   ? "bund_sk_…"
                   : provider === "buffer"
                     ? "buf_…"
-                    : "clay_…"
+                    : provider === "elevenlabs"
+                      ? "Your ElevenLabs API key"
+                      : "clay_…"
             }
             hint="Stored encrypted (AES-256-GCM). Never shown again after this."
           />

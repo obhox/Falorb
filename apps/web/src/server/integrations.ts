@@ -5,6 +5,7 @@ import { LinkiClient } from "@falorb/linki-client";
 import { BundAiClient } from "@falorb/bund-ai-client";
 import { BufferClient } from "@falorb/buffer-client";
 import { ExaClient, FirecrawlClient, type ResearchClients } from "@falorb/research";
+import { ElevenLabsClient } from "@falorb/elevenlabs-client";
 import type { AiCredentials, AiProvider } from "@falorb/ai";
 
 /**
@@ -13,11 +14,10 @@ import type { AiCredentials, AiProvider } from "@falorb/ai";
  * reading the mirror) or research on Exa/Firecrawl's behalf. Returns null
  * when neither the project nor the org has connected, or the connection has
  * revoked/errored — callers turn that into "connect it in Settings" rather
- * than a stack trace. Clay and ElevenLabs have no equivalent getter here —
- * nothing in the web app calls either directly; only
- * `apps/worker/src/jobs/clay-enrichment.ts`/`ugc-video-gen.ts` do, and each
- * builds its own client from the connection row (org-level only — see those
- * jobs' own queries).
+ * than a stack trace. Clay has no equivalent getter here — nothing in the web
+ * app calls Clay directly; only `apps/worker/src/jobs/clay-enrichment.ts`
+ * does, and it builds its own client from the connection row (org-level only
+ * — see that job's own query).
  */
 
 /**
@@ -30,7 +30,7 @@ import type { AiCredentials, AiProvider } from "@falorb/ai";
  */
 async function activeConnection(
   organizationId: string,
-  provider: "linki" | "bund_ai" | "buffer" | "exa" | "firecrawl",
+  provider: "linki" | "bund_ai" | "buffer" | "exa" | "firecrawl" | "elevenlabs",
   projectId?: number,
 ) {
   if (projectId != null) {
@@ -83,6 +83,24 @@ export async function getBufferClient(organizationId: string, projectId?: number
   if (!row) return null;
   const apiKey = decryptCredential({ ciphertext: row.encryptedApiKey, iv: row.iv, authTag: row.authTag });
   return new BufferClient({ baseUrl: row.baseUrl, apiKey });
+}
+
+/**
+ * The org's ElevenLabs connection, for the UGC composer's voice picker
+ * (`/ugc-videos`). Org-level only — no `projectId` argument, matching the
+ * table this serves: a UGC video's `projectId` is a tag, and the account
+ * whose voices and billing are used is the organization's.
+ *
+ * Unlike the getters above, this one has a *read* caller in the web app.
+ * `apps/worker/src/jobs/ugc-video-gen.ts` still builds its own client from
+ * the connection row, because it sweeps every connected org rather than
+ * resolving one.
+ */
+export async function getElevenLabsClient(organizationId: string): Promise<ElevenLabsClient | null> {
+  const row = await activeConnection(organizationId, "elevenlabs");
+  if (!row) return null;
+  const apiKey = decryptCredential({ ciphertext: row.encryptedApiKey, iv: row.iv, authTag: row.authTag });
+  return new ElevenLabsClient({ baseUrl: row.baseUrl, apiKey });
 }
 
 /**
@@ -152,9 +170,11 @@ export type Provider =
 export const PROVIDERS: Provider[] = [
   "openrouter",
   "router",
+  "gemini",
   "linki",
   "bund_ai",
   "buffer",
+  "postiz",
   "clay",
   "exa",
   "firecrawl",

@@ -18,10 +18,10 @@ import { AiModelPicker } from "./AiModelPicker";
 const LABELS: Record<Provider, string> = {
   openrouter: "OpenRouter",
   router: "Ramp Router",
+  gemini: "Google Gemini",
   linki: "Linki",
   bund_ai: "Bund AI",
   buffer: "Buffer",
-  postiz: "Postiz",
   clay: "Clay",
   exa: "Exa",
   firecrawl: "Firecrawl",
@@ -32,12 +32,12 @@ const BLURBS: Record<Provider, string> = {
     "Bring your own AI. Every AI feature — signals, digests, drafts, agents — runs on this key and this model instead of the platform's. Generate a key at openrouter.ai/keys.",
   router:
     "Bring your own AI, through Ramp Router (router.com) — one key across OpenAI, Anthropic and open models, routed for cost. Generate a key at router.com, then pick a model.",
+  gemini:
+    "Bring your own AI, straight from Google — Gemini's own API rather than a gateway in front of it. Generate a key at aistudio.google.com/apikey, then pick a model.",
   linki: "Sales outreach & CRM. Generate a scoped key in Linki at Platform → Workspace & API.",
   bund_ai: "AI customer support. Generate a key in Bund AI at Settings → API access.",
   buffer:
     "Social post scheduling. Generate a personal API key in Buffer at Settings → API. One Buffer account per Falorb org — Buffer doesn't offer third-party OAuth today.",
-  postiz:
-    "Social post scheduling. Not yet available from this panel — support for Postiz is still being built.",
   clay: "Contact enrichment for prospects discovered off-site (see Prospecting). Generate a key in Clay at Settings → API.",
   exa: "Neural web search, grounding content drafts in what already ranks. Generate a key at dashboard.exa.ai/api-keys.",
   firecrawl: "Page scraping, grounding company research in a company's own site. Generate a key at firecrawl.dev/app/api-keys.",
@@ -50,10 +50,10 @@ const BLURBS: Record<Provider, string> = {
 const HAS_BASE_URL: Record<Provider, boolean> = {
   openrouter: false,
   router: false,
+  gemini: false,
   linki: true,
   bund_ai: true,
   buffer: false,
-  postiz: false,
   clay: false,
   exa: false,
   firecrawl: false,
@@ -63,10 +63,10 @@ const HAS_BASE_URL: Record<Provider, boolean> = {
 const KEY_PLACEHOLDERS: Record<Provider, string> = {
   openrouter: "sk-or-v1-…",
   router: "Your Ramp Router API key",
+  gemini: "AIza…",
   linki: "lnk_…",
   bund_ai: "bund_sk_…",
   buffer: "buf_…",
-  postiz: "pos_…",
   clay: "clay_…",
   exa: "exa_…",
   firecrawl: "fc-…",
@@ -80,24 +80,20 @@ const KEY_PLACEHOLDERS: Record<Provider, string> = {
 const NEVER_SYNCED: Record<Provider, string> = {
   openrouter: "not applicable — called on demand, every time an AI feature writes something",
   router: "not applicable — called on demand, every time an AI feature writes something",
+  gemini: "not applicable — called on demand, every time an AI feature writes something",
   linki: "never — the mirror job runs every 15 minutes",
   bund_ai: "never — the mirror job runs every 15 minutes",
   buffer: "never — the mirror job runs every 15 minutes",
-  postiz: "never — Postiz is not yet mirrored",
   clay: "never — enrichment runs every 30 minutes against discovered prospects",
   exa: "not applicable — used on demand when drafting content or researching a company",
   firecrawl: "not applicable — used on demand when drafting content or researching a company",
   elevenlabs: "never — used on demand each time you generate a UGC video, not on a schedule",
 };
 
-// `postiz` deliberately excluded: it's a real Provider value (the DB enum
-// carries it as of migration 0022) but has no connect/verify route yet in
-// apps/api, so it stays out of the rendered list until that lands — same
-// reasoning as every other Record above needing a `postiz` key without the
-// card being visible.
 const PROVIDERS: Provider[] = [
   "openrouter",
   "router",
+  "gemini",
   "linki",
   "bund_ai",
   "buffer",
@@ -108,16 +104,16 @@ const PROVIDERS: Provider[] = [
 ];
 
 /**
- * Which AI gateway the organization's AI features are actually running on.
+ * Which AI provider the organization's AI features are actually running on.
  *
- * Both can be connected at once — an org trying Ramp Router while keeping
+ * All three can be connected at once — an org trying Gemini while keeping
  * its OpenRouter key — so one of them wins, and it should not be a mystery
  * which. The rule matches `getAiCredentials` in `@/server/integrations`
  * exactly: most recently updated active connection. Recomputing it here
  * rather than shipping a flag from the server keeps the two in one place
  * conceptually; if they ever disagree, this is the copy to delete.
  */
-function activeAiProvider(connections: ConnectionView[]): Provider | null {
+function activeAiProvider(connections: ConnectionView[]): ConnectionView["provider"] | null {
   const candidates = connections
     .filter((c) => isAiProvider(c.provider) && c.status === "active")
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));

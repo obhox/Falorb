@@ -7,6 +7,7 @@ import { Empty } from "@/components/Empty";
 import { relative } from "@/lib/format";
 import { useAction } from "@/lib/use-action";
 import {
+  createCrmContact,
   createDeal,
   promoteLinkiContact,
   updateCrmProfile,
@@ -135,6 +136,7 @@ export function CrmTabsPanel({
 
   const [editingProfile, setEditingProfile] = useState<CrmProfileRow | null>(null);
   const [newDealOpen, setNewDealOpen] = useState(false);
+  const [newContactOpen, setNewContactOpen] = useState(false);
 
   const ownerName = new Map(owners.map((o) => [o.id, o.name]));
   const stageName = new Map(stages.map((s) => [s.id, s.name]));
@@ -158,7 +160,15 @@ export function CrmTabsPanel({
       />
 
       {tab === "contacts" && (
-        <Card title="Contacts" subtitle="Falorb's own CRM — people deliberately added, not every visitor">
+        <Card
+          title="Contacts"
+          subtitle="Falorb's own CRM — people deliberately added, not every visitor"
+          action={
+            <Button size="sm" variant="primary" onClick={() => setNewContactOpen(true)}>
+              Add contact
+            </Button>
+          }
+        >
           <DataTable
             dense
             columns={[
@@ -216,7 +226,7 @@ export function CrmTabsPanel({
                 dense
                 icon="users"
                 title="Nobody's in the CRM yet"
-                body="Add a person from their profile, or bring in an existing Linki contact from the “From Linki” tab."
+                body="Add a contact directly, add a person from their profile, or bring in an existing Linki contact from the “From Linki” tab."
               />
             }
           />
@@ -457,6 +467,17 @@ export function CrmTabsPanel({
           }}
         />
       )}
+
+      {newContactOpen && (
+        <NewContactDialog
+          pending={pending}
+          onClose={() => setNewContactOpen(false)}
+          onSave={async (formData) => {
+            const result = await run(() => createCrmContact(formData), { success: "Contact added." });
+            if (result?.ok) setNewContactOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -513,6 +534,72 @@ export function EditProfileDialog({
         <Input label="Phone" value={phone} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPhone(e.target.value)} />
         <Select label="Status" value={status} options={STATUSES} onChange={setStatus} />
         <Select label="Owner" value={owner} options={[UNASSIGNED, ...owners.map((o) => o.name)]} onChange={setOwner} />
+      </div>
+    </Dialog>
+  );
+}
+
+function NewContactDialog({
+  pending,
+  onClose,
+  onSave,
+}: {
+  pending: boolean;
+  onClose: () => void;
+  onSave: (formData: FormData) => void;
+}) {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [title, setTitle] = useState("");
+  const [phone, setPhone] = useState("");
+  const [status, setStatus] = useState(STATUSES[0]!);
+  const [notes, setNotes] = useState("");
+
+  return (
+    <Dialog
+      title="Add contact"
+      subtitle="Not in analytics or Linki yet — added by hand"
+      onClose={onClose}
+      footer={
+        <>
+          <Button size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            variant="primary"
+            disabled={pending || !email.trim()}
+            onClick={() => {
+              const data = new FormData();
+              data.set("name", name);
+              data.set("email", email);
+              data.set("title", title);
+              data.set("phone", phone);
+              data.set("status", status);
+              data.set("notes", notes);
+              onSave(data);
+            }}
+          >
+            {pending ? "Adding…" : "Add contact"}
+          </Button>
+        </>
+      }
+    >
+      <div style={{ display: "grid", gap: 10 }}>
+        <Input label="Name" value={name} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)} placeholder="Full name" />
+        <Input
+          label="Email"
+          value={email}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}
+          placeholder="name@company.com"
+          hint="Required — this is how a matching Linki contact's emails and campaigns link up later."
+        />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <Input label="Title" value={title} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTitle(e.target.value)} />
+          <Input label="Phone" value={phone} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPhone(e.target.value)} />
+        </div>
+        <Select label="Status" value={status} options={STATUSES} onChange={setStatus} />
+        <Input label="Notes" value={notes} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNotes(e.target.value)} />
       </div>
     </Dialog>
   );

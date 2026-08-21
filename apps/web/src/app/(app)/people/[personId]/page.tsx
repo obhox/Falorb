@@ -18,7 +18,13 @@ import { CrmActionsCard } from "./CrmActionsCard";
 import { CrmProfileCard } from "./CrmProfileCard";
 import { CompanyResearchCard } from "./CompanyResearchCard";
 import { getLinkedContact, isLinkiConnected } from "@/server/actions/crm";
-import { ensureDealStages, getCrmProfile, listDealsForPerson } from "@/server/crm";
+import {
+  ensureDealStages,
+  getCrmProfile,
+  listCampaignRunsForPerson,
+  listDealsForPerson,
+  listSentMessagesForPerson,
+} from "@/server/crm";
 import { getTeam } from "@/server/team";
 import {
   countryLabel,
@@ -86,6 +92,8 @@ export default async function PersonPage({
       getTeam(orgId),
     ]);
   const personDeals = crmProfile ? await listDealsForPerson(orgId, person.id) : [];
+  const sentMessages = linkedContact ? await listSentMessagesForPerson(orgId, person.id) : [];
+  const campaignRuns = linkedContact ? await listCampaignRunsForPerson(orgId, person.id) : [];
   const owners = team.members.map((m) => ({ id: m.userId, name: m.name ?? m.email }));
   const ownerName = crmProfile?.ownerId ? (owners.find((o) => o.id === crmProfile.ownerId)?.name ?? null) : null;
 
@@ -385,7 +393,23 @@ export default async function PersonPage({
               }))}
             />
 
-            <CrmActionsCard personId={person.id} connected={linkiConnected} contact={linkedContact} />
+            <CrmActionsCard
+              personId={person.id}
+              connected={linkiConnected}
+              contact={linkedContact}
+              sentMessages={sentMessages.map((m) => ({
+                id: m.id,
+                subject: m.subject,
+                status: m.status,
+                acceptedAt: m.acceptedAt,
+              }))}
+              campaignRuns={campaignRuns.map((r) => ({
+                runId: r.runId,
+                workflowName: r.workflowName,
+                status: r.status,
+                startedAt: r.startedAt,
+              }))}
+            />
 
             <CompanyResearchCard personId={person.id} company={company} />
 

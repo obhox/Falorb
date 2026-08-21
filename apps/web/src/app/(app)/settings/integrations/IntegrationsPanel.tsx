@@ -106,7 +106,7 @@ const PROVIDERS: Provider[] = [
  * rather than shipping a flag from the server keeps the two in one place
  * conceptually; if they ever disagree, this is the copy to delete.
  */
-function activeAiProvider(connections: ConnectionView[]): Provider | null {
+function activeAiProvider(connections: ConnectionView[]): ConnectionView["provider"] | null {
   const candidates = connections
     .filter((c) => isAiProvider(c.provider) && c.status === "active")
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));

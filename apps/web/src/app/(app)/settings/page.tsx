@@ -68,6 +68,11 @@ export default async function InstanceSettingsPage() {
                 MCP & keys
               </Button>
             </Link>
+            <Link href="/settings/integrations" style={{ textDecoration: "none" }}>
+              <Button size="sm" iconLeft={<Icon name="blocks" size={13} />}>
+                Integrations
+              </Button>
+            </Link>
             {can.manageProject(session.workspace.role) && (
               <Link href="/settings/new">
                 <Button size="sm" variant="primary" iconLeft={<Icon name="plus" size={13} />}>

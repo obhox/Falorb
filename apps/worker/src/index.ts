@@ -8,6 +8,8 @@ import { resolveIdentities } from "./jobs/identity-resolver";
 import { sessionize } from "./jobs/sessionizer";
 import { optimizeAggregates, rebuildPathTransitions, refreshSegmentCounts } from "./jobs/rollups";
 import { enrichCompanies } from "./jobs/enrichment";
+import { listenReddit } from "./jobs/reddit-listener";
+import { enrichProspectsViaClay } from "./jobs/clay-enrichment";
 import { scoreInterests } from "./jobs/interest-scorer";
 import { evaluateAlerts } from "./jobs/alerts";
 import { dispatchWebhooks, reviveWebhooks } from "./jobs/webhooks";
@@ -107,6 +109,24 @@ scheduler.add({
   timeoutMs: 30 * MINUTE,
   run: async () => {
     await enrichCompanies(context, watermarks);
+  },
+});
+
+scheduler.add({
+  name: "reddit-listener",
+  intervalMs: 15 * MINUTE,
+  timeoutMs: 10 * MINUTE,
+  run: async () => {
+    await listenReddit(context, watermarks);
+  },
+});
+
+scheduler.add({
+  name: "clay-enrichment",
+  intervalMs: 30 * MINUTE,
+  timeoutMs: 15 * MINUTE,
+  run: async () => {
+    await enrichProspectsViaClay(context);
   },
 });
 
@@ -234,7 +254,7 @@ process.on("SIGTERM", () => void shutdown("SIGTERM"));
 process.on("SIGINT", () => void shutdown("SIGINT"));
 
 console.log(
-  `[worker] ${instanceId} started — ${context.projectIds.length} active projects, ${16} scheduled jobs`,
+  `[worker] ${instanceId} started — ${context.projectIds.length} active projects, ${18} scheduled jobs`,
 );
 
 await writer.start();

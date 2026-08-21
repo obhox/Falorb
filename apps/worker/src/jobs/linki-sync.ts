@@ -5,8 +5,6 @@ import {
   type LinkiContact,
   type LinkiList,
   type LinkiListMember,
-  type LinkiOpportunity,
-  type LinkiPipelineStage,
   type LinkiRun,
   type LinkiRunProfile,
   type LinkiRunProfileTrack,
@@ -96,11 +94,6 @@ async function syncOrg(
   );
   await upsertWorkflows(context, orgId, workflows);
 
-  const stages = await paginateAll((limit, offset) =>
-    client.listPipelineStages({ limit, offset }).then((p) => p.data),
-  );
-  await upsertPipelineStages(context, orgId, stages);
-
   const runs = await paginateAll((limit, offset) =>
     client.listRuns({ limit, offset }).then((p) => p.data),
   );
@@ -123,11 +116,6 @@ async function syncOrg(
   await upsertRunProfiles(context, orgId, runProfiles);
   await upsertRunProfileTracks(context, orgId, runProfileTracks);
 
-  const opportunities = await paginateAll((limit, offset) =>
-    client.listOpportunities({ limit, offset }).then((p) => p.data),
-  );
-  await upsertOpportunities(context, orgId, opportunities);
-
   const signalRules = await paginateAll((limit, offset) =>
     client.listSignalRules({ limit, offset }).then((p) => p.data),
   );
@@ -149,7 +137,7 @@ async function syncOrg(
     .where(eq(schema.integrationConnections.id, connection.id));
 
   console.log(
-    `[linki-sync] org ${orgId}: ${contacts.length} contacts, ${lists.length} lists, ${workflows.length} workflows, ${runs.length} runs, ${opportunities.length} opportunities`,
+    `[linki-sync] org ${orgId}: ${contacts.length} contacts, ${lists.length} lists, ${workflows.length} workflows, ${runs.length} runs`,
   );
 }
 
@@ -317,38 +305,6 @@ async function upsertWorkflows(context: WorkerContext, orgId: string, rows: Link
     });
 }
 
-async function upsertPipelineStages(
-  context: WorkerContext,
-  orgId: string,
-  rows: LinkiPipelineStage[],
-): Promise<void> {
-  if (!rows.length) return;
-  await context.db
-    .insert(schema.crmPipelineStages)
-    .values(
-      rows.map((r) => ({
-        organizationId: orgId,
-        linkiId: r.id,
-        name: r.name,
-        position: r.position,
-        probability: r.probability,
-        isWon: Boolean(r.is_won),
-        isLost: Boolean(r.is_lost),
-        syncedAt: new Date(),
-      })),
-    )
-    .onConflictDoUpdate({
-      target: [schema.crmPipelineStages.organizationId, schema.crmPipelineStages.linkiId],
-      set: {
-        name: sql`excluded.name`,
-        position: sql`excluded.position`,
-        probability: sql`excluded.probability`,
-        isWon: sql`excluded.is_won`,
-        isLost: sql`excluded.is_lost`,
-        syncedAt: sql`excluded.synced_at`,
-      },
-    });
-}
 
 async function upsertRuns(context: WorkerContext, orgId: string, rows: LinkiRun[]): Promise<void> {
   if (!rows.length) return;
@@ -472,55 +428,6 @@ async function resolveRunAndContact(
   `);
 }
 
-async function upsertOpportunities(
-  context: WorkerContext,
-  orgId: string,
-  rows: LinkiOpportunity[],
-): Promise<void> {
-  if (!rows.length) return;
-  await context.db
-    .insert(schema.crmOpportunities)
-    .values(
-      rows.map((r) => ({
-        organizationId: orgId,
-        linkiId: r.id,
-        targetLinkiId: r.target_id,
-        stageLinkiId: r.stage_id,
-        name: r.name,
-        amount: r.amount !== null ? String(r.amount) : null,
-        currency: r.currency,
-        expectedCloseDate: toDate(r.expected_close_date),
-        source: r.source,
-        linkiCreatedAt: toDate(r.created_at),
-        linkiUpdatedAt: toDate(r.updated_at),
-        syncedAt: new Date(),
-      })),
-    )
-    .onConflictDoUpdate({
-      target: [schema.crmOpportunities.organizationId, schema.crmOpportunities.linkiId],
-      set: {
-        name: sql`excluded.name`,
-        amount: sql`excluded.amount`,
-        currency: sql`excluded.currency`,
-        expectedCloseDate: sql`excluded.expected_close_date`,
-        source: sql`excluded.source`,
-        stageLinkiId: sql`excluded.stage_linki_id`,
-        linkiUpdatedAt: sql`excluded.linki_updated_at`,
-        syncedAt: sql`excluded.synced_at`,
-      },
-    });
-
-  await context.db.execute(sql`
-    UPDATE crm_opportunities o SET contact_id = c.id
-    FROM crm_contacts c
-    WHERE o.organization_id = ${orgId} AND c.organization_id = ${orgId} AND o.target_linki_id = c.linki_id AND o.contact_id IS NULL
-  `);
-  await context.db.execute(sql`
-    UPDATE crm_opportunities o SET stage_id = s.id
-    FROM crm_pipeline_stages s
-    WHERE o.organization_id = ${orgId} AND s.organization_id = ${orgId} AND o.stage_linki_id = s.linki_id
-  `);
-}
 
 async function upsertSignalRules(
   context: WorkerContext,

@@ -9,7 +9,9 @@ import { BundAiClient } from "@falorb/bund-ai-client";
  * server actions that take a real action on Linki/Bund AI (not just reading
  * the mirror). Returns null when the org has never connected, or has
  * revoked/errored — callers turn that into "connect it in Settings" rather
- * than a stack trace.
+ * than a stack trace. Clay has no equivalent getter here — nothing in the
+ * web app calls Clay directly; only `apps/worker/src/jobs/clay-enrichment.ts`
+ * does, and it builds its own `ClayClient` from the connection row.
  */
 
 async function activeConnection(organizationId: string, provider: "linki" | "bund_ai") {
@@ -39,4 +41,32 @@ export async function getBundAiClient(organizationId: string): Promise<BundAiCli
   if (!row) return null;
   const apiKey = decryptCredential({ ciphertext: row.encryptedApiKey, iv: row.iv, authTag: row.authTag });
   return new BundAiClient({ baseUrl: row.baseUrl, apiKey });
+}
+
+export interface ConnectionView {
+  provider: "linki" | "bund_ai" | "clay";
+  baseUrl: string;
+  status: "active" | "revoked" | "error";
+  lastVerifiedAt: string | null;
+  lastSyncedAt: string | null;
+  lastError: string | null;
+  updatedAt: string;
+}
+
+/** For the Settings → Integrations page. Never returns key material — there is nothing here safe to display. */
+export async function listConnections(organizationId: string): Promise<ConnectionView[]> {
+  const rows = await db()
+    .select()
+    .from(schema.integrationConnections)
+    .where(eq(schema.integrationConnections.organizationId, organizationId));
+
+  return rows.map((r) => ({
+    provider: r.provider,
+    baseUrl: r.baseUrl,
+    status: r.status,
+    lastVerifiedAt: r.lastVerifiedAt?.toISOString() ?? null,
+    lastSyncedAt: r.lastSyncedAt?.toISOString() ?? null,
+    lastError: r.lastError,
+    updatedAt: r.updatedAt.toISOString(),
+  }));
 }

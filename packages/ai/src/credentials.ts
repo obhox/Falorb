@@ -72,9 +72,10 @@ export interface AiCredentials {
   apiKey: string;
   /**
    * The model to ask for, or null to use the provider's default. A
-   * comma-separated list is a fallback chain on OpenRouter (see
-   * `resolveModel`); Ramp Router takes a single model, so only the first
-   * entry is used there.
+   * comma-separated list is a fallback chain on both gateways (see
+   * `resolveModel`), though Ramp Router only accepts one whose entries are
+   * provider-qualified — `routerRouteSelector` pins the first entry when they
+   * are not.
    */
   model: string | null;
 }

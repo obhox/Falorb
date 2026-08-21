@@ -28,15 +28,20 @@ const ROUTER: AiCredentials = {
   model: "gpt-5",
 };
 
-function mockFetch(body: unknown, init: { status?: number; text?: string } = {}) {
+function mockFetch(body: unknown, init: { status?: number; text?: string; headers?: Record<string, string> } = {}) {
+  const headers = new Headers(init.headers ?? {});
   const spy = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) =>
     init.status && init.status >= 400
-      ? ({ ok: false, status: init.status, text: async () => init.text ?? "" } as unknown as Response)
-      : ({ ok: true, status: 200, json: async () => body } as unknown as Response),
+      ? ({ ok: false, status: init.status, headers, text: async () => init.text ?? "" } as unknown as Response)
+      : ({ ok: true, status: 200, headers, json: async () => body } as unknown as Response),
   );
   vi.stubGlobal("fetch", spy);
   return spy;
 }
+
+/** The OpenAI error envelope both gateways answer failures with. */
+const errorBody = (message: string, code?: string) =>
+  JSON.stringify({ error: { message, type: "invalid_request_error", param: null, ...(code ? { code } : {}) } });
 
 interface SentRequest {
   url: string;
@@ -53,6 +58,13 @@ function lastRequest(spy: ReturnType<typeof mockFetch>): SentRequest {
     body: JSON.parse(String(init?.body)),
     headers: (init?.headers ?? {}) as Record<string, string>,
   };
+}
+
+/** The error a call rejected with, typed — `.catch(e => e)` widens to the result union. */
+async function failure(call: Promise<unknown>): Promise<Error> {
+  const outcome = await call.then(() => null, (error: unknown) => error);
+  if (!(outcome instanceof Error)) throw new Error("expected the call to fail, but it resolved");
+  return outcome;
 }
 
 const CONVERSATION: ChatMessage[] = [
@@ -208,10 +220,39 @@ describe("Ramp Router (responses)", () => {
     expect(result.finishReason).toBe("length");
   });
 
-  it("sends only the first model — a fallback chain is an OpenRouter feature", async () => {
+  it("sends a provider-qualified list as Router's own fallback chain", async () => {
+    // Router takes `models` as an alternative route selector, tried in order —
+    // this client used to drop everything after the first entry, so a
+    // connection configured with fallbacks quietly had none.
+    const spy = mockFetch({ output: [{ type: "message", content: [{ type: "output_text", text: "x" }] }] });
+    await callModel(
+      { ...ROUTER, model: "openai:gpt-5.4-mini, fireworks:accounts/fireworks/models/kimi:flex" },
+      { messages: CONVERSATION, maxTokens: 10, timeoutMs: 100 },
+    );
+    const { body } = lastRequest(spy);
+    expect(body.models).toEqual(["openai:gpt-5.4-mini", "fireworks:accounts/fireworks/models/kimi:flex"]);
+    // Exactly one selector: sending both is a 400.
+    expect(body.model).toBeUndefined();
+  });
+
+  it("pins the first entry when the list isn't provider-qualified, since `models` only takes candidates", async () => {
     const spy = mockFetch({ output: [{ type: "message", content: [{ type: "output_text", text: "x" }] }] });
     await callModel({ ...ROUTER, model: "gpt-5, opus-5" }, { messages: CONVERSATION, maxTokens: 10, timeoutMs: 100 });
-    expect(lastRequest(spy).body.model).toBe("gpt-5");
+    const { body } = lastRequest(spy);
+    expect(body.model).toBe("gpt-5");
+    expect(body.models).toBeUndefined();
+  });
+
+  it("truncates a fallback list to the 15 candidates Router accepts", async () => {
+    const spy = mockFetch({ output: [{ type: "message", content: [{ type: "output_text", text: "x" }] }] });
+    const many = Array.from({ length: 20 }, (_, i) => `openai:model-${i}`);
+    await callModel(
+      { ...ROUTER, model: many.join(", ") },
+      { messages: CONVERSATION, maxTokens: 10, timeoutMs: 100 },
+    );
+    // In preference order, so the first fifteen are the ones worth keeping —
+    // sending all twenty would be rejected outright.
+    expect(lastRequest(spy).body.models).toEqual(many.slice(0, 15));
   });
 
   it("refuses to call at all when no model is set, since it has no auto model", async () => {
@@ -231,11 +272,60 @@ describe("failures", () => {
     ).rejects.toThrow("OpenRouter rejected the API key (401).");
   });
 
+  it("distinguishes a deactivated key from an unknown one, which is fixed differently", async () => {
+    mockFetch(null, { status: 401, text: errorBody("Key is disabled.", "api_key_deactivated") });
+    await expect(
+      callModel(ROUTER, { messages: CONVERSATION, maxTokens: 10, timeoutMs: 100 }),
+    ).rejects.toThrow(/deactivated/);
+  });
+
   it("calls out insufficient credits, which is not a bug to debug", async () => {
     mockFetch(null, { status: 402 });
     await expect(
       callModel(ROUTER, { messages: CONVERSATION, maxTokens: 10, timeoutMs: 100 }),
     ).rejects.toThrow("Ramp Router rejected the request: insufficient credits.");
+  });
+
+  it("does not report a 403 as a bad key — on Router it is the provider, not the credential", async () => {
+    mockFetch(null, { status: 403, text: errorBody("Provider unavailable.") });
+    const error = await failure(callModel(ROUTER, { messages: CONVERSATION, maxTokens: 10, timeoutMs: 100 }));
+    expect(error.message).toMatch(/provider/i);
+    expect(error.message).not.toMatch(/rejected the API key/);
+  });
+
+  it("names the model a 404 was asked for, since that is the thing to change", async () => {
+    mockFetch(null, { status: 404, text: errorBody("Model not found.") });
+    await expect(
+      callModel({ ...ROUTER, model: "openai:gpt-nope" }, { messages: CONVERSATION, maxTokens: 10, timeoutMs: 100 }),
+    ).rejects.toThrow(/openai:gpt-nope/);
+  });
+
+  it("passes on how long a rate limit says to wait", async () => {
+    mockFetch(null, { status: 429, text: errorBody("Slow down."), headers: { "retry-after": "30" } });
+    await expect(
+      callModel(ROUTER, { messages: CONVERSATION, maxTokens: 10, timeoutMs: 100 }),
+    ).rejects.toThrow(/retry after 30s/);
+  });
+
+  it("says a 501 will not come good on a retry", async () => {
+    mockFetch(null, { status: 501, text: errorBody("Tools are not supported for this model.") });
+    await expect(
+      callModel(ROUTER, { messages: CONVERSATION, maxTokens: 10, timeoutMs: 100 }),
+    ).rejects.toThrow(/retrying it unchanged will fail the same way/);
+  });
+
+  it("marks a provider-side 5xx as worth retrying", async () => {
+    mockFetch(null, { status: 502, text: errorBody("openai provider request failed.") });
+    await expect(
+      callModel(ROUTER, { messages: CONVERSATION, maxTokens: 10, timeoutMs: 100 }),
+    ).rejects.toThrow(/worth retrying/);
+  });
+
+  it("surfaces the gateway's own message rather than the raw error envelope", async () => {
+    mockFetch(null, { status: 400, text: errorBody("`allow_flex_tier` is only supported for eligible models.") });
+    const error = await failure(callModel(ROUTER, { messages: CONVERSATION, maxTokens: 10, timeoutMs: 100 }));
+    expect(error.message).toContain("`allow_flex_tier` is only supported for eligible models.");
+    expect(error.message).not.toContain('{"error"');
   });
 
   it("wraps a network failure as a transport error naming the gateway", async () => {

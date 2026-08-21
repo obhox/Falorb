@@ -69,11 +69,15 @@ export class AiGatewayClient {
       signal: AbortSignal.timeout(this.timeoutMs),
     });
     if (!response.ok) {
-      throw new AiGatewayError(
-        response.status === 401 || response.status === 403
-          ? `${AI_PROVIDER_LABELS[this.provider]} rejected the API key.`
-          : `${AI_PROVIDER_LABELS[this.provider]} returned HTTP ${response.status}.`,
-      );
+      const label = AI_PROVIDER_LABELS[this.provider];
+      // 401 is the key; 403 is not. On Router a 403 means a provider is
+      // unavailable, so reporting it as a bad key sends the reader off to
+      // re-enter a credential that was fine all along.
+      if (response.status === 401) throw new AiGatewayError(`${label} rejected the API key.`);
+      if (response.status === 403) {
+        throw new AiGatewayError(`${label} refused the request (403) — the key is recognised but not allowed to make it.`);
+      }
+      throw new AiGatewayError(`${label} returned HTTP ${response.status}.`);
     }
     return response.json();
   }

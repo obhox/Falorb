@@ -6,7 +6,10 @@ import {
   listCrmProfiles,
   listDeals,
   listLists,
+  listRuns,
+  listSentMessages,
   listSignalRules,
+  listSuppressions,
   listUnmatchedContacts,
   listWorkflows,
 } from "@/server/crm";
@@ -29,16 +32,20 @@ export default async function CrmPage() {
 
   const connected = await isLinkiConnected(orgId);
 
-  const [profiles, deals, stages, team, unmatchedContacts, workflows, lists, signalRules] = await Promise.all([
-    listCrmProfiles(orgId),
-    listDeals(orgId),
-    ensureDealStages(orgId),
-    getTeam(orgId),
-    connected ? listUnmatchedContacts(orgId) : Promise.resolve([]),
-    connected ? listWorkflows(orgId) : Promise.resolve([]),
-    connected ? listLists(orgId) : Promise.resolve([]),
-    connected ? listSignalRules(orgId) : Promise.resolve([]),
-  ]);
+  const [profiles, deals, stages, team, unmatchedContacts, workflows, lists, signalRules, runs, sentMessages, suppressions] =
+    await Promise.all([
+      listCrmProfiles(orgId),
+      listDeals(orgId),
+      ensureDealStages(orgId),
+      getTeam(orgId),
+      connected ? listUnmatchedContacts(orgId) : Promise.resolve([]),
+      connected ? listWorkflows(orgId) : Promise.resolve([]),
+      connected ? listLists(orgId) : Promise.resolve([]),
+      connected ? listSignalRules(orgId) : Promise.resolve([]),
+      connected ? listRuns(orgId) : Promise.resolve([]),
+      connected ? listSentMessages(orgId) : Promise.resolve([]),
+      connected ? listSuppressions(orgId) : Promise.resolve([]),
+    ]);
 
   return (
     <>
@@ -69,6 +76,9 @@ export default async function CrmPage() {
             enabled: r.enabled,
             autoStart: r.autoStart,
           }))}
+          runs={runs}
+          sentMessages={sentMessages}
+          suppressions={suppressions}
           now={Date.now()}
         />
       </PageBody>

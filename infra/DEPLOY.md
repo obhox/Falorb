@@ -108,9 +108,30 @@ itself, and persists it across redeploys. You only set these:
 | `RESEND_API_KEY` | your Resend key |
 | `EMAIL_FROM` | `Falorb <noreply@falorb.com>` |
 | `IPINFO_TOKEN` | *(optional)* enables B2B company identification |
+| `INTEGRATION_CREDENTIAL_ENC_KEY` | encrypts every connected Linki/Bund AI/Buffer/Clay/Exa/Firecrawl/ElevenLabs credential — without it, "Connect" on Settings → Integrations fails (see below) |
 | `FALORB_RATE_LIMIT` | *(optional)* default `600` events/min per IP hash |
 | `FALORB_IMAGE_TAG` | *(optional)* default `latest`; a commit SHA pins the deploy |
 | `FALORB_IMAGE_PREFIX` | *(optional)* default `ghcr.io/obhox/falorb`; only for forks |
+
+### About `INTEGRATION_CREDENTIAL_ENC_KEY`
+
+Not one of the `SERVICE_PASSWORD_*`/`SERVICE_BASE64_*` variables Coolify
+generates for you — none of its generators produce the right shape
+(`packages/db/src/crypto.ts` requires exactly 64 hex characters; Coolify's
+`SERVICE_BASE64_64_*` is base64). Generate it yourself and set the **same**
+value on `web`, `api`, and `worker` — all three encrypt or decrypt with it,
+and a credential encrypted by one is unreadable by another if the values
+differ:
+
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+```
+
+Leaving it unset does not fail loudly at boot — every other feature works
+normally, and only "Connect" on Settings → Integrations breaks, with the
+underlying cause visible only in the container logs (Next.js redacts it to
+an opaque digest-only error in the browser). If Settings → Integrations
+stopped working after a previously-fine deploy, check this first.
 
 Then set each service's domain. For a Docker Compose resource these are
 **environment variables**, not the Domains field — Coolify pre-creates one

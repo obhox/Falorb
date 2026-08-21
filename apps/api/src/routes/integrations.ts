@@ -159,8 +159,19 @@ export function integrationsRoutes(db: Database): Hono<{ Variables: Vars }> {
     }
     const baseUrl = fixedBaseUrl ?? parsed.data.baseUrl!;
 
-    const check = await pingProvider(provider, baseUrl, parsed.data.apiKey);
-    const encrypted = encryptCredential(parsed.data.apiKey);
+    let check: { ok: boolean; detail: string };
+    let encrypted: ReturnType<typeof encryptCredential>;
+    try {
+      check = await pingProvider(provider, baseUrl, parsed.data.apiKey);
+      encrypted = encryptCredential(parsed.data.apiKey);
+    } catch (error) {
+      // pingProvider's own client always catches its network errors and
+      // returns { ok: false }, so a throw here is almost always
+      // encryptCredential() rejecting a missing/malformed
+      // INTEGRATION_CREDENTIAL_ENC_KEY — an operator misconfiguration, not a
+      // caller error, but still one the caller should see plainly.
+      throw new HttpError(500, error instanceof Error ? error.message : "Could not connect this integration.");
+    }
 
     // Which of the two partial unique indexes on `integration_connections`
     // (`packages/db/src/schema/integrations.ts`) is the upsert's conflict
@@ -250,12 +261,20 @@ export function integrationsRoutes(db: Database): Hono<{ Variables: Vars }> {
     if (!row) throw new HttpError(404, `No ${PROVIDERS[provider].label} connection to test.`);
     if (row.status === "revoked") throw new HttpError(409, "This connection has been revoked.");
 
-    const apiKey = decryptCredential({
-      ciphertext: row.encryptedApiKey,
-      iv: row.iv,
-      authTag: row.authTag,
-    });
-    const check = await pingProvider(provider, row.baseUrl, apiKey);
+    let check: { ok: boolean; detail: string };
+    try {
+      const apiKey = decryptCredential({
+        ciphertext: row.encryptedApiKey,
+        iv: row.iv,
+        authTag: row.authTag,
+      });
+      check = await pingProvider(provider, row.baseUrl, apiKey);
+    } catch (error) {
+      throw new HttpError(
+        500,
+        error instanceof Error ? error.message : `Could not test the ${PROVIDERS[provider].label} connection.`,
+      );
+    }
 
     await db
       .update(schema.integrationConnections)

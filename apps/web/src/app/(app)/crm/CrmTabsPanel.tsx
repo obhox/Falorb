@@ -89,8 +89,54 @@ export interface SignalRuleRow {
   autoStart: boolean;
 }
 
+export interface RunRow {
+  id: string;
+  status: string | null;
+  workflowName: string | null;
+  listName: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  trackCount: number;
+}
+
+export interface SentMessageRow {
+  id: string;
+  recipient: string | null;
+  subject: string | null;
+  status: string | null;
+  contactId: string | null;
+  contactName: string | null;
+  syncedAt: string;
+}
+
+export interface SuppressionRow {
+  id: string;
+  kind: string;
+  value: string;
+  reason: string | null;
+  syncedAt: string;
+}
+
 const STATUSES = ["lead", "prospect", "customer", "churned"];
 const UNASSIGNED = "Unassigned";
+
+const RUN_STATUS_TONE: Record<string, "up" | "down" | "warn" | "neutral"> = {
+  completed: "up",
+  sent: "up",
+  delivered: "up",
+  replied: "up",
+  failed: "down",
+  error: "down",
+  bounced: "down",
+  complained: "down",
+  pending: "warn",
+  in_progress: "warn",
+};
+
+function runStatusTone(value: string | null): "up" | "down" | "warn" | "neutral" {
+  if (!value) return "neutral";
+  return RUN_STATUS_TONE[value.toLowerCase()] ?? "neutral";
+}
 
 function ConnectLinkiPrompt({ what }: { what: string }) {
   return (
@@ -118,6 +164,9 @@ export function CrmTabsPanel({
   workflows,
   lists,
   signalRules,
+  runs,
+  sentMessages,
+  suppressions,
   now,
 }: {
   connected: boolean;
@@ -129,6 +178,9 @@ export function CrmTabsPanel({
   workflows: WorkflowRow[];
   lists: ListRow[];
   signalRules: SignalRuleRow[];
+  runs: RunRow[];
+  sentMessages: SentMessageRow[];
+  suppressions: SuppressionRow[];
   now: number;
 }) {
   const [tab, setTab] = useState("contacts");
@@ -156,6 +208,9 @@ export function CrmTabsPanel({
           { value: "from-linki", label: "From Linki", count: unmatchedContacts.length },
           { value: "workflows", label: "Workflows & lists", count: workflows.length + lists.length },
           { value: "signals", label: "Signal rules", count: signalRules.length },
+          { value: "runs", label: "Runs", count: runs.length },
+          { value: "sent", label: "Sent messages", count: sentMessages.length },
+          { value: "suppressions", label: "Suppressions", count: suppressions.length },
         ]}
       />
 
@@ -246,7 +301,16 @@ export function CrmTabsPanel({
           <DataTable
             dense
             columns={[
-              { key: "name", header: "Deal", width: "minmax(150px, 1.2fr)", render: (r: DealRow) => r.name },
+              {
+                key: "name",
+                header: "Deal",
+                width: "minmax(150px, 1.2fr)",
+                render: (r: DealRow) => (
+                  <Link href={`/crm/deals/${r.id}`} data-plain style={{ color: "var(--text-primary)" }}>
+                    {r.name}
+                  </Link>
+                ),
+              },
               {
                 key: "person",
                 header: "Contact",
@@ -329,7 +393,15 @@ export function CrmTabsPanel({
 
       {tab === "from-linki" &&
         (connected ? (
-          <Card title="From Linki" subtitle="Existing Linki contacts not yet brought into Falorb's CRM">
+          <Card
+            title="From Linki"
+            subtitle="Existing Linki contacts not yet brought into Falorb's CRM"
+            action={
+              <Link href="/crm/contacts" data-plain style={{ fontSize: "var(--size-label)", color: "var(--accent)" }}>
+                View all contacts →
+              </Link>
+            }
+          >
             <DataTable
               dense
               columns={[
@@ -438,6 +510,124 @@ export function CrmTabsPanel({
           </Card>
         ) : (
           <ConnectLinkiPrompt what="signal rules" />
+        ))}
+
+      {tab === "runs" &&
+        (connected ? (
+          <Card title="Runs" subtitle="Workflow executions synced from Linki">
+            <DataTable
+              dense
+              columns={[
+                {
+                  key: "workflow",
+                  header: "Workflow",
+                  width: "minmax(140px, 1.2fr)",
+                  render: (r: RunRow) => (
+                    <Link href={`/crm/runs/${r.id}`} data-plain style={{ color: "var(--text-primary)" }}>
+                      {r.workflowName ?? "—"}
+                    </Link>
+                  ),
+                },
+                { key: "list", header: "List", width: "minmax(120px, 1fr)", render: (r: RunRow) => r.listName ?? "—" },
+                {
+                  key: "status",
+                  header: "Status",
+                  width: "110px",
+                  render: (r: RunRow) => <Badge tone={runStatusTone(r.status)}>{r.status ?? "—"}</Badge>,
+                },
+                { key: "targets", header: "Targets", width: "80px", align: "right", mono: true, render: (r: RunRow) => r.trackCount },
+                {
+                  key: "startedAt",
+                  header: "Started",
+                  width: "90px",
+                  align: "right",
+                  mono: true,
+                  render: (r: RunRow) => (r.startedAt ? relative(r.startedAt, now) : "—"),
+                },
+                {
+                  key: "completedAt",
+                  header: "Completed",
+                  width: "90px",
+                  align: "right",
+                  mono: true,
+                  render: (r: RunRow) => (r.completedAt ? relative(r.completedAt, now) : "—"),
+                },
+              ]}
+              rows={runs}
+              emptyState={<Empty dense icon="workflow" title="No runs yet" body="Nothing has synced yet." />}
+            />
+          </Card>
+        ) : (
+          <ConnectLinkiPrompt what="workflow runs" />
+        ))}
+
+      {tab === "sent" &&
+        (connected ? (
+          <Card title="Sent messages" subtitle="Delivery status for messages sent through Linki">
+            <DataTable
+              dense
+              columns={[
+                {
+                  key: "recipient",
+                  header: "Recipient",
+                  width: "minmax(150px, 1.2fr)",
+                  render: (r: SentMessageRow) =>
+                    r.contactId ? (
+                      <Link href={`/crm/contacts/${r.contactId}`} data-plain style={{ color: "var(--text-primary)" }}>
+                        {r.contactName ?? r.recipient ?? "—"}
+                      </Link>
+                    ) : (
+                      r.recipient ?? "—"
+                    ),
+                },
+                { key: "subject", header: "Subject", width: "minmax(160px, 1.6fr)", render: (r: SentMessageRow) => r.subject ?? "—" },
+                {
+                  key: "status",
+                  header: "Status",
+                  width: "110px",
+                  render: (r: SentMessageRow) => <Badge tone={runStatusTone(r.status)}>{r.status ?? "—"}</Badge>,
+                },
+                {
+                  key: "syncedAt",
+                  header: "Synced",
+                  width: "90px",
+                  align: "right",
+                  mono: true,
+                  render: (r: SentMessageRow) => relative(r.syncedAt, now),
+                },
+              ]}
+              rows={sentMessages}
+              emptyState={<Empty dense icon="mail" title="No messages yet" body="Nothing has synced yet." />}
+            />
+          </Card>
+        ) : (
+          <ConnectLinkiPrompt what="sent messages" />
+        ))}
+
+      {tab === "suppressions" &&
+        (connected ? (
+          <Card title="Suppressions" subtitle="Do-not-contact list, mirrored from Linki — read-only">
+            <DataTable
+              dense
+              columns={[
+                { key: "value", header: "Value", width: "minmax(160px, 1.4fr)", mono: true, render: (r: SuppressionRow) => r.value },
+                { key: "kind", header: "Kind", width: "100px", render: (r: SuppressionRow) => r.kind },
+                { key: "reason", header: "Reason", width: "minmax(140px, 1.2fr)", render: (r: SuppressionRow) => r.reason ?? "—" },
+                {
+                  key: "syncedAt",
+                  header: "Synced",
+                  width: "90px",
+                  align: "right",
+                  mono: true,
+                  render: (r: SuppressionRow) => relative(r.syncedAt, now),
+                },
+              ]}
+              rows={suppressions}
+              emptyState={<Empty dense icon="shield" title="No suppressions" body="Nobody is on the do-not-contact list." />}
+            />
+          </Card>
+        ) : (
+          <ConnectLinkiPrompt what="suppressions" />
         ))}
 
       {editingProfile && (

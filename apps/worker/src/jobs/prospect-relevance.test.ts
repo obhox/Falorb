@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseRelevanceResponse } from "./reddit-listener";
+import { parseRelevanceResponse } from "./prospect-relevance";
 
 describe("parseRelevanceResponse", () => {
   it("parses a well-formed response", () => {

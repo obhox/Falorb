@@ -99,6 +99,7 @@ export async function draftProspectOutreach(
         contactCompanyDomain: prospect.contactCompanyDomain,
       },
       project?.name ?? session.workspace.organizationName,
+      project?.profileSummary ?? null,
     );
     return { ok: true, message: draft };
   } catch (error) {

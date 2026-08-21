@@ -17,16 +17,23 @@ export interface ProspectKeywordView {
 }
 
 /**
- * What to listen for on Reddit for this property. Matches show up org-wide
- * on `/prospecting`, not here — this card is config, not the results.
+ * What to listen for across Reddit, Hacker News, and job postings for this
+ * property (see `packages/core/src/prospect-sources.ts` for what each
+ * source is). Matches show up org-wide on `/prospecting`, not here — this
+ * card is config, not the results.
  */
 export function ProspectKeywordsCard({
   slug,
   keywords,
+  suggestedKeywords = [],
   canEdit,
 }: {
   slug: string;
   keywords: ProspectKeywordView[];
+  /** From `projects.profileSuggestedKeywords`, the `property-profiler`
+   * worker job's read of what's worth listening for. Filtered down to terms
+   * not already watched, so this list only ever offers something new. */
+  suggestedKeywords?: string[];
   canEdit: boolean;
 }) {
   const { run, pending } = useAction();
@@ -39,10 +46,13 @@ export function ProspectKeywordsCard({
     if (result?.ok) setValue("");
   }
 
+  const alreadyWatched = new Set(keywords.map((k) => k.keyword.toLowerCase()));
+  const unusedSuggestions = suggestedKeywords.filter((k) => !alreadyWatched.has(k.toLowerCase()));
+
   return (
     <Card
       title="Prospecting keywords"
-      subtitle="Reddit posts matching any of these show up on Prospecting, scored for relevance"
+      subtitle="Matches on Reddit, Hacker News, and job postings show up on Prospecting, scored for relevance"
     >
       <div style={{ display: "grid", gap: "var(--space-5)" }}>
         {canEdit && (
@@ -57,6 +67,28 @@ export function ProspectKeywordsCard({
               Add
             </Button>
           </form>
+        )}
+
+        {canEdit && unusedSuggestions.length > 0 && (
+          <div style={{ display: "grid", gap: 6 }}>
+            <span style={{ fontSize: "var(--size-micro)", color: "var(--text-muted)" }}>
+              From this property's crawled profile
+            </span>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {unusedSuggestions.map((keyword) => (
+                <Button
+                  key={keyword}
+                  size="sm"
+                  variant="secondary"
+                  iconLeft={<Icon name="plus" size={12} />}
+                  disabled={pending}
+                  onClick={() => run(() => addProspectKeyword(slug, keyword), { success: "Keyword added" })}
+                >
+                  {keyword}
+                </Button>
+              ))}
+            </div>
+          </div>
         )}
 
         {keywords.length === 0 ? (

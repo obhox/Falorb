@@ -1,30 +1,4 @@
-CREATE TABLE "integration_syncs" (
-	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-	"integration_id" uuid NOT NULL,
-	"started_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"finished_at" timestamp with time zone,
-	"status" text DEFAULT 'running' NOT NULL,
-	"records_in" integer DEFAULT 0 NOT NULL,
-	"records_out" integer DEFAULT 0 NOT NULL,
-	"error" text
-);
---> statement-breakpoint
-CREATE TABLE "integrations" (
-	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-	"organization_id" uuid NOT NULL,
-	"kind" text DEFAULT 'clay' NOT NULL,
-	"status" text DEFAULT 'disconnected' NOT NULL,
-	"config" jsonb DEFAULT '{}'::jsonb NOT NULL,
-	"encrypted_credential" text,
-	"credential_preview" text,
-	"connected_at" timestamp with time zone,
-	"connected_by" text,
-	"last_sync_at" timestamp with time zone,
-	"last_sync_error" text,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
-);
---> statement-breakpoint
+ALTER TYPE "public"."integration_provider" ADD VALUE 'clay';--> statement-breakpoint
 CREATE TABLE "prospect_keywords" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"project_id" integer NOT NULL,
@@ -67,17 +41,12 @@ CREATE TABLE "prospects" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-ALTER TABLE "integration_syncs" ADD CONSTRAINT "integration_syncs_integration_id_integrations_id_fk" FOREIGN KEY ("integration_id") REFERENCES "public"."integrations"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "integrations" ADD CONSTRAINT "integrations_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "integrations" ADD CONSTRAINT "integrations_connected_by_user_id_fk" FOREIGN KEY ("connected_by") REFERENCES "public"."user"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "prospect_keywords" ADD CONSTRAINT "prospect_keywords_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "prospect_keywords" ADD CONSTRAINT "prospect_keywords_created_by_user_id_fk" FOREIGN KEY ("created_by") REFERENCES "public"."user"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "prospects" ADD CONSTRAINT "prospects_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "prospects" ADD CONSTRAINT "prospects_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "prospects" ADD CONSTRAINT "prospects_contacted_by_user_id_fk" FOREIGN KEY ("contacted_by") REFERENCES "public"."user"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "prospects" ADD CONSTRAINT "prospects_person_id_persons_id_fk" FOREIGN KEY ("person_id") REFERENCES "public"."persons"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
-CREATE INDEX "integration_syncs_integration_idx" ON "integration_syncs" USING btree ("integration_id","started_at");--> statement-breakpoint
-CREATE UNIQUE INDEX "integrations_org_kind_uq" ON "integrations" USING btree ("organization_id","kind");--> statement-breakpoint
 CREATE UNIQUE INDEX "prospect_keywords_project_keyword_uq" ON "prospect_keywords" USING btree ("project_id","keyword");--> statement-breakpoint
 CREATE INDEX "prospect_keywords_project_idx" ON "prospect_keywords" USING btree ("project_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "prospects_org_source_uq" ON "prospects" USING btree ("organization_id","source","source_id");--> statement-breakpoint

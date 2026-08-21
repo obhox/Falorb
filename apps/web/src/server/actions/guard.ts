@@ -25,6 +25,9 @@ const REQUIREMENT: Record<Capability, string> = {
   manageTeam: "be an owner or admin",
   assignRole: "be an owner",
   archiveProject: "be an owner",
+  actOnIntegrations: "be a member or above",
+  manageIntegrations: "be an owner or admin",
+  manageCrm: "be a member or above",
 };
 
 /** Returns null when permitted, or the failure to hand straight back. */

@@ -18,7 +18,7 @@
     "studio": "drizzle-kit studio",
     "ch:migrate": "tsx src/clickhouse/migrate.ts",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run --passWithNoTests",
     "seed": "tsx src/seed.ts",
     "seed:events": "tsx src/seed-events.ts",
     "seed:demo": "tsx src/seed-demo.ts",

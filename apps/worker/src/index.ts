@@ -15,6 +15,8 @@ import { evaluateAlerts } from "./jobs/alerts";
 import { dispatchWebhooks, reviveWebhooks } from "./jobs/webhooks";
 import { enforceRetention, processDataRequests, pruneOrphanedPersons } from "./jobs/retention-gc";
 import { sendWeeklyDigests } from "./jobs/digest";
+import { syncLinki } from "./jobs/linki-sync";
+import { syncBundAi } from "./jobs/bund-ai-sync";
 
 /**
  * Worker entrypoint.
@@ -165,6 +167,27 @@ scheduler.add({
   },
 });
 
+// Full paginated poll per connected org — neither product has an event
+// stream Falorb can consume incrementally (confirmed for both during their
+// respective integration phases), so this is a sweep, not a watermark job.
+scheduler.add({
+  name: "linki-sync",
+  intervalMs: 15 * MINUTE,
+  timeoutMs: 20 * MINUTE,
+  run: async () => {
+    await syncLinki(context);
+  },
+});
+
+scheduler.add({
+  name: "bund-ai-sync",
+  intervalMs: 15 * MINUTE,
+  timeoutMs: 20 * MINUTE,
+  run: async () => {
+    await syncBundAi(context);
+  },
+});
+
 // Housekeeping runs rarely and is skipped at boot: a restart loop should not
 // repeatedly kick off deletes and table optimizations.
 scheduler.add({
@@ -231,7 +254,7 @@ process.on("SIGTERM", () => void shutdown("SIGTERM"));
 process.on("SIGINT", () => void shutdown("SIGINT"));
 
 console.log(
-  `[worker] ${instanceId} started — ${context.projectIds.length} active projects, ${16} scheduled jobs`,
+  `[worker] ${instanceId} started — ${context.projectIds.length} active projects, ${18} scheduled jobs`,
 );
 
 await writer.start();

@@ -14,6 +14,12 @@ import { PageBody, PageHeader } from "@/components/shell/PageHeader";
 import { StatStrip } from "@/components/StatStrip";
 import { Empty } from "@/components/Empty";
 import { PersonTimeline } from "@/components/PersonTimeline";
+import { CrmActionsCard } from "./CrmActionsCard";
+import { CrmProfileCard } from "./CrmProfileCard";
+import { CompanyResearchCard } from "./CompanyResearchCard";
+import { getLinkedContact, isLinkiConnected } from "@/server/actions/crm";
+import { ensureDealStages, getCrmProfile, listDealsForPerson } from "@/server/crm";
+import { getTeam } from "@/server/team";
 import {
   countryLabel,
   dateTime,
@@ -66,12 +72,22 @@ export default async function PersonPage({
   const projectIds = session.projects.map((p) => p.id);
   const projectsById = new Map(session.projects.map((p) => [p.id, p]));
 
-  const [usage, timeline, acquisition, interests] = await Promise.all([
-    personProjects({ personId: person.id, projectIds }),
-    personTimeline({ personId: person.id, projectIds, limit: 100 }),
-    acquisitionChain({ personId: person.id, projectIds, limit: 25 }),
-    personInterests({ personId: person.id, projectIds, limit: 12 }),
-  ]);
+  const orgId = session.workspace.organizationId;
+  const [usage, timeline, acquisition, interests, linkiConnected, linkedContact, crmProfile, dealStages, team] =
+    await Promise.all([
+      personProjects({ personId: person.id, projectIds }),
+      personTimeline({ personId: person.id, projectIds, limit: 100 }),
+      acquisitionChain({ personId: person.id, projectIds, limit: 25 }),
+      personInterests({ personId: person.id, projectIds, limit: 12 }),
+      isLinkiConnected(orgId),
+      getLinkedContact(orgId, person.id),
+      getCrmProfile(orgId, person.id),
+      ensureDealStages(orgId),
+      getTeam(orgId),
+    ]);
+  const personDeals = crmProfile ? await listDealsForPerson(orgId, person.id) : [];
+  const owners = team.members.map((m) => ({ id: m.userId, name: m.name ?? m.email }));
+  const ownerName = crmProfile?.ownerId ? (owners.find((o) => o.id === crmProfile.ownerId)?.name ?? null) : null;
 
   const now = Date.now();
   const display = person.email ?? person.name ?? person.identifiedId ?? personLabel(person.id);
@@ -338,18 +354,40 @@ export default async function PersonPage({
               </div>
             </Card>
 
-            {company && (
-              <Card title="Company" subtitle="Resolved from the network operator, not a person">
-                <div style={{ display: "grid", gap: 10 }}>
-                  <Attribute label="Domain" value={company.domain} mono />
-                  {company.name && <Attribute label="Name" value={company.name} />}
-                  {company.industry && <Attribute label="Industry" value={company.industry} />}
-                  {company.employeeRange && (
-                    <Attribute label="Employees" value={company.employeeRange} mono />
-                  )}
-                </div>
-              </Card>
-            )}
+            <CrmProfileCard
+              personId={person.id}
+              personName={person.name}
+              personEmail={person.email}
+              profile={
+                crmProfile
+                  ? {
+                      title: crmProfile.title,
+                      phone: crmProfile.phone,
+                      status: crmProfile.status,
+                      ownerId: crmProfile.ownerId,
+                      ownerName,
+                      linkedToLinki: linkedContact !== null,
+                      updatedAt: crmProfile.updatedAt.toISOString(),
+                    }
+                  : null
+              }
+              owners={owners}
+              stages={dealStages.map((s) => ({ id: s.id, name: s.name, position: s.position, isWon: s.isWon, isLost: s.isLost }))}
+              deals={personDeals.map((d) => ({
+                id: d.id,
+                name: d.name,
+                stageId: d.stageId,
+                stageName: d.stageName,
+                isWon: d.isWon,
+                isLost: d.isLost,
+                amount: d.amount,
+                currency: d.currency,
+              }))}
+            />
+
+            <CrmActionsCard personId={person.id} connected={linkiConnected} contact={linkedContact} />
+
+            <CompanyResearchCard personId={person.id} company={company} />
 
             <Card title="Context" subtitle="Most recent observed">
               <div style={{ display: "grid", gap: 10 }}>

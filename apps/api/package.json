@@ -13,8 +13,11 @@
   },
   "dependencies": {
     "@falorb/auth": "workspace:*",
+    "@falorb/bund-ai-client": "workspace:*",
+    "@falorb/clay-client": "workspace:*",
     "@falorb/core": "workspace:*",
     "@falorb/db": "workspace:*",
+    "@falorb/linki-client": "workspace:*",
     "@falorb/mailer": "workspace:*",
     "@falorb/queries": "workspace:*",
     "@hono/node-server": "^1.13.7",

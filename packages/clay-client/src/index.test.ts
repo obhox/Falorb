@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { parseClayResponse } from "./clay-enrichment";
+import { parseEnrichmentResponse } from "./index";
 
-describe("parseClayResponse", () => {
+describe("parseEnrichmentResponse", () => {
   it("maps a full match", () => {
     expect(
-      parseClayResponse({
+      parseEnrichmentResponse({
         name: "Ada Lovelace",
         email: "ada@example.com",
         title: "Engineer",
@@ -21,10 +21,10 @@ describe("parseClayResponse", () => {
   });
 
   it("treats a response with neither email nor LinkedIn as no match", () => {
-    expect(parseClayResponse({ name: "Someone", title: "CEO" })).toBeNull();
+    expect(parseEnrichmentResponse({ name: "Someone", title: "CEO" })).toBeNull();
   });
 
   it("accepts a LinkedIn-only match", () => {
-    expect(parseClayResponse({ linkedin_url: "https://linkedin.com/in/x" })).not.toBeNull();
+    expect(parseEnrichmentResponse({ linkedin_url: "https://linkedin.com/in/x" })).not.toBeNull();
   });
 });

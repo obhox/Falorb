@@ -1,69 +1,77 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 
 /**
- * Envelope encryption for third-party integration credentials (Clay API keys
- * today). The rest of this codebase only ever needs one-way hashing — see
- * `api-keys.ts` — because API keys, invite tokens and team tokens are all
- * high-entropy secrets *we* mint and never need back. A Clay API key is the
- * opposite: it must be presented back to Clay's own API on every enrichment
- * call, so it has to be recoverable, not just verifiable.
+ * At-rest encryption for credentials Falorb must read back in plaintext.
  *
- * AES-256-GCM keyed by FALORB_CREDENTIAL_KEY (32 raw bytes, hex-encoded in
- * the environment). GCM's authentication tag means a corrupted or tampered
- * ciphertext fails to decrypt rather than silently returning garbage.
+ * `api_keys.keyHash` is one-way on purpose: Falorb only ever compares a
+ * caller-presented value against it, never needs the plaintext again. The
+ * integration credentials this module protects are the opposite case — a
+ * Linki or Bund AI API key Falorb's own worker must present outbound on every
+ * sync — so a hash cannot substitute here. AES-256-GCM was chosen over a
+ * simpler scheme because it authenticates the ciphertext: a tampered or
+ * truncated row fails to decrypt loudly instead of yielding a corrupted key
+ * that gets sent to a third party.
  */
 
 const ALGORITHM = "aes-256-gcm";
-const IV_LENGTH = 12;
-const FORMAT_VERSION = "v1";
+const IV_LENGTH = 12; // Standard for GCM; 16 bytes gains nothing and costs interoperability with some tooling.
+const KEY_LENGTH = 32; // 256 bits.
 
-function loadKey(): Buffer {
-  const hex = process.env.FALORB_CREDENTIAL_KEY;
-  if (!hex) {
+export interface EncryptedCredential {
+  ciphertext: string;
+  iv: string;
+  authTag: string;
+}
+
+/**
+ * Reads and validates `INTEGRATION_CREDENTIAL_ENC_KEY` on every call rather
+ * than caching it at module load, so a key configured after this module was
+ * first imported (common across the worker's job-registration order) is
+ * still picked up.
+ */
+function loadKey(env: NodeJS.ProcessEnv = process.env): Buffer {
+  const raw = env.INTEGRATION_CREDENTIAL_ENC_KEY;
+  if (!raw) {
     throw new Error(
-      "FALORB_CREDENTIAL_KEY is not set — required to store or read an integration credential. Generate one with: openssl rand -hex 32",
+      "INTEGRATION_CREDENTIAL_ENC_KEY is not set. Generate one with " +
+        "`node -e \"console.log(require('crypto').randomBytes(32).toString('hex'))\"` " +
+        "and set it before storing or reading any integration credential.",
     );
   }
-  const key = Buffer.from(hex, "hex");
-  if (key.length !== 32) {
-    throw new Error("FALORB_CREDENTIAL_KEY must be 32 bytes (64 hex characters).");
+  const key = Buffer.from(raw, "hex");
+  if (key.length !== KEY_LENGTH) {
+    throw new Error(
+      `INTEGRATION_CREDENTIAL_ENC_KEY must be ${KEY_LENGTH} bytes of hex (${KEY_LENGTH * 2} characters); got ${key.length} bytes.`,
+    );
   }
   return key;
 }
 
-/** Encrypt a plaintext secret for storage. Throws if the key is missing or malformed. */
-export function encryptSecret(plaintext: string): string {
-  const key = loadKey();
+export function encryptCredential(
+  plaintext: string,
+  env: NodeJS.ProcessEnv = process.env,
+): EncryptedCredential {
+  const key = loadKey(env);
   const iv = randomBytes(IV_LENGTH);
   const cipher = createCipheriv(ALGORITHM, key, iv);
   const ciphertext = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
-  const authTag = cipher.getAuthTag();
-  const payload = Buffer.concat([iv, authTag, ciphertext]).toString("base64");
-  return `${FORMAT_VERSION}:${payload}`;
+  return {
+    ciphertext: ciphertext.toString("hex"),
+    iv: iv.toString("hex"),
+    authTag: cipher.getAuthTag().toString("hex"),
+  };
 }
 
-/**
- * Decrypt a stored secret. Throws on a missing/wrong key, a malformed
- * payload, or a failed auth-tag check (corrupt or tampered ciphertext) —
- * callers that run unattended (the Clay-enrichment worker job) must catch
- * this per-organization so one org's bad key cannot abort the whole sweep.
- */
-export function decryptSecret(stored: string): string {
-  const key = loadKey();
-  const [version, payload] = stored.split(":", 2);
-  if (version !== FORMAT_VERSION || !payload) {
-    throw new Error("Unrecognized encrypted-credential format.");
-  }
-  const raw = Buffer.from(payload, "base64");
-  const iv = raw.subarray(0, IV_LENGTH);
-  const authTag = raw.subarray(IV_LENGTH, IV_LENGTH + 16);
-  const ciphertext = raw.subarray(IV_LENGTH + 16);
-  const decipher = createDecipheriv(ALGORITHM, key, iv);
-  decipher.setAuthTag(authTag);
-  return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
-}
-
-/** Last 4 characters, for showing "which key is stored" without exposing it. */
-export function previewSecret(plaintext: string): string {
-  return plaintext.slice(-4);
+export function decryptCredential(
+  encrypted: EncryptedCredential,
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  const key = loadKey(env);
+  const decipher = createDecipheriv(ALGORITHM, key, Buffer.from(encrypted.iv, "hex"));
+  decipher.setAuthTag(Buffer.from(encrypted.authTag, "hex"));
+  const plaintext = Buffer.concat([
+    decipher.update(Buffer.from(encrypted.ciphertext, "hex")),
+    decipher.final(),
+  ]);
+  return plaintext.toString("utf8");
 }

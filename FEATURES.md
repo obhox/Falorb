@@ -13,7 +13,7 @@ Living record of what exists, what is half-built, and what has not been started.
 
 **Where things stand:** the collection pipeline, storage layer, identity graph,
 query layer, background workers, MCP server and self-serve account system are
-complete and verified. The dashboard is built — 32 routes on the Falorb design
+complete and verified. The dashboard is built — 33 routes on the Falorb design
 system, light and dark, role-enforced. Most routes are driven end to end by
 Playwright; the eight newest — sales lead actions, the weekly digest, the
 product signal's drop-off data, the public benchmark report, the referral
@@ -22,9 +22,13 @@ referral-boosted waitlist (§14e–§14j below) — are verified manually
 (typecheck, production build, and live requests against the dev stack) and
 not yet in that suite. It does
 not yet cover the whole backend: see *Backend surface not yet in the dashboard*.
-Most of the integrations layer is still design-only — Clay (§17, contact
-enrichment for discovered prospects) is the first real instance. Verification
-commands are in [README.md](README.md).
+The external-integrations layer (§13 — Linki for sales/outreach, Bund AI for
+support, Clay for prospect contact enrichment) is built and typechecks clean
+end to end. Clay has been connected and exercised live (§17); Linki and Bund
+AI have not — no organization has connected real credentials to either yet,
+so that half has not run against live data. See §13 for exactly what "built"
+means here versus what is still verified. Verification commands are in
+[README.md](README.md).
 
 ---
 
@@ -144,7 +148,7 @@ Verified end to end: one person, two devices, two products, both stores agreeing
 
 ## 7. Workers — `apps/worker`
 
-13 of the 14 below verified running via `pnpm --filter @falorb/worker verify:jobs`; `digest` (new) typechecks and doesn't touch its siblings, but isn't in that runner yet since exercising it live sends real email and makes a real OpenRouter call.
+13 of the 16 below verified running via `pnpm --filter @falorb/worker verify:jobs`; `digest` typechecks and doesn't touch its siblings, but isn't in that runner yet since exercising it live sends real email and makes a real OpenRouter call. `linki-sync` and `bund-ai-sync` are in the runner (no-op cleanly with zero connected orgs) but have never processed a real org, since none has connected credentials yet — see §13.
 
 | | Job | Every | Notes |
 |---|---|---|---|
@@ -160,6 +164,8 @@ Verified end to end: one person, two devices, two products, both stores agreeing
 | ✅ | `retention` | 12h | Per-project + orphan prune |
 | ✅ | `optimize` | 6h | Forces aggregate merges |
 | ✅ | `digest` | 7d, `skipOnBoot` | Regenerates all four AI signals per project and emails one summary per org to its owners/admins; opt-out per org (`organizations.weeklyDigestEnabled`, on by default) |
+| 🟡 | `linki-sync` | 15m | Full paginated poll of a connected Linki workspace into `crm.*` (contacts, lists, workflows, runs, run profiles/tracks, pipeline stages, opportunities, signal rules, suppressions, sent messages), upserted on `(organizationId, linkiId)`. Typechecks, in `verify:jobs`; never run against a real Linki workspace — see §13 |
+| 🟡 | `bund-ai-sync` | 15m | Same shape, into `support.*` (conversations, escalations, leads, tickets) from a connected Bund AI business. Poll-only — the inbound-webhook push half is not built; see §13 |
 | ✅ | Scheduler | — | Redis distributed locks, watermarks, overlap guard |
 | ✅ | `webhooks` | 1m | Fires on goal conversion; HMAC over `timestamp.body`, auto-disables after 20 failures |
 | ✅ | `webhook-revive` | 6h | Re-enables hooks disabled by a transient outage |
@@ -263,85 +269,113 @@ own AI reading it over MCP.
 | ⬜ | OAuth providers | `account` table ready; none configured |
 | ⬜ | Billing / plan limits | |
 
-## 13. Integrations — 🟡 first instance built (Clay), rest design only
+## 13. Integrations — Linki + Bund AI + Clay built; generic multi-service design superseded
 
-The general shape below was planning, **not built**, until §17's prospecting
-feature needed contact enrichment: `integrations`, `integration_syncs` and the
-envelope-encryption utility this section called for now exist for real, with
-Clay as the first (and so far only) connected kind. Everything else in this
-section — Stripe, Slack, HubSpot, the rest of the candidate list — is still
-design only. See §17 for what's actually running.
+The generic "any service, inbound or outbound, via `integrations` /
+`integration_syncs` / `integration_mappings`" design that used to live here
+was never built. What got built instead is more specific: deep, two-way
+integration with two of the operator's own products — **Linki** (sales
+outreach/CRM) and **Bund AI** (AI customer support) — each running as its own
+independently-deployed service that Falorb calls into and mirrors, rather
+than a generic connector framework, plus a third, simpler provider — **Clay**
+(contact enrichment for prospects discovered off-site, §17) — that reuses the
+exact same `integrationConnections` table rather than needing its own. The
+full phased plan for Linki/Bund AI (with named risk gates for the parts that
+touch live external systems) lives outside this repo at
+`~/.claude/plans/modular-gathering-cocoa.md`; this section tracks what of it
+actually exists in code.
 
-### Shape
+### Shape (what was actually built)
 
-Two directions, and they are not symmetrical:
+Falorb never becomes Linki's or Bund AI's database. Each stays the owner of
+its own execution — real LinkedIn/email sending in Linki, real customer chat
+in Bund AI — and Falorb is a client + a read mirror:
 
-**Inbound** — other services send data *in*, enriching the person graph.
-A Stripe payment or a HubSpot deal should attach to the same person the
-tracker already knows, which means every inbound integration resolves to an
-existing identity or creates one. That resolution is the hard part, and the
-existing `person_aliases` graph is the right place for it: an integration
-becomes another alias kind alongside `device` and `identify`.
+- **Credential storage** — `schema.integrationConnections`
+  (`packages/db/src/schema/integrations.ts`), one `provider`-discriminated
+  table (`linki` | `bund_ai`) rather than one table per service, so a third
+  integration (e.g. a queued Postiz connection for social posting) reuses it.
+  API keys are AES-256-GCM encrypted (`packages/db/src/crypto.ts`,
+  `INTEGRATION_CREDENTIAL_ENC_KEY`) — envelope encryption with a key outside
+  the database, exactly as the old design constraints called for, since these
+  must be decryptable to use, unlike `api_keys.keyHash`.
+- **Typed clients** — `packages/linki-client`, `packages/bund-ai-client`,
+  `packages/clay-client`, thin wrappers confirmed against each product's real
+  API contract (not guessed). `ClayClient` is the proof the one-table design
+  scales past two providers: no schema change was needed to add it, just a
+  new `provider` enum value and a new client with the same `verifyConnection()`
+  shape the generic connect/test/revoke actions already call.
+- **Mirror** — `packages/db/src/schema/crm.ts` (13 tables) and
+  `packages/db/src/schema/support.ts` (5 tables), pulled by
+  `apps/worker/src/jobs/{linki-sync,bund-ai-sync}.ts` — see §7. Sync health is
+  `integrationConnections.lastSyncedAt`, not a separate `integration_syncs`
+  table.
+- **Identity resolution** — a set-based SQL backfill after each sync links a
+  mirrored contact/lead/conversation to a Falorb `person` by email match (or,
+  for Bund AI conversations, `identifiedId` == the widget's `externalUserRef`,
+  best-effort). This is the `person_aliases`-adjacent resolution the old
+  design called out as "the hard part" — implemented directly rather than via
+  a new alias kind, since a CRM contact isn't a device/session identity the
+  way `person_aliases` models.
+- **Manual actions** — `apps/web/src/server/actions/{crm,support}.ts`: push a
+  signal to Linki, create/update a Linki contact, resolve a Bund AI
+  escalation. Deliberately per-record and human-clicked (`can.actOnIntegrations`,
+  member tier), not the bulk/automated flow described below.
 
-**Outbound** — Falorb pushes data *out* (reverse-ETL): a segment of
-high-intent people to a CRM, a conversion to an ad platform. These are
-scheduled syncs over a segment definition, so they build on `segments`.
+### Not yet built
 
-### Proposed schema
+- **Automated, rule-based signal push.** The plan's Gate B (bulk, unattended
+  "Falorb detects a qualifying person → auto-pushes a signal → Linki's own
+  rules may enroll them in a live workflow") is designed but not implemented.
+  Only the manual, one-person-at-a-time version above exists.
+- **Bulk/automated Linki contact creation** (Gate C) and any Bund AI write
+  beyond resolving one escalation (Gate E's narrower scope) — not built.
+- **Bund AI's inbound webhook receiver.** Bund AI can push
+  (`send_webhook` automation action), but Falorb has no
+  `POST /api/integrations/bund-ai/events` to receive it yet — `bund-ai-sync`
+  is poll-only, which the design always treated as an acceptable fallback,
+  not a broken half-measure.
+- **Full read-only dashboard.** Only a person's linked Linki contact (on
+  `/people/[personId]`) and Bund AI escalations (`/support`) are visible.
+  Contacts/lists/workflows/runs/opportunities list views, and Bund AI
+  conversations/leads/tickets views, are not built.
+- **MCP exposure** — no `list_crm_contacts`/`get_sync_status`-style tools yet,
+  matching the old design's intent that connect/disconnect and any write stay
+  out of MCP's reach regardless.
 
-| Table | Purpose | Status |
-|---|---|---|
-| `integrations` | One row per connected service: org, kind, status, config, encrypted credentials | ✅ built, §17 |
-| `integration_syncs` | Run history — started, finished, records in/out, error | ✅ built, §17 |
-| `integration_mappings` | Field mapping between the external object and Falorb's person/company | ⬜ not needed yet — Clay's request/response shape is fixed on both ends; add when a second integration needs configurable mapping |
+### Design constraints carried over from the old plan, honored
 
-`person_aliases.kind` gains values like `stripe_customer`, `hubspot_contact`,
-so an external id is resolved through the same graph as a device id.
-
-### Candidate integrations
-
-| Priority | Service | Direction | Why |
-|---|---|---|---|
-| — | **Clay** | in | ✅ Built — see §17. Contact enrichment for discovered prospects, not the person graph directly. |
-| 1 | **Stripe** | in | Real revenue per person, replacing tracker-reported `revenue()`. Highest value for a SaaS portfolio. |
-| 1 | **Slack** | out | Alert delivery — the channel already exists in `alert_channels`, only the connect flow is missing |
-| 2 | **HubSpot / Attio** | both | Push high-intent people to the CRM; pull deal stage back for closed-loop attribution |
-| 2 | **Generic webhooks** | out | Already has a table and HMAC helper; needs the dispatcher job |
-| 3 | **Google Search Console** | in | Query-level SEO data joined to on-site behaviour |
-| 3 | **Shopify** | in | Orders, for the commerce case |
-| 4 | **Zapier / n8n** | out | Long tail, without building each one |
-
-### Design constraints, decided now
-
-- **Credentials encrypted at rest**, never returned by an API. The `api_keys`
-  hashing approach does not transfer — OAuth tokens must be decryptable to be
-  used, so this needs envelope encryption with a key outside the database.
-  ✅ Built: `packages/db/src/crypto.ts`, AES-256-GCM keyed by
-  `FALORB_CREDENTIAL_KEY`. Only the last-4 preview is ever shown back.
-- **Every integration is per-organization**, resolved through the same scope
-  boundary as everything else.
-- **Inbound writes go through the identity graph**, never straight to
-  ClickHouse — otherwise a Stripe customer becomes a second person who never
-  merges with their web activity.
-- **Sync failures must be visible.** `integration_syncs` exists so a silently
-  broken connection surfaces, rather than looking like "no new customers".
-- **MCP exposure**: once built, integrations get read tools
-  (`list_integrations`, `get_sync_status`) but connect/disconnect stays a
-  dashboard action, in line with the destructive-tools boundary above.
+- Credentials encrypted at rest, never returned by any API response. Clay's
+  connect form additionally never redisplays the stored key at all — the
+  panel shows only the last-4 preview, same convention as `api_keys`.
+- Every connection and every mirrored row is per-organization.
+- A resolution to an existing person is never guessed — email or an explicit
+  `identify()`-equivalent signal only, same standard as `person_aliases`.
+  (Clay's enrichment writes to `prospects`, §17, which is deliberately
+  outside `person_aliases` — a prospect is not a resolved identity.)
+- Sync failures are visible (`integrationConnections.status`/`lastError`),
+  not silently indistinguishable from "nothing changed."
+- Connect/disconnect stays a dashboard-only action for every provider,
+  including Clay — no MCP tool can create, rotate, or revoke a credential.
 
 ### Not planned
 
 Anything that ships personal data to an ad network for cross-site retargeting.
 That would reintroduce, through a side door, exactly the tracking this platform
-deliberately does not do.
+deliberately does not do. Generic, arbitrary-service integrations (Stripe,
+HubSpot, Slack, Shopify, Search Console) remain unbuilt and are no longer the
+near-term direction — Linki and Bund AI cover sales/support, and a queued
+third integration (Postiz, for social posting) follows the same
+provider-specific pattern rather than a generic connector framework.
 
 ## 14. Dashboard — `apps/web`
 
-Next.js 15 App Router on React 19, built on the Falorb design system. **32
+Next.js 15 App Router on React 19, built on the Falorb design system. **33
 routes, production build passing, and an end-to-end suite that drives most of
 them in a browser** (`pnpm --filter @falorb/web e2e`, 41 tests — the eight
 newest routes are verified manually via typecheck/build/live curl, not yet in
-that suite; see §14d–§14j). Server components call
+that suite; see §14d–§14j). `/support` (newest) typechecks but has not been
+exercised against a live Bund AI connection — see §13. Server components call
 `@falorb/queries` directly — no HTTP hop between the dashboard and the query
 layer.
 
@@ -351,7 +385,7 @@ layer.
 | ✅ | `/p/[project]` | Property summary — totals, visitors/sessions trend, four breakdowns |
 | ✅ | `/p/[project]/live` | Realtime feed, pages and countries now, longest-on-site |
 | ✅ | `/p/[project]/people` | Person list — debounced search, identified filter, sort, paging |
-| ✅ | `/people/[personId]` | **Deep profile** — cross-property timeline, products used, acquisition chain, interests, aliases |
+| ✅ | `/people/[personId]` | **Deep profile** — cross-property timeline, products used, acquisition chain, interests, aliases. Also carries a "Linki" card (🟡, see §13) — linked contact, plus manual create/update/push-signal actions |
 | ✅ | `/p/[project]/funnels` | URL-encoded builder + drop-off waterfall |
 | ✅ | `/p/[project]/paths` | Sankey + entry/exit/frustration reports |
 | ✅ | `/p/[project]/content` | Content & interest insights — needs-attention, top pages, entry/exit, project-level interest rollup with trend; "rising interest, thin coverage" rows can auto-draft a page, see §14h |
@@ -373,6 +407,7 @@ layer.
 | ✅ | `/insights` | Cross-project builder — metric × dimension × chart, people across products |
 | ✅ | `/prospecting` | Org-wide list of prospects discovered off-site (social listening) with contact enrichment and outreach drafting — see §17 |
 | ✅ | `/alerts` | Delivery channels, rules, firing history |
+| 🟡 | `/support` | Bund AI escalations mirrored from a connected business, resolvable in one click; see §13. Typechecks, never exercised against a live connection |
 | ✅ | `/share/[token]` | Public read-only property summary |
 | ✅ | `/badge/[token]` | Public embeddable "N visitors this month" widget, meant for an `<iframe>` on the property owner's own site; see §14i |
 | ✅ | `/benchmark/[token]` | Public, indexable portfolio-wide "state of X" aggregate report — rollup only, no per-project or per-person data; see §14g |
@@ -524,6 +559,20 @@ pre-launch to attach it to.
 | ✅ | Own subdomain for join links | `waitlistJoinUrl()` prefers `FALORB_WAITLIST_URL` (e.g. `list.<domain>`) over `FALORB_APP_URL`, same reasoning and fallback as `referralLinkUrl()` (§14d) |
 | ✅ | Owner view | `/p/[project]/waitlist` — enable/disable, the join link, a ranked entrant table with referral counts |
 
+## 14k. Web research — Exa + Firecrawl
+
+Two platform-level API keys, the same shape as `OPENROUTER_API_KEY` — a
+secret Falorb itself holds to call a third-party research API, not a
+per-organization connection like Linki or Bund AI (§13). Grounds two
+existing AI features in real web content instead of the LLM's own guesses.
+
+| | Feature | Notes |
+|---|---|---|
+| ✅ | `packages/research` | Exa (`searchWeb`) and Firecrawl (`scrapeUrl`) clients, one `*ApiError` class each, same fetch/timeout/error-shape convention as `@falorb/ai`'s `complete()`. `apps/web/src/server/research.ts` re-exports behind the app's server-only boundary |
+| ✅ | Content drafts research | `draftContentPage` (§14h) now calls `researchTopic` first: Exa searches the topic to see what already ranks, Firecrawl does a full scrape of the closest match for real depth/structure, both folded into the OpenRouter prompt so the draft is differentiated rather than a generic overview. Falls back to the interest-data-only prompt if `EXA_API_KEY` is unset or Exa errors — never blocks the draft |
+| ✅ | Company research | New "Research this company" action on the person profile's Company card (`CompanyResearchCard.tsx`, `enrichCompany` action) — fills `companies.industry`/`employeeRange`/`linkedinUrl`, fields the automatic ASN-based enrichment job (§4, `apps/worker/src/jobs/enrichment.ts`) never populates since it only ever learns a network operator's registered name. Firecrawl scrapes the company's own homepage, Exa searches for supplementary context, one short OpenRouter call extracts only what the content actually states — told explicitly to leave a field `unknown` rather than infer it. Gated by `writeAnalysis` (member+), same manual-and-explicit shape as every other AI-backed write. Skipped entirely for an ASN-only placeholder company (`as12345`, no real domain to research) |
+| ✅ | Independent, graceful degradation | Either key can be set alone — a missing key on one side just skips that step rather than failing the caller. Both blank disables web research entirely; every other feature is unaffected |
+
 ## 15. SDKs
 
 | | Package | Notes |
@@ -555,13 +604,13 @@ externally-discovered person does not fit.
 |---|---|---|
 | ✅ | `prospects` schema | Source, excerpt, matched keywords, AI relevance score, contact-enrichment cache (mirrors `companies`'s `raw`/`enrichedAt`/`lookupFailedAt` shape), status, owner-set `contactedAt`/`contactedBy`, optional `personId` for a future **human-confirmed** merge only |
 | ✅ | `prospect_keywords` | Per-project listening config — configured on that property's own Settings tab even though results are consumed org-wide, same split as goals/referral links |
-| ✅ | `integrations` + `integration_syncs` | First real instance of §13's design, Clay only. `encryptedCredential` via the new envelope-encryption utility (`packages/db/src/crypto.ts`, AES-256-GCM, `FALORB_CREDENTIAL_KEY`) |
+| ✅ | Clay credential storage | Reuses §13's shared `integrationConnections` table (`provider = "clay"`) rather than a prospecting-specific one — same envelope encryption (`packages/db/src/crypto.ts`, `INTEGRATION_CREDENTIAL_ENC_KEY`) Linki/Bund AI already use. `packages/clay-client` is the typed client, same `verifyConnection()` shape as `LinkiClient`/`BundAiClient` |
 | ✅ | `reddit-listener` worker job | 15m. Platform-wide Reddit app-only OAuth (no per-org credential needed — unlike Clay, nothing here is org-specific), soft-disables without `REDDIT_CLIENT_ID`/`REDDIT_CLIENT_SECRET`. Per-keyword try/catch, dedup on `(org, source, source_id)`, AI relevance scoring via `@falorb/ai` that never blocks insertion on a scoring failure. In `verify:jobs` |
-| ✅ | `clay-enrichment` worker job | 30m. Per-org loop, each org's own try/catch so one bad/rotated key can't stop the sweep; negative-result caching like `enrichCompanies`. Deliberately **excluded** from `verify:jobs` — unlike every other job there, a live run spends a connected org's own paid Clay credits. Covered instead by a unit test of the response parsing (`clay-enrichment.test.ts`) plus the encryption round-trip (`crypto.test.ts`) |
+| ✅ | `clay-enrichment` worker job | 30m. Per-org loop over connected Clay `integrationConnections`, each org's own try/catch so one bad/rotated key can't stop the sweep; negative-result caching like `enrichCompanies`. Sync health lives on the connection row (`lastSyncedAt`/`lastError`), same convention as `linki-sync`/`bund-ai-sync` — no separate run-history table. Deliberately **excluded** from `verify:jobs` — unlike every other job there, a live run spends a connected org's own paid Clay credits. Covered instead by a unit test of the response parsing (`packages/clay-client/src/index.test.ts`) |
 | ✅ | `/prospecting` | Top-level route, not a per-project tab — a prospect is discovered via one project's keywords but the useful view is portfolio-wide, same reasoning as `hotLeads`'s `"portfolio"` scope. Mark contacted, dismiss, draft outreach (AI, grounded in the specific public post — never implies an on-site relationship that never happened) |
-| ✅ | Clay connection panel | `/settings`, gated `manageProject` (admin+) — stricter than every other prospecting action (`writeAnalysis`, member+), deliberately: a Clay key is the org's own paid third-party credential, not an analysis object like a goal |
+| ✅ | Clay on `/settings/integrations` | A third `ProviderCard` alongside Linki/Bund AI, not a bespoke panel — reuses the generic connect/test/revoke actions unchanged. Its connect dialog has no Base URL field (Clay has one fixed API root, set server-side); gated `manageIntegrations` (admin+), the same tier every other integration credential uses |
 | ✅ | MCP tools | `apps/mcp/src/tools/prospects.ts` — `list_prospects`, `get_prospect`, `list_prospect_keywords` (read); `mark_prospect_contacted`, `dismiss_prospect`, `draft_prospect_outreach`, `add_prospect_keyword`, `remove_prospect_keyword` (write). Connect/disconnect deliberately **not** exposed, per §13's stated integrations rule |
-| ✅ | Verified | Full monorepo typecheck + test suite, production build (31 routes total, including `/prospecting`), `verify:jobs` (`reddit-listener` soft-disables cleanly without credentials), and a live walkthrough against the dev stack: signed up, connected a test Clay key (encrypted, previewed as last-4, disconnect available), added a listening keyword on a property, confirmed it renders on `/prospecting` |
+| ✅ | Verified | Full monorepo typecheck + test suite, production build (33 routes total, including `/prospecting`), `verify:jobs` (`reddit-listener` soft-disables cleanly without credentials), and a live walkthrough against the dev stack: signed up, added a listening keyword on a property, confirmed it renders on `/prospecting`, connected/tested/revoked a test Clay key on `/settings/integrations` |
 | 🟡 | Playwright coverage | Verified manually as above; no automated end-to-end coverage yet, same gap as every other §14d–§14j feature |
 | ⬜ | Comment/social platforms beyond Reddit | X/LinkedIn need a paid API tier or a listening-as-a-service vendor; deliberately deferred to keep the first version's cost at zero |
 

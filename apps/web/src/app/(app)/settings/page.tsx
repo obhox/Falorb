@@ -7,7 +7,6 @@ import { db, schema } from "@falorb/db";
 import { requireSession } from "@/server/session";
 import { getDomainStatuses } from "@/server/connection";
 import { getOrgShare } from "@/server/sharing";
-import { getIntegration } from "@/server/integrations";
 import { PageBody, PageHeader } from "@/components/shell/PageHeader";
 import { CopyField } from "@/components/CopyField";
 import { DomainTestChips } from "@/components/DomainTest";
@@ -15,7 +14,6 @@ import { Empty } from "@/components/Empty";
 import { num, shortDate } from "@/lib/format";
 import { DigestToggle } from "./DigestToggle";
 import { BenchmarkShareControl } from "./BenchmarkShareControl";
-import { ClayConnectionPanel } from "./ClayConnectionPanel";
 
 export const metadata: Metadata = { title: "Settings" };
 export const dynamic = "force-dynamic";
@@ -41,14 +39,13 @@ export default async function InstanceSettingsPage() {
   const api = process.env.FALORB_API_URL ?? "http://localhost:3003";
   const referral = process.env.FALORB_REFERRAL_URL ?? app;
 
-  const [[org], orgShare, clay] = await Promise.all([
+  const [[org], orgShare] = await Promise.all([
     db()
       .select({ weeklyDigestEnabled: schema.organizations.weeklyDigestEnabled })
       .from(schema.organizations)
       .where(eq(schema.organizations.id, session.workspace.organizationId))
       .limit(1),
     getOrgShare(session.workspace.organizationId),
-    getIntegration(session.workspace.organizationId, "clay"),
   ]);
   const benchmarkUrl = orgShare?.publicToken
     ? `${app.replace(/\/$/, "")}/benchmark/${orgShare.publicToken}`
@@ -69,6 +66,11 @@ export default async function InstanceSettingsPage() {
             <Link href="/settings/mcp" style={{ textDecoration: "none" }}>
               <Button size="sm" iconLeft={<Icon name="plug" size={13} />}>
                 MCP & keys
+              </Button>
+            </Link>
+            <Link href="/settings/integrations" style={{ textDecoration: "none" }}>
+              <Button size="sm" iconLeft={<Icon name="blocks" size={13} />}>
+                Integrations
               </Button>
             </Link>
             {can.manageProject(session.workspace.role) && (
@@ -228,20 +230,6 @@ export default async function InstanceSettingsPage() {
         />
 
         {can.share(session.workspace.role) && <BenchmarkShareControl initialUrl={benchmarkUrl} />}
-
-        <ClayConnectionPanel
-          initial={
-            clay
-              ? {
-                  status: clay.status,
-                  credentialPreview: clay.credentialPreview,
-                  lastSyncAt: clay.lastSyncAt?.toISOString() ?? null,
-                  lastSyncError: clay.lastSyncError,
-                }
-              : null
-          }
-          canEdit={can.manageProject(session.workspace.role)}
-        />
       </PageBody>
     </>
   );

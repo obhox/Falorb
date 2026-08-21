@@ -61,8 +61,36 @@
     {
       "idx": 8,
       "version": "7",
-      "when": 1787267148038,
-      "tag": "0008_freezing_wilson_fisk",
+      "when": 1787235150002,
+      "tag": "0008_fair_justin_hammer",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1787237843549,
+      "tag": "0009_pink_meltdown",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1787263706268,
+      "tag": "0010_rich_albert_cleary",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1787263766925,
+      "tag": "0011_famous_polaris",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1787270734122,
+      "tag": "0012_deep_the_enforcers",
       "breakpoints": true
     }
   ]

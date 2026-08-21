@@ -53,7 +53,7 @@ export function ProspectList({ prospects }: { prospects: ProspectView[] }) {
         <Empty
           icon="radar"
           title="No prospects yet"
-          body="Add a listening keyword on a property's settings page — matches from Reddit show up here, enriched with contact info once Clay is connected on Settings."
+          body="Add a listening keyword on a property's settings page — matches from Reddit show up here, enriched with contact info once Clay is connected on Settings → Integrations."
         />
       ) : (
         <div style={{ display: "grid", gap: "var(--space-3)" }}>

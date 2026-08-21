@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { and, arrayOverlaps, desc, eq, inArray, isNull } from "drizzle-orm";
-import { schema, type Database } from "@falorb/db";
+import { schema, type Database, resolveAiCredentials } from "@falorb/db";
 import { AiSignalError, complete } from "@falorb/ai";
 import {
   RANGE_DESCRIPTION,
@@ -310,6 +310,7 @@ export function registerLeadTools(server: McpServer, ctx: () => McpContext): voi
               propertiesVisited: lead.projectCount,
               interests: lead.interestScores,
             },
+            { credentials: await resolveAiCredentials(db, scope.organizationId) },
           );
           return text(draft);
         } catch (error) {

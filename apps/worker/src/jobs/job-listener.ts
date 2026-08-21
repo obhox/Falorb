@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { and, eq, inArray, isNull } from "drizzle-orm";
-import { schema } from "@falorb/db";
+import { schema, resolveAiCredentials } from "@falorb/db";
 import { search, ResearchUnavailableError, type ResearchClients } from "@falorb/research";
 import type { WorkerContext } from "../context";
 import { buildResearchClients, type ResearchConnectionRow } from "../research-clients";
@@ -135,6 +135,12 @@ async function listenForKeyword(
     throw error;
   }
 
+  // The organization's own AI gateway and model when it has connected one
+  // (see `resolveAiCredentials`). Resolved once per keyword rather than per
+  // result — it decrypts a stored key, and every result here scores against
+  // the same organization.
+  const credentials = await resolveAiCredentials(context.db, organizationId, row.projectId);
+
   let newCount = 0;
   for (const result of results) {
     const excerpt = result.text.slice(0, 1000);
@@ -172,6 +178,7 @@ async function listenForKeyword(
         projectName: row.projectName,
         propertySummary: row.propertySummary,
         keyword: row.keyword,
+        credentials,
         title: result.title ?? "",
         excerpt,
       });

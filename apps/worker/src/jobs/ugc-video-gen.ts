@@ -1,5 +1,5 @@
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
-import { decryptCredential, schema } from "@falorb/db";
+import { decryptCredential, resolveAiCredentials, schema } from "@falorb/db";
 import { complete, AiSignalError } from "@falorb/ai";
 import { ElevenLabsClient, ElevenLabsApiError, LIPSYNC_MODEL_ID } from "@falorb/elevenlabs-client";
 import type { WorkerContext } from "../context";
@@ -141,7 +141,10 @@ async function advanceOne(
     case "pending": {
       let script: string;
       try {
-        script = await complete(SCRIPT_SYSTEM_PROMPT, row.brief, { maxTokens: 300 });
+        script = await complete(SCRIPT_SYSTEM_PROMPT, row.brief, {
+          maxTokens: 300,
+          credentials: await resolveAiCredentials(context.db, row.organizationId, row.projectId),
+        });
       } catch (error) {
         await fail(context, row.id, error instanceof AiSignalError ? error.message : String(error));
         return true;

@@ -3,6 +3,7 @@ import { generateSignal, type SignalKind } from "@falorb/ai";
 import { digestMail, mailer } from "@falorb/mailer";
 import { breakdown, contentInterests, type DateRange } from "@falorb/queries";
 import { schema, type WorkerContext } from "../context";
+import { resolveAiCredentials } from "@falorb/db";
 
 /**
  * Weekly digest email.
@@ -92,7 +93,7 @@ export async function sendWeeklyDigests(context: WorkerContext): Promise<number>
  * Regenerate all four signal kinds for one project.
  *
  * Each kind is its own try/catch, same reasoning as `evaluateAlerts`'s
- * per-rule handling: an OpenRouter failure or a bad ClickHouse query on one
+ * per-rule handling: an AI-gateway failure or a bad ClickHouse query on one
  * kind must not take out the other three, let alone the rest of the org's
  * projects.
  */
@@ -103,6 +104,10 @@ async function regenerateProjectSignals(
   range: DateRange,
 ): Promise<ProjectSections> {
   const sections: ProjectSections = {};
+  // The organization's own AI gateway and model when it has connected one,
+  // else the deployment's key. Resolved once for all four kinds — it
+  // decrypts a stored credential, and all four bill the same account.
+  const credentials = await resolveAiCredentials(context.db, organizationId, project.id);
 
   try {
     const topics = await contentInterests(context.clickhouse, {
@@ -110,7 +115,7 @@ async function regenerateProjectSignals(
       range,
       limit: 15,
     });
-    sections.content = await generateSignal("content", { project: project.name, range, topics });
+    sections.content = await generateSignal("content", { project: project.name, range, topics }, credentials);
     await persistSignal(context, organizationId, project.id, "content", sections.content, range);
   } catch (error) {
     console.error(`[digest] content signal failed for project ${project.id}:`, String(error));
@@ -123,11 +128,11 @@ async function regenerateProjectSignals(
       field: "channel",
       limit: 10,
     });
-    sections.marketing = await generateSignal("marketing", {
-      project: project.name,
-      range,
-      channels,
-    });
+    sections.marketing = await generateSignal(
+      "marketing",
+      { project: project.name, range, channels },
+      credentials,
+    );
     await persistSignal(
       context,
       organizationId,
@@ -160,7 +165,7 @@ async function regenerateProjectSignals(
       .orderBy(desc(schema.persons.leadScore))
       .limit(10);
 
-    sections.sales = await generateSignal("sales", { project: project.name, people });
+    sections.sales = await generateSignal("sales", { project: project.name, people }, credentials);
     await persistSignal(context, organizationId, project.id, "sales", sections.sales, range);
   } catch (error) {
     console.error(`[digest] sales signal failed for project ${project.id}:`, String(error));
@@ -174,7 +179,7 @@ async function regenerateProjectSignals(
       range,
       limit: 15,
     });
-    sections.product = await generateSignal("product", { project: project.name, range, topics });
+    sections.product = await generateSignal("product", { project: project.name, range, topics }, credentials);
     await persistSignal(context, organizationId, project.id, "product", sections.product, range);
   } catch (error) {
     console.error(`[digest] product signal failed for project ${project.id}:`, String(error));

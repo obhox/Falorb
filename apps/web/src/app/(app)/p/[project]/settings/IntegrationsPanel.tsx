@@ -12,7 +12,7 @@ import {
   type Provider,
 } from "@/server/actions/integrations";
 import type { ProjectConnectionView } from "@/server/integrations";
-import { AI_PROVIDER_DEFAULT_MODELS, isAiProvider } from "@falorb/ai";
+import { AI_DEFAULT_MODELS, isAiProvider } from "@/lib/ai-providers";
 import { AiModelPicker } from "@/app/(app)/settings/integrations/AiModelPicker";
 
 const LABELS: Record<Provider, string> = {
@@ -129,7 +129,7 @@ function ProviderRow({
   const errored = override?.status === "error";
   const needsBaseUrl = HAS_BASE_URL[provider];
   const isAi = isAiProvider(provider);
-  const defaultModel = isAi ? AI_PROVIDER_DEFAULT_MODELS[provider] : null;
+  const defaultModel = isAi ? AI_DEFAULT_MODELS[provider] ?? null : null;
 
   async function submit() {
     const data = new FormData();

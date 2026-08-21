@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { and, desc, eq } from "drizzle-orm";
-import { schema } from "@falorb/db";
+import { schema, resolveAiCredentials } from "@falorb/db";
 import { AiSignalError, complete } from "@falorb/ai";
 import { contentInterests, parseRange } from "@falorb/queries";
 import type { McpContext } from "../context";
@@ -131,7 +131,11 @@ export function registerContentTools(server: McpServer, ctx: () => McpContext): 
               "appropriate) — several hundred words, genuinely useful to a visitor interested in " +
               "this topic, not a stub.",
             { topic, projectName: row.name, interestContext: topicContext },
-            { maxTokens: 2000, stripMarkdown: false },
+            {
+              maxTokens: 2000,
+              stripMarkdown: false,
+              credentials: await resolveAiCredentials(db, scope.organizationId, row.id),
+            },
           );
         } catch (error) {
           return failure(error instanceof AiSignalError ? error.message : "Could not draft this page.");

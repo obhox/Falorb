@@ -407,6 +407,28 @@ integration's auth model:
   `buffer-sync` runs against it. `buffer-sync.ts`'s `toDate()` handles both
   serializations defensively for that reason.
 
+### 13c. AI gateways — bring your own model (OpenRouter, Ramp Router)
+
+Every AI feature in Falorb — the four signals (§14e), the weekly digest
+(§14f), content drafts (§14h), outreach drafts, property profiles (§17),
+UGC scripts (§18), and the agent loop (§19) — is a prompt sent to somebody
+else's gateway. That gateway used to be fixed: OpenRouter, on the
+deployment's own `OPENROUTER_API_KEY`, one key and one bill for everyone on
+the instance. An organization can now bring its own instead, through the
+same `integrationConnections` table every other provider uses.
+
+| | Feature | Notes |
+|---|---|---|
+| ✅ | Two gateways | **OpenRouter** (openrouter.ai) and **Ramp Router** (router.com). Both put many vendors' models behind one key; picking between them is the org's call, not the deployment's |
+| ✅ | Two protocols, one interface | They do **not** speak the same API. OpenRouter speaks OpenAI *chat completions* (`POST /chat/completions`, `messages`, `tool_calls`); Ramp Router speaks OpenAI *responses* (`POST /responses`, `input`, `function_call` output items) and documents no chat-completions endpoint at all. `packages/ai/src/transport.ts` is the only module that knows which — `complete()`, `chat()` and every caller above them work in one `ChatMessage`/`ChatResult` shape. Tool calling works on both |
+| ✅ | Bring your own **model**, not just your own key | `integration_connections.model`, set on the connect form or changed afterwards without re-entering the key. Blank means the provider's default: `openrouter/auto` on OpenRouter (its own per-request selection — the platform's deliberate non-pinning default, see §14e), and *nothing* on Ramp Router, which has no auto model |
+| ✅ | Model picker reads the live catalogue | `GET /models` against the stored key, not a hardcoded list: OpenRouter carries hundreds and changes them weekly, and Ramp Router's callable ids are key-specific — its own docs say the display names in its model table are not necessarily valid `model` values. The text field stays authoritative, so a model newer than the list is still typeable and a gateway that won't answer the list request can't block a change |
+| ✅ | Per-property override | Same override-with-fallback rule as every other provider (§13): a property's own connection wins, else the organization's, else the deployment's `OPENROUTER_API_KEY`. `resolveAiCredentials` (`packages/db/src/ai-credentials.ts`) is the single implementation, shared by the dashboard, the worker and the MCP server so the three can't drift |
+| ✅ | Both gateways connectable at once | An org trying Ramp Router while keeping its OpenRouter key. Most recently updated active connection wins, so connecting or reconnecting one is what switches to it — and Settings → Integrations marks which is **in use** rather than leaving it implicit |
+| ✅ | Verified on connect, like every other provider | OpenRouter is checked against `GET /key`, deliberately **not** `GET /models`: its model list is public and answers 200 for a completely invalid key, so verifying against it would report every typo as a working connection. Ramp Router's `GET /models` *is* key-scoped, so there it is the right check |
+| ✅ | Nothing breaks for anyone who ignores it | A null credential falls through to `OPENROUTER_API_KEY` inside `complete()`/`chat()` themselves, so an organization that connects nothing behaves exactly as it did before |
+| 🟡 | Ramp Router verified against docs, not a live key | The responses-API request/response mapping in `transport.ts` is written against router.com's published API (`https://api.router.com/v1`, bearer auth, `/responses` + `/models`); no live Ramp Router key was available while building it. Cost reporting is the one known gap: OpenRouter returns `usage.cost` and Ramp Router does not, so an agent running on Ramp Router shows a token count and a zero spend. Same caveat `packages/buffer-client` carries above |
+
 ### Not yet built
 
 - **Automated, rule-based signal push.** The plan's Gate B (bulk, unattended
@@ -591,10 +613,10 @@ query layer.
 | ✅ | Sales: structured hot-leads list with actions | The signal panel used to be prose-only. Each hot lead (from the same `hotLeads()` data) now renders as a row with a "Mark contacted" toggle (`persons.contactedAt`/`contactedBy` — a human-only field, deliberately separate from the visitor-supplied, `identify()`-merged `traits` bag) and a "Draft outreach message" button that calls OpenRouter with that one lead's data for a personalized 3-5 sentence draft, shown in a copyable field |
 | ✅ | Portfolio-scoped caching | `ai_signals.projectId` is nullable, mirroring `dashboards.projectId`'s existing precedent for the same reason; a portfolio-wide signal is scoped by `organizationId` instead and reads the same regardless of which project's page triggered it |
 | ✅ | Cached, not generated per page load | 5-minute regenerate cooldown per `(projectId, kind)` pair, same shape as the rate limiting elsewhere in the dashboard |
-| ✅ | Model selection | Defaults to `"openrouter/auto"` (OpenRouter picks per request) rather than pinning one; `OPENROUTER_MODEL` overrides with a single model or a comma-separated fallback list |
+| ✅ | Model selection | Defaults to `"openrouter/auto"` (OpenRouter picks per request) rather than pinning one; `OPENROUTER_MODEL` overrides with a single model or a comma-separated fallback list. An organization that has connected its own gateway (§13c) chooses its own model instead, and that choice wins over this env var |
 | ✅ | Plain-text output, guaranteed | A prompt instruction against markdown is not reliable on its own — verified live that models still reach for `**bold**` and `##` headers — so `stripMarkdown` strips it programmatically after generation. Deliberately skips underscore-based emphasis: the context data is full of snake_case field names (`utm_source`, `content_tag`) the model echoes back, and a naive single-underscore rule would merge two unrelated words together |
-| ✅ | Graceful failure | No `OPENROUTER_API_KEY` configured, an unreachable upstream, an empty response, and a real `402` (insufficient OpenRouter credits, hit live during testing) all surface as a clear toast, never a crash |
-| ✅ | Shared across web and worker | The OpenRouter call, prompts and markdown-stripping moved to their own package, `packages/ai` — not `@falorb/core`, which is documented as pure/browser-safe and gets bundled into the client; a secret-holding network call must never live there. `apps/web/src/server/ai.ts` re-exports it behind the app's server-only boundary; `apps/worker`'s digest job (§14f) imports it directly |
+| ✅ | Graceful failure | No credentials at all (neither a connected gateway nor `OPENROUTER_API_KEY`), an unreachable upstream, an empty response, a rejected key, and a real `402` (insufficient OpenRouter credits, hit live during testing) all surface as a clear toast, never a crash |
+| ✅ | Shared across web and worker | The gateway call, prompts and markdown-stripping moved to their own package, `packages/ai` — not `@falorb/core`, which is documented as pure/browser-safe and gets bundled into the client; a secret-holding network call must never live there. `apps/web/src/server/ai.ts` re-exports it behind the app's server-only boundary; `apps/worker`'s digest job (§14f) imports it directly |
 | 🟡 | Playwright coverage | Verified manually for all four kinds and both sales scopes, including a real generated recommendation end to end; no automated coverage yet |
 
 ## 14f. Weekly digest email

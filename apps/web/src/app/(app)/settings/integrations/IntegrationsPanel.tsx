@@ -12,7 +12,7 @@ import {
   type Provider,
 } from "@/server/actions/integrations";
 import type { ConnectionView } from "@/server/integrations";
-import { AI_PROVIDER_DEFAULT_MODELS, isAiProvider } from "@falorb/ai";
+import { AI_DEFAULT_MODELS, isAiProvider } from "@/lib/ai-providers";
 import { AiModelPicker } from "./AiModelPicker";
 
 const LABELS: Record<Provider, string> = {
@@ -166,7 +166,7 @@ function ProviderCard({
 
   const needsBaseUrl = HAS_BASE_URL[provider];
   const isAi = isAiProvider(provider);
-  const defaultModel = isAi ? AI_PROVIDER_DEFAULT_MODELS[provider] : null;
+  const defaultModel = isAi ? AI_DEFAULT_MODELS[provider] ?? null : null;
 
   async function submit() {
     const data = new FormData();

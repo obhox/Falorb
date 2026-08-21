@@ -18,6 +18,7 @@
     "studio": "drizzle-kit studio",
     "ch:migrate": "tsx src/clickhouse/migrate.ts",
     "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
     "seed": "tsx src/seed.ts",
     "seed:events": "tsx src/seed-events.ts",
     "seed:demo": "tsx src/seed-demo.ts",
@@ -28,6 +29,7 @@
   },
   "dependencies": {
     "@clickhouse/client": "^1.10.1",
+    "@falorb/ai": "workspace:*",
     "@falorb/core": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "postgres": "^3.4.5"
@@ -35,6 +37,7 @@
   "devDependencies": {
     "drizzle-kit": "^0.31.10",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
   }
 }

@@ -44,14 +44,36 @@ export const AUDIT_ACTIONS = {
   crmDealCreated: "crm.deal_created",
   crmDealUpdated: "crm.deal_updated",
   supportEscalationResolved: "support.escalation_resolved",
+  socialPostCreated: "social.post_created",
+  agentCreated: "agent.created",
+  agentUpdated: "agent.updated",
+  agentDeleted: "agent.deleted",
+  agentRoleChanged: "agent.role_changed",
+  agentAutonomyChanged: "agent.autonomy_changed",
+  agentRunStarted: "agent.run_started",
+  agentActionApproved: "agent.action_approved",
+  agentActionRejected: "agent.action_rejected",
+  agentActionExecuted: "agent.action_executed",
+  taskAssigned: "task.assigned",
+  taskCompleted: "task.completed",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];
 
 export interface AuditEntry {
   organizationId: string;
-  /** Null for actions taken by a worker or an API key rather than a person. */
+  /** Null for actions taken by a worker, an API key, or an agent. */
   actorId?: string | null;
+  /**
+   * Set instead of `actorId` when an AI employee took the action.
+   *
+   * Agent actions land in the same log as human ones deliberately. A
+   * separate "agent activity" table would mean answering "who changed this
+   * deal" required reading two places and merging them by timestamp — and
+   * the whole point of the design is that the two kinds of colleague are
+   * accountable in the same way.
+   */
+  actorAgentId?: string | null;
   action: AuditAction;
   targetType?: string;
   targetId?: string;
@@ -64,6 +86,7 @@ export function audit(db: Database, entry: AuditEntry): void {
     .values({
       organizationId: entry.organizationId,
       actorId: entry.actorId ?? null,
+      actorAgentId: entry.actorAgentId ?? null,
       action: entry.action,
       targetType: entry.targetType ?? null,
       targetId: entry.targetId ?? null,

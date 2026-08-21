@@ -13,7 +13,7 @@ Living record of what exists, what is half-built, and what has not been started.
 
 **Where things stand:** the collection pipeline, storage layer, identity graph,
 query layer, background workers, MCP server and self-serve account system are
-complete and verified. The dashboard is built — 36 routes on the Falorb design
+complete and verified. The dashboard is built — 40 routes on the Falorb design
 system, light and dark, role-enforced. Most routes are driven end to end by
 Playwright; the eight newest — sales lead actions, the weekly digest, the
 product signal's drop-off data, the public benchmark report, the referral
@@ -337,10 +337,13 @@ in Bund AI — and Falorb is a client + a read mirror:
   `POST /api/integrations/bund-ai/events` to receive it yet — `bund-ai-sync`
   is poll-only, which the design always treated as an acceptable fallback,
   not a broken half-measure.
-- **Full read-only dashboard.** Only a person's linked Linki contact (on
-  `/people/[personId]`) and Bund AI escalations (`/support`) are visible.
-  Contacts/lists/workflows/runs/opportunities list views, and Bund AI
-  conversations/leads/tickets views, are not built.
+- **Full read-only dashboard.** `/crm` now covers contacts (full paginated
+  mirror at `/crm/contacts`, plus the pre-existing unmatched-backlog tab),
+  workflows, lists, signal rules, runs (`/crm/runs/[id]` for per-target,
+  per-channel track state), sent messages and suppressions; `/support`
+  covers Bund AI conversations/leads/tickets. Bund AI escalations remain the
+  only Bund AI surface with a detail view — its conversations/leads/tickets
+  are list-only.
 - **MCP exposure** — no `list_crm_contacts`/`get_sync_status`-style tools yet,
   matching the old design's intent that connect/disconnect and any write stay
   out of MCP's reach regardless.

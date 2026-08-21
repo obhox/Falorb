@@ -1,5 +1,5 @@
 import "server-only";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, isNull, or, sql } from "drizzle-orm";
 import { db, schema } from "@falorb/db";
 
 /**
@@ -34,6 +34,95 @@ export async function listUnmatchedContacts(organizationId: string): Promise<Crm
     .where(and(eq(schema.crmContacts.organizationId, organizationId), isNull(schema.crmContacts.personId)))
     .orderBy(desc(schema.crmContacts.syncedAt))
     .limit(500);
+}
+
+export interface CrmContactsQuery {
+  organizationId: string;
+  /** Matches name, email or company. */
+  search?: string;
+  /** "unmatched" restricts to contacts with no linked Falorb person — the pre-existing backlog. */
+  filter?: "all" | "unmatched";
+  limit?: number;
+  offset?: number;
+}
+
+export interface CrmContactsPage {
+  rows: CrmContactRow[];
+  hasMore: boolean;
+  total: number;
+}
+
+/** The full, paginated Linki contacts mirror — unlike `listUnmatchedContacts`, not capped at 500. */
+export async function listContactsPaginated(query: CrmContactsQuery): Promise<CrmContactsPage> {
+  const limit = Math.min(Math.max(query.limit ?? 50, 1), 200);
+  const offset = Math.max(query.offset ?? 0, 0);
+
+  const conditions = [eq(schema.crmContacts.organizationId, query.organizationId)];
+
+  if (query.filter === "unmatched") {
+    conditions.push(isNull(schema.crmContacts.personId));
+  }
+
+  const term = query.search?.trim();
+  if (term) {
+    const pattern = `%${term}%`;
+    conditions.push(
+      or(
+        ilike(schema.crmContacts.fullName, pattern),
+        ilike(schema.crmContacts.email, pattern),
+        ilike(schema.crmContacts.company, pattern),
+      )!,
+    );
+  }
+
+  const where = and(...conditions);
+  const database = db();
+
+  const [rows, countedRows] = await Promise.all([
+    database
+      .select()
+      .from(schema.crmContacts)
+      .where(where)
+      .orderBy(desc(schema.crmContacts.syncedAt))
+      .limit(limit + 1)
+      .offset(offset),
+    database.select({ total: sql<number>`count(*)::int` }).from(schema.crmContacts).where(where),
+  ]);
+
+  return {
+    rows: rows.slice(0, limit),
+    hasMore: rows.length > limit,
+    total: countedRows[0]?.total ?? 0,
+  };
+}
+
+export async function getContact(organizationId: string, contactId: string): Promise<CrmContactRow | null> {
+  const [row] = await db()
+    .select()
+    .from(schema.crmContacts)
+    .where(and(eq(schema.crmContacts.id, contactId), eq(schema.crmContacts.organizationId, organizationId)))
+    .limit(1);
+  return row ?? null;
+}
+
+export interface CrmContactListMembershipView {
+  listId: string;
+  listName: string;
+}
+
+export async function listMembershipsForContact(
+  organizationId: string,
+  contactId: string,
+): Promise<CrmContactListMembershipView[]> {
+  const rows = await db()
+    .select({ listId: schema.crmLists.id, listName: schema.crmLists.name })
+    .from(schema.crmListMembers)
+    .innerJoin(schema.crmLists, eq(schema.crmLists.id, schema.crmListMembers.listId))
+    .where(
+      and(eq(schema.crmListMembers.organizationId, organizationId), eq(schema.crmListMembers.contactId, contactId)),
+    )
+    .orderBy(desc(schema.crmLists.linkiCreatedAt));
+  return rows;
 }
 
 export async function listWorkflows(organizationId: string): Promise<CrmWorkflowRow[]> {
@@ -218,6 +307,257 @@ export async function listDeals(organizationId: string): Promise<CrmDealView[]> 
     .limit(500);
 
   return rows.map((r) => ({ ...r, updatedAt: r.updatedAt.toISOString() }));
+}
+
+export interface CrmDealDetailView {
+  id: string;
+  name: string;
+  personId: string | null;
+  personName: string | null;
+  personEmail: string | null;
+  stageId: string | null;
+  stageName: string | null;
+  isWon: boolean | null;
+  isLost: boolean | null;
+  amount: string | null;
+  currency: string | null;
+  source: string | null;
+  notes: string | null;
+  expectedCloseDate: string | null;
+  ownerId: string | null;
+  ownerName: string | null;
+  createdAt: string;
+  updatedAt: string;
+  closedAt: string | null;
+}
+
+export async function getDeal(organizationId: string, dealId: string): Promise<CrmDealDetailView | null> {
+  const [row] = await db()
+    .select({
+      id: schema.crmDeals.id,
+      name: schema.crmDeals.name,
+      personId: schema.crmDeals.personId,
+      personName: schema.persons.name,
+      personEmail: schema.persons.email,
+      stageId: schema.crmDeals.stageId,
+      stageName: schema.crmDealStages.name,
+      isWon: schema.crmDealStages.isWon,
+      isLost: schema.crmDealStages.isLost,
+      amount: schema.crmDeals.amount,
+      currency: schema.crmDeals.currency,
+      source: schema.crmDeals.source,
+      notes: schema.crmDeals.notes,
+      expectedCloseDate: schema.crmDeals.expectedCloseDate,
+      ownerId: schema.crmDeals.ownerId,
+      ownerName: schema.user.name,
+      createdAt: schema.crmDeals.createdAt,
+      updatedAt: schema.crmDeals.updatedAt,
+      closedAt: schema.crmDeals.closedAt,
+    })
+    .from(schema.crmDeals)
+    .leftJoin(schema.persons, eq(schema.crmDeals.personId, schema.persons.id))
+    .leftJoin(schema.crmDealStages, eq(schema.crmDeals.stageId, schema.crmDealStages.id))
+    .leftJoin(schema.user, eq(schema.crmDeals.ownerId, schema.user.id))
+    .where(and(eq(schema.crmDeals.id, dealId), eq(schema.crmDeals.organizationId, organizationId)))
+    .limit(1);
+
+  if (!row) return null;
+  return {
+    ...row,
+    expectedCloseDate: row.expectedCloseDate?.toISOString() ?? null,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+    closedAt: row.closedAt?.toISOString() ?? null,
+  };
+}
+
+// --- Runs (Linki mirror) ----------------------------------------------------
+
+export interface CrmRunView {
+  id: string;
+  status: string | null;
+  workflowName: string | null;
+  listName: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  syncedAt: string;
+  trackCount: number;
+}
+
+export async function listRuns(organizationId: string): Promise<CrmRunView[]> {
+  const rows = await db()
+    .select({
+      id: schema.crmRuns.id,
+      status: schema.crmRuns.status,
+      workflowName: schema.crmWorkflows.name,
+      listName: schema.crmLists.name,
+      startedAt: schema.crmRuns.startedAt,
+      completedAt: schema.crmRuns.completedAt,
+      syncedAt: schema.crmRuns.syncedAt,
+      trackCount: sql<number>`count(${schema.crmRunProfileTracks.id})`.mapWith(Number),
+    })
+    .from(schema.crmRuns)
+    .leftJoin(schema.crmWorkflows, eq(schema.crmWorkflows.id, schema.crmRuns.workflowId))
+    .leftJoin(schema.crmLists, eq(schema.crmLists.id, schema.crmRuns.listId))
+    .leftJoin(schema.crmRunProfileTracks, eq(schema.crmRunProfileTracks.runId, schema.crmRuns.id))
+    .where(eq(schema.crmRuns.organizationId, organizationId))
+    .groupBy(schema.crmRuns.id, schema.crmWorkflows.name, schema.crmLists.name)
+    .orderBy(desc(schema.crmRuns.startedAt))
+    .limit(500);
+
+  return rows.map((r) => ({
+    ...r,
+    startedAt: r.startedAt?.toISOString() ?? null,
+    completedAt: r.completedAt?.toISOString() ?? null,
+    syncedAt: r.syncedAt.toISOString(),
+  }));
+}
+
+export interface CrmRunTrackView {
+  id: string;
+  contactId: string | null;
+  contactName: string | null;
+  targetLinkiId: string;
+  track: string | null;
+  state: string | null;
+  currentStep: number | null;
+  lastStepAt: string | null;
+  nextStepAt: string | null;
+  errorMessage: string | null;
+}
+
+export interface CrmRunDetail {
+  run: CrmRunView;
+  tracks: CrmRunTrackView[];
+}
+
+export async function getRunDetail(organizationId: string, runId: string): Promise<CrmRunDetail | null> {
+  const [run] = await db()
+    .select({
+      id: schema.crmRuns.id,
+      status: schema.crmRuns.status,
+      workflowName: schema.crmWorkflows.name,
+      listName: schema.crmLists.name,
+      startedAt: schema.crmRuns.startedAt,
+      completedAt: schema.crmRuns.completedAt,
+      syncedAt: schema.crmRuns.syncedAt,
+    })
+    .from(schema.crmRuns)
+    .leftJoin(schema.crmWorkflows, eq(schema.crmWorkflows.id, schema.crmRuns.workflowId))
+    .leftJoin(schema.crmLists, eq(schema.crmLists.id, schema.crmRuns.listId))
+    .where(and(eq(schema.crmRuns.id, runId), eq(schema.crmRuns.organizationId, organizationId)))
+    .limit(1);
+  if (!run) return null;
+
+  const tracks = await db()
+    .select({
+      id: schema.crmRunProfileTracks.id,
+      contactId: schema.crmRunProfileTracks.contactId,
+      contactName: schema.crmContacts.fullName,
+      targetLinkiId: schema.crmRunProfileTracks.targetLinkiId,
+      track: schema.crmRunProfileTracks.track,
+      state: schema.crmRunProfileTracks.state,
+      currentStep: schema.crmRunProfileTracks.currentStep,
+      lastStepAt: schema.crmRunProfileTracks.lastStepAt,
+      nextStepAt: schema.crmRunProfileTracks.nextStepAt,
+      errorMessage: schema.crmRunProfileTracks.errorMessage,
+    })
+    .from(schema.crmRunProfileTracks)
+    .leftJoin(schema.crmContacts, eq(schema.crmContacts.id, schema.crmRunProfileTracks.contactId))
+    .where(
+      and(
+        eq(schema.crmRunProfileTracks.runId, runId),
+        eq(schema.crmRunProfileTracks.organizationId, organizationId),
+      ),
+    )
+    .orderBy(desc(schema.crmRunProfileTracks.lastStepAt));
+
+  return {
+    run: {
+      ...run,
+      startedAt: run.startedAt?.toISOString() ?? null,
+      completedAt: run.completedAt?.toISOString() ?? null,
+      syncedAt: run.syncedAt.toISOString(),
+      trackCount: tracks.length,
+    },
+    tracks: tracks.map((t) => ({
+      ...t,
+      lastStepAt: t.lastStepAt?.toISOString() ?? null,
+      nextStepAt: t.nextStepAt?.toISOString() ?? null,
+    })),
+  };
+}
+
+// --- Sent messages + suppressions (Linki mirror, read-only) -----------------
+
+export interface CrmSentMessageView {
+  id: string;
+  recipient: string | null;
+  subject: string | null;
+  status: string | null;
+  contactId: string | null;
+  contactName: string | null;
+  acceptedAt: string | null;
+  deliveredAt: string | null;
+  bouncedAt: string | null;
+  complainedAt: string | null;
+  syncedAt: string;
+}
+
+export async function listSentMessages(organizationId: string): Promise<CrmSentMessageView[]> {
+  const rows = await db()
+    .select({
+      id: schema.crmSentMessages.id,
+      recipient: schema.crmSentMessages.recipient,
+      subject: schema.crmSentMessages.subject,
+      status: schema.crmSentMessages.status,
+      contactId: schema.crmSentMessages.contactId,
+      contactName: schema.crmContacts.fullName,
+      acceptedAt: schema.crmSentMessages.acceptedAt,
+      deliveredAt: schema.crmSentMessages.deliveredAt,
+      bouncedAt: schema.crmSentMessages.bouncedAt,
+      complainedAt: schema.crmSentMessages.complainedAt,
+      syncedAt: schema.crmSentMessages.syncedAt,
+    })
+    .from(schema.crmSentMessages)
+    .leftJoin(schema.crmContacts, eq(schema.crmContacts.id, schema.crmSentMessages.contactId))
+    .where(eq(schema.crmSentMessages.organizationId, organizationId))
+    .orderBy(desc(schema.crmSentMessages.syncedAt))
+    .limit(500);
+
+  return rows.map((r) => ({
+    ...r,
+    acceptedAt: r.acceptedAt?.toISOString() ?? null,
+    deliveredAt: r.deliveredAt?.toISOString() ?? null,
+    bouncedAt: r.bouncedAt?.toISOString() ?? null,
+    complainedAt: r.complainedAt?.toISOString() ?? null,
+    syncedAt: r.syncedAt.toISOString(),
+  }));
+}
+
+export interface CrmSuppressionView {
+  id: string;
+  kind: string;
+  value: string;
+  reason: string | null;
+  syncedAt: string;
+}
+
+export async function listSuppressions(organizationId: string): Promise<CrmSuppressionView[]> {
+  const rows = await db()
+    .select({
+      id: schema.crmSuppressions.id,
+      kind: schema.crmSuppressions.kind,
+      value: schema.crmSuppressions.value,
+      reason: schema.crmSuppressions.reason,
+      syncedAt: schema.crmSuppressions.syncedAt,
+    })
+    .from(schema.crmSuppressions)
+    .where(eq(schema.crmSuppressions.organizationId, organizationId))
+    .orderBy(desc(schema.crmSuppressions.syncedAt))
+    .limit(500);
+
+  return rows.map((r) => ({ ...r, syncedAt: r.syncedAt.toISOString() }));
 }
 
 export async function listDealsForPerson(organizationId: string, personId: string): Promise<CrmDealView[]> {

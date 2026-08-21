@@ -12,13 +12,15 @@ import {
 import { LinkiClient } from "@falorb/linki-client";
 import { BundAiClient } from "@falorb/bund-ai-client";
 import { ClayClient, CLAY_DEFAULT_BASE_URL } from "@falorb/clay-client";
+import { ExaClient, EXA_DEFAULT_BASE_URL, FirecrawlClient, FIRECRAWL_DEFAULT_BASE_URL } from "@falorb/research";
 import type { Workspace } from "../onboarding";
 import { HttpError } from "../http";
 import { requireHumanSession } from "../guards";
 
 /**
  * Connection management for the external products Falorb drives on the
- * organization's behalf (Linki, Bund AI, Clay, more over time).
+ * organization's behalf (Linki, Bund AI, Clay, Exa, Firecrawl, more over
+ * time).
  *
  * Deliberately human-session-only end to end, not scope-gated for API keys —
  * same reasoning as `POST /api/keys` in `index.ts`: storing, testing, or
@@ -27,11 +29,11 @@ import { requireHumanSession } from "../guards";
  * revoking the leaked key would not undo what it already connected.
  *
  * `verifyConnection` delegates to each product's real typed client
- * (`packages/linki-client`, `packages/bund-ai-client`, `packages/clay-client`)
- * rather than a generic raw `fetch` — one implementation of "how do I reach
- * this API" per product, shared with the mirror/enrichment jobs
- * (`linki-sync.ts`, `bund-ai-sync.ts`, `clay-enrichment.ts`) instead of a
- * second one living only here.
+ * (`packages/linki-client`, `packages/bund-ai-client`, `packages/clay-client`,
+ * `packages/research`) rather than a generic raw `fetch` — one
+ * implementation of "how do I reach this API" per product, shared with the
+ * mirror/enrichment jobs (`linki-sync.ts`, `bund-ai-sync.ts`,
+ * `clay-enrichment.ts`) instead of a second one living only here.
  */
 
 type Vars = {
@@ -40,13 +42,19 @@ type Vars = {
   scopes: string[];
 };
 
+/**
+ * `fixedBaseUrl: null` means the provider is a self-hosted deployment (like
+ * Linki/Bund AI) and the caller must supply a `baseUrl`. A non-null value
+ * means the provider has one API root (Clay, Exa, Firecrawl) — callers
+ * don't supply a baseUrl for it; the fixed value here is used instead.
+ */
 const PROVIDERS = {
-  linki: { label: "Linki", hasBaseUrl: true },
-  bund_ai: { label: "Bund AI", hasBaseUrl: true },
-  // Clay has one fixed API root, unlike Linki/Bund AI's self-hosted
-  // deployments — callers don't supply a baseUrl for it.
-  clay: { label: "Clay", hasBaseUrl: false },
-} as const;
+  linki: { label: "Linki", fixedBaseUrl: null },
+  bund_ai: { label: "Bund AI", fixedBaseUrl: null },
+  clay: { label: "Clay", fixedBaseUrl: CLAY_DEFAULT_BASE_URL },
+  exa: { label: "Exa", fixedBaseUrl: EXA_DEFAULT_BASE_URL },
+  firecrawl: { label: "Firecrawl", fixedBaseUrl: FIRECRAWL_DEFAULT_BASE_URL },
+} as const satisfies Record<string, { label: string; fixedBaseUrl: string | null }>;
 
 type Provider = keyof typeof PROVIDERS;
 
@@ -65,7 +73,11 @@ async function pingProvider(
       ? new LinkiClient({ baseUrl, apiKey })
       : provider === "bund_ai"
         ? new BundAiClient({ baseUrl, apiKey })
-        : new ClayClient({ baseUrl, apiKey });
+        : provider === "clay"
+          ? new ClayClient({ baseUrl, apiKey })
+          : provider === "exa"
+            ? new ExaClient({ baseUrl, apiKey })
+            : new FirecrawlClient({ baseUrl, apiKey });
   return client.verifyConnection();
 }
 
@@ -107,10 +119,11 @@ export function integrationsRoutes(db: Database): Hono<{ Variables: Vars }> {
 
     const parsed = connectSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) throw new HttpError(422, "apiKey is required.");
-    if (PROVIDERS[provider].hasBaseUrl && !parsed.data.baseUrl) {
+    const fixedBaseUrl = PROVIDERS[provider].fixedBaseUrl;
+    if (!fixedBaseUrl && !parsed.data.baseUrl) {
       throw new HttpError(422, "baseUrl is required.");
     }
-    const baseUrl = PROVIDERS[provider].hasBaseUrl ? parsed.data.baseUrl! : CLAY_DEFAULT_BASE_URL;
+    const baseUrl = fixedBaseUrl ?? parsed.data.baseUrl!;
 
     const check = await pingProvider(provider, baseUrl, parsed.data.apiKey);
     const encrypted = encryptCredential(parsed.data.apiKey);

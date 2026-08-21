@@ -12,16 +12,50 @@ import {
 } from "@/server/actions/integrations";
 import type { ConnectionView } from "@/server/integrations";
 
-const LABELS: Record<Provider, string> = { linki: "Linki", bund_ai: "Bund AI", clay: "Clay" };
+const LABELS: Record<Provider, string> = {
+  linki: "Linki",
+  bund_ai: "Bund AI",
+  clay: "Clay",
+  exa: "Exa",
+  firecrawl: "Firecrawl",
+};
 const BLURBS: Record<Provider, string> = {
   linki: "Sales outreach & CRM. Generate a scoped key in Linki at Platform → Workspace & API.",
   bund_ai: "AI customer support. Generate a key in Bund AI at Settings → API access.",
   clay: "Contact enrichment for prospects discovered off-site (see Prospecting). Generate a key in Clay at Settings → API.",
+  exa: "Neural web search, grounding content drafts in what already ranks. Generate a key at dashboard.exa.ai/api-keys.",
+  firecrawl: "Page scraping, grounding company research in a company's own site. Generate a key at firecrawl.dev/app/api-keys.",
 };
 
-/** Clay has one fixed API root — unlike Linki/Bund AI's self-hosted
- * deployments, its connect dialog has no Base URL field to fill in. */
-const HAS_BASE_URL: Record<Provider, boolean> = { linki: true, bund_ai: true, clay: false };
+/** Clay, Exa, and Firecrawl each have one fixed API root — unlike Linki/Bund
+ * AI's self-hosted deployments, their connect dialogs have no Base URL
+ * field to fill in. */
+const HAS_BASE_URL: Record<Provider, boolean> = {
+  linki: true,
+  bund_ai: true,
+  clay: false,
+  exa: false,
+  firecrawl: false,
+};
+
+const KEY_PLACEHOLDERS: Record<Provider, string> = {
+  linki: "lnk_…",
+  bund_ai: "bund_sk_…",
+  clay: "clay_…",
+  exa: "exa_…",
+  firecrawl: "fc-…",
+};
+
+/** Shown when `lastSyncedAt` is null — Linki/Bund AI/Clay are mirrored by a
+ * recurring job; Exa/Firecrawl have none, they're only ever called
+ * synchronously from a content draft or a company research click. */
+const NEVER_SYNCED: Record<Provider, string> = {
+  linki: "never — the mirror job runs every 15 minutes",
+  bund_ai: "never — the mirror job runs every 15 minutes",
+  clay: "never — enrichment runs every 30 minutes against discovered prospects",
+  exa: "not applicable — used on demand when drafting content or researching a company",
+  firecrawl: "not applicable — used on demand when drafting content or researching a company",
+};
 
 export function IntegrationsPanel({
   connections,
@@ -36,7 +70,7 @@ export function IntegrationsPanel({
 
   return (
     <div style={{ display: "grid", gap: "var(--space-6)" }}>
-      {(["linki", "bund_ai", "clay"] as Provider[]).map((provider) => (
+      {(["linki", "bund_ai", "clay", "exa", "firecrawl"] as Provider[]).map((provider) => (
         <ProviderCard
           key={provider}
           provider={provider}
@@ -151,11 +185,7 @@ function ProviderCard({
             <div style={{ fontSize: "var(--size-micro)", color: "var(--text-muted)", lineHeight: 1.7 }}>
               <div>
                 last synced:{" "}
-                {connection.lastSyncedAt
-                  ? relative(connection.lastSyncedAt, now)
-                  : provider === "clay"
-                    ? "never — enrichment runs every 30 minutes against discovered prospects"
-                    : "never — the mirror job runs every 15 minutes"}
+                {connection.lastSyncedAt ? relative(connection.lastSyncedAt, now) : NEVER_SYNCED[provider]}
               </div>
               <div>
                 last verified:{" "}
@@ -203,7 +233,7 @@ function ProviderCard({
             mono
             value={apiKey}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setApiKey(e.target.value)}
-            placeholder={provider === "linki" ? "lnk_…" : provider === "bund_ai" ? "bund_sk_…" : "clay_…"}
+            placeholder={KEY_PLACEHOLDERS[provider]}
             hint="Stored encrypted (AES-256-GCM). Never shown again after this."
           />
         </div>

@@ -53,6 +53,9 @@ importers:
       '@falorb/queries':
         specifier: workspace:*
         version: link:../../packages/queries
+      '@falorb/research':
+        specifier: workspace:*
+        version: link:../../packages/research
       '@hono/node-server':
         specifier: ^1.13.7
         version: 1.19.17(hono@4.13.2)

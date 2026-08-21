@@ -3,18 +3,23 @@ import { and, eq } from "drizzle-orm";
 import { db, decryptCredential, schema } from "@falorb/db";
 import { LinkiClient } from "@falorb/linki-client";
 import { BundAiClient } from "@falorb/bund-ai-client";
+import { ExaClient, FirecrawlClient, type ResearchClients } from "@falorb/research";
 
 /**
  * Builds a typed client from a stored `integrationConnections` row, for
  * server actions that take a real action on Linki/Bund AI (not just reading
- * the mirror). Returns null when the org has never connected, or has
- * revoked/errored — callers turn that into "connect it in Settings" rather
- * than a stack trace. Clay has no equivalent getter here — nothing in the
- * web app calls Clay directly; only `apps/worker/src/jobs/clay-enrichment.ts`
- * does, and it builds its own `ClayClient` from the connection row.
+ * the mirror) or research on Exa/Firecrawl's behalf. Returns null when the
+ * org has never connected, or has revoked/errored — callers turn that into
+ * "connect it in Settings" rather than a stack trace. Clay has no
+ * equivalent getter here — nothing in the web app calls Clay directly; only
+ * `apps/worker/src/jobs/clay-enrichment.ts` does, and it builds its own
+ * `ClayClient` from the connection row.
  */
 
-async function activeConnection(organizationId: string, provider: "linki" | "bund_ai") {
+async function activeConnection(
+  organizationId: string,
+  provider: "linki" | "bund_ai" | "exa" | "firecrawl",
+) {
   const [row] = await db()
     .select()
     .from(schema.integrationConnections)
@@ -43,8 +48,41 @@ export async function getBundAiClient(organizationId: string): Promise<BundAiCli
   return new BundAiClient({ baseUrl: row.baseUrl, apiKey });
 }
 
+/**
+ * Builds `@falorb/research`'s `ResearchClients` bag from whichever of
+ * Exa/Firecrawl this organization has connected — either, both, or neither.
+ * `search`/`fetchPage` (`@falorb/research`) treat a `null` entry as "no
+ * connection" and fall back to the other provider, so this never throws for
+ * an org that hasn't connected one or either.
+ */
+export async function getResearchClients(organizationId: string): Promise<ResearchClients> {
+  const [exaRow, firecrawlRow] = await Promise.all([
+    activeConnection(organizationId, "exa"),
+    activeConnection(organizationId, "firecrawl"),
+  ]);
+
+  return {
+    exa: exaRow
+      ? new ExaClient({
+          baseUrl: exaRow.baseUrl,
+          apiKey: decryptCredential({ ciphertext: exaRow.encryptedApiKey, iv: exaRow.iv, authTag: exaRow.authTag }),
+        })
+      : null,
+    firecrawl: firecrawlRow
+      ? new FirecrawlClient({
+          baseUrl: firecrawlRow.baseUrl,
+          apiKey: decryptCredential({
+            ciphertext: firecrawlRow.encryptedApiKey,
+            iv: firecrawlRow.iv,
+            authTag: firecrawlRow.authTag,
+          }),
+        })
+      : null,
+  };
+}
+
 export interface ConnectionView {
-  provider: "linki" | "bund_ai" | "clay";
+  provider: "linki" | "bund_ai" | "clay" | "exa" | "firecrawl";
   baseUrl: string;
   status: "active" | "revoked" | "error";
   lastVerifiedAt: string | null;

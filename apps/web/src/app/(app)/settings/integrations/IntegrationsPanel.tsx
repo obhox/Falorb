@@ -18,6 +18,7 @@ const LABELS: Record<Provider, string> = {
   clay: "Clay",
   exa: "Exa",
   firecrawl: "Firecrawl",
+  elevenlabs: "ElevenLabs",
 };
 const BLURBS: Record<Provider, string> = {
   linki: "Sales outreach & CRM. Generate a scoped key in Linki at Platform → Workspace & API.",
@@ -25,17 +26,19 @@ const BLURBS: Record<Provider, string> = {
   clay: "Contact enrichment for prospects discovered off-site (see Prospecting). Generate a key in Clay at Settings → API.",
   exa: "Neural web search, grounding content drafts in what already ranks. Generate a key at dashboard.exa.ai/api-keys.",
   firecrawl: "Page scraping, grounding company research in a company's own site. Generate a key at firecrawl.dev/app/api-keys.",
+  elevenlabs: "Script, voice, and talking-video generation for UGC videos (see UGC videos). Generate a key in ElevenLabs at Settings → API Keys.",
 };
 
-/** Clay, Exa, and Firecrawl each have one fixed API root — unlike Linki/Bund
- * AI's self-hosted deployments, their connect dialogs have no Base URL
- * field to fill in. */
+/** Clay, Exa, Firecrawl, and ElevenLabs each have one fixed API root —
+ * unlike Linki/Bund AI's self-hosted deployments, their connect dialogs
+ * have no Base URL field to fill in. */
 const HAS_BASE_URL: Record<Provider, boolean> = {
   linki: true,
   bund_ai: true,
   clay: false,
   exa: false,
   firecrawl: false,
+  elevenlabs: false,
 };
 
 const KEY_PLACEHOLDERS: Record<Provider, string> = {
@@ -44,17 +47,20 @@ const KEY_PLACEHOLDERS: Record<Provider, string> = {
   clay: "clay_…",
   exa: "exa_…",
   firecrawl: "fc-…",
+  elevenlabs: "Your ElevenLabs API key",
 };
 
 /** Shown when `lastSyncedAt` is null — Linki/Bund AI/Clay are mirrored by a
- * recurring job; Exa/Firecrawl have none, they're only ever called
- * synchronously from a content draft or a company research click. */
+ * recurring job; Exa/Firecrawl/ElevenLabs have none, they're only ever
+ * called synchronously (a content draft, a company research click, or a UGC
+ * video generation). */
 const NEVER_SYNCED: Record<Provider, string> = {
   linki: "never — the mirror job runs every 15 minutes",
   bund_ai: "never — the mirror job runs every 15 minutes",
   clay: "never — enrichment runs every 30 minutes against discovered prospects",
   exa: "not applicable — used on demand when drafting content or researching a company",
   firecrawl: "not applicable — used on demand when drafting content or researching a company",
+  elevenlabs: "never — used on demand each time you generate a UGC video, not on a schedule",
 };
 
 export function IntegrationsPanel({
@@ -70,7 +76,7 @@ export function IntegrationsPanel({
 
   return (
     <div style={{ display: "grid", gap: "var(--space-6)" }}>
-      {(["linki", "bund_ai", "clay", "exa", "firecrawl"] as Provider[]).map((provider) => (
+      {(["linki", "bund_ai", "clay", "exa", "firecrawl", "elevenlabs"] as Provider[]).map((provider) => (
         <ProviderCard
           key={provider}
           provider={provider}

@@ -1,6 +1,6 @@
 {
-  "id": "3f9fff36-371f-474e-a75a-5dd544c47ea5",
-  "prevId": "a26dcb30-bc41-4e61-a458-0183edfe3de7",
+  "id": "d6de0aca-be8e-4fae-976d-9956b3e7cec0",
+  "prevId": "3f9fff36-371f-474e-a75a-5dd544c47ea5",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -8121,7 +8121,8 @@
       "values": [
         "linki",
         "bund_ai",
-        "clay"
+        "clay",
+        "elevenlabs"
       ]
     },
     "public.integration_status": {

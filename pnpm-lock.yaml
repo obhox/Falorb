@@ -44,6 +44,9 @@ importers:
       '@falorb/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@falorb/elevenlabs-client':
+        specifier: workspace:*
+        version: link:../../packages/elevenlabs-client
       '@falorb/linki-client':
         specifier: workspace:*
         version: link:../../packages/linki-client
@@ -173,6 +176,9 @@ importers:
       '@falorb/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@falorb/elevenlabs-client':
+        specifier: workspace:*
+        version: link:../../packages/elevenlabs-client
       '@falorb/linki-client':
         specifier: workspace:*
         version: link:../../packages/linki-client
@@ -246,6 +252,9 @@ importers:
       '@falorb/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@falorb/elevenlabs-client':
+        specifier: workspace:*
+        version: link:../../packages/elevenlabs-client
       '@falorb/linki-client':
         specifier: workspace:*
         version: link:../../packages/linki-client
@@ -367,6 +376,18 @@ importers:
       tsx:
         specifier: ^4.19.2
         version: 4.23.12
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.5
+        version: 3.2.7(@types/node@22.20.1)(tsx@4.23.12)
+
+  packages/elevenlabs-client:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.5
+        version: 22.20.1
       typescript:
         specifier: ^5.7.3
         version: 5.9.3

@@ -7,13 +7,14 @@ import { LinkiClient } from "@falorb/linki-client";
 import { BundAiClient } from "@falorb/bund-ai-client";
 import { ClayClient, CLAY_DEFAULT_BASE_URL } from "@falorb/clay-client";
 import { ExaClient, EXA_DEFAULT_BASE_URL, FirecrawlClient, FIRECRAWL_DEFAULT_BASE_URL } from "@falorb/research";
+import { ElevenLabsClient, ELEVENLABS_DEFAULT_BASE_URL } from "@falorb/elevenlabs-client";
 import { requireSession } from "@/server/session";
 import type { ActionResult } from "./project";
 import { deny } from "./guard";
 
 /**
  * Connect, test, or revoke Falorb's connection to Linki, Bund AI, Clay, Exa,
- * or Firecrawl.
+ * Firecrawl, or ElevenLabs.
  *
  * Duplicates what `apps/api/src/routes/integrations.ts` exposes over HTTP,
  * deliberately — same reasoning as every other server action in this
@@ -27,7 +28,7 @@ import { deny } from "./guard";
  * between issuing an API key and using one.
  */
 
-export type Provider = "linki" | "bund_ai" | "clay" | "exa" | "firecrawl";
+export type Provider = "linki" | "bund_ai" | "clay" | "exa" | "firecrawl" | "elevenlabs";
 
 const LABELS: Record<Provider, string> = {
   linki: "Linki",
@@ -35,33 +36,44 @@ const LABELS: Record<Provider, string> = {
   clay: "Clay",
   exa: "Exa",
   firecrawl: "Firecrawl",
+  elevenlabs: "ElevenLabs",
 };
 
 /**
- * Clay, Exa, and Firecrawl each have one fixed API root, unlike Linki/Bund
- * AI's self-hosted deployments — their connect forms carry no baseUrl field
- * at all, so the fixed root is supplied here rather than asked of the user.
+ * Clay, Exa, Firecrawl, and ElevenLabs each have one fixed API root, unlike
+ * Linki/Bund AI's self-hosted deployments — their connect forms carry no
+ * baseUrl field at all, so the fixed root is supplied here rather than
+ * asked of the user.
  */
 const FIXED_BASE_URLS: Partial<Record<Provider, string>> = {
   clay: CLAY_DEFAULT_BASE_URL,
   exa: EXA_DEFAULT_BASE_URL,
   firecrawl: FIRECRAWL_DEFAULT_BASE_URL,
+  elevenlabs: ELEVENLABS_DEFAULT_BASE_URL,
 };
 
 function clientFor(
   provider: Provider,
   baseUrl: string,
   apiKey: string,
-): LinkiClient | BundAiClient | ClayClient | ExaClient | FirecrawlClient {
+): LinkiClient | BundAiClient | ClayClient | ExaClient | FirecrawlClient | ElevenLabsClient {
   if (provider === "linki") return new LinkiClient({ baseUrl, apiKey });
   if (provider === "bund_ai") return new BundAiClient({ baseUrl, apiKey });
   if (provider === "clay") return new ClayClient({ baseUrl, apiKey });
   if (provider === "exa") return new ExaClient({ baseUrl, apiKey });
-  return new FirecrawlClient({ baseUrl, apiKey });
+  if (provider === "firecrawl") return new FirecrawlClient({ baseUrl, apiKey });
+  return new ElevenLabsClient({ baseUrl, apiKey });
 }
 
 function isProvider(value: string): value is Provider {
-  return value === "linki" || value === "bund_ai" || value === "clay" || value === "exa" || value === "firecrawl";
+  return (
+    value === "linki" ||
+    value === "bund_ai" ||
+    value === "clay" ||
+    value === "exa" ||
+    value === "firecrawl" ||
+    value === "elevenlabs"
+  );
 }
 
 export async function connectIntegration(provider: string, formData: FormData): Promise<ActionResult> {

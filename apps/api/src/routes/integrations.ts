@@ -13,14 +13,15 @@ import { LinkiClient } from "@falorb/linki-client";
 import { BundAiClient } from "@falorb/bund-ai-client";
 import { ClayClient, CLAY_DEFAULT_BASE_URL } from "@falorb/clay-client";
 import { ExaClient, EXA_DEFAULT_BASE_URL, FirecrawlClient, FIRECRAWL_DEFAULT_BASE_URL } from "@falorb/research";
+import { ElevenLabsClient, ELEVENLABS_DEFAULT_BASE_URL } from "@falorb/elevenlabs-client";
 import type { Workspace } from "../onboarding";
 import { HttpError } from "../http";
 import { requireHumanSession } from "../guards";
 
 /**
  * Connection management for the external products Falorb drives on the
- * organization's behalf (Linki, Bund AI, Clay, Exa, Firecrawl, more over
- * time).
+ * organization's behalf (Linki, Bund AI, Clay, Exa, Firecrawl, ElevenLabs,
+ * more over time).
  *
  * Deliberately human-session-only end to end, not scope-gated for API keys —
  * same reasoning as `POST /api/keys` in `index.ts`: storing, testing, or
@@ -54,6 +55,7 @@ const PROVIDERS = {
   clay: { label: "Clay", fixedBaseUrl: CLAY_DEFAULT_BASE_URL },
   exa: { label: "Exa", fixedBaseUrl: EXA_DEFAULT_BASE_URL },
   firecrawl: { label: "Firecrawl", fixedBaseUrl: FIRECRAWL_DEFAULT_BASE_URL },
+  elevenlabs: { label: "ElevenLabs", fixedBaseUrl: ELEVENLABS_DEFAULT_BASE_URL },
 } as const satisfies Record<string, { label: string; fixedBaseUrl: string | null }>;
 
 type Provider = keyof typeof PROVIDERS;
@@ -77,7 +79,9 @@ async function pingProvider(
           ? new ClayClient({ baseUrl, apiKey })
           : provider === "exa"
             ? new ExaClient({ baseUrl, apiKey })
-            : new FirecrawlClient({ baseUrl, apiKey });
+            : provider === "firecrawl"
+              ? new FirecrawlClient({ baseUrl, apiKey })
+              : new ElevenLabsClient({ baseUrl, apiKey });
   return client.verifyConnection();
 }
 

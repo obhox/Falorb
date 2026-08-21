@@ -13,7 +13,12 @@ import type { Provider } from "@/server/actions/integrations";
  * both places change together.
  */
 
-export function isAiProvider(provider: Provider): boolean {
+/** Takes `string` rather than `Provider` so it works against either
+ * `Provider` type in play across this boundary (the full set `@/server/
+ * integrations`'s `ConnectionView` can report vs. the narrower set
+ * `@/server/actions/integrations` can actively connect) without forcing a
+ * cast at the call site. */
+export function isAiProvider(provider: string): boolean {
   return provider === "openrouter" || provider === "router";
 }
 

@@ -25,6 +25,20 @@ WORKDIR /repo
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.json ./
 COPY packages/core/package.json           packages/core/
+# Any workspace package that itself has dependencies needs its manifest
+# copied here too, not just the packages @falorb/web imports directly: pnpm
+# reads each package's own package.json to know what *it* depends on, and a
+# package whose manifest isn't present yet is invisible to this install --
+# its dependencies never get linked, so an import from inside its own source
+# fails at build time with "Module not found: Can't resolve '<dep>'" (hit
+# this for packages/research -> @falorb/ai, and packages/agents -> zod/
+# zod-to-json-schema/@clickhouse/client). Packages with no dependencies of
+# their own (linki-client, bund-ai-client, clay-client, buffer-client,
+# elevenlabs-client) don't need to be listed here for the same reason these
+# two didn't, until they gained one.
+COPY packages/ai/package.json             packages/ai/
+COPY packages/research/package.json       packages/research/
+COPY packages/agents/package.json         packages/agents/
 COPY packages/db/package.json             packages/db/
 COPY packages/queries/package.json        packages/queries/
 COPY packages/auth/package.json           packages/auth/

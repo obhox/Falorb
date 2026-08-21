@@ -13,7 +13,7 @@ Living record of what exists, what is half-built, and what has not been started.
 
 **Where things stand:** the collection pipeline, storage layer, identity graph,
 query layer, background workers, MCP server and self-serve account system are
-complete and verified. The dashboard is built — 36 routes on the Falorb design
+complete and verified. The dashboard is built — 38 routes on the Falorb design
 system, light and dark, role-enforced. Most routes are driven end to end by
 Playwright; the eight newest — sales lead actions, the weekly digest, the
 product signal's drop-off data, the public benchmark report, the referral
@@ -763,7 +763,6 @@ the most.
 
 | Backend | State | What is missing in the UI |
 |---|---|---|
-| `segments` | table + `segment-counts` worker | People can be filtered but not *saved* as a segment; the worker caches sizes for segments that cannot be created. No condition-tree filter builder exists anywhere in the app yet — the People page's filter bar is a flat search+checkbox, not the `Filter[]` AST `compileFilters`/`refreshSegmentCounts` already expect |
 | `dashboardWidgets` | table | The design system's custom-view builder (widget grid) is not built; `/insights` is a single fixed layout |
 
 `dataRequests`, `webhooks`, `consentRecords`, `auditLog` and `personMerges` are
@@ -773,6 +772,16 @@ sessions into Postgres totals against raw `events`) with different
 correctness requirements than the UI's own `sessionList` (which reads
 `events_v` live, so identity merges are reflected) — not a missing frontend
 feature, just a different consumer.
+
+`segments` is now built: a two-level condition-tree builder
+(`@/components/ConditionTreeBuilder` — AND across groups, OR within a group,
+producing the exact `Filter[]` `compileFilters`/`refreshSegmentCounts` already
+expect), a `/segments` management page (list/rename/delete, showing
+`cachedCount`/`cachedAt`), and a "Save as segment" entry point on the People
+page that scopes the saved segment to that property. Verified end to end: a
+saved segment's definition round-tripped through `refreshSegmentCounts`
+(`apps/worker/src/jobs/rollups.ts`) via `verify-jobs.ts` and its `cachedCount`
+updated in the UI.
 
 `funnels` and `insights` are now built: the funnel builder has a "Save"
 button (`apps/web/src/server/actions/funnels.ts`) alongside the existing
@@ -851,8 +860,7 @@ it.
 2. Apply §18's merge-bug fix to `apps/api/src/routes/people.ts` and
    `identity-resolver.ts` — the automatic merge path runs continuously in
    production and may be silently erroring right now.
-3. Saved funnels (mostly built — only save/delete is missing), then saved
-   insights, then segments (the one genuinely new UI: a condition-tree filter
-   builder doesn't exist anywhere yet).
+3. Saved funnels, saved insights and segments (condition-tree builder,
+   `/segments`, "Save as segment" on the People page) are now built.
 4. The custom-view widget builder — depends on saved insights existing first.
 5. Coolify deploy, then instrument the primary site first.

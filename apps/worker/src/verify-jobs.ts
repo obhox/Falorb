@@ -68,6 +68,9 @@ await run("data-requests", () => processDataRequests(context));
 // broken query surfaces the moment a first org connects, not weeks later.
 await run("linki-sync", () => syncLinki(context));
 await run("bund-ai-sync", () => syncBundAi(context));
+// ugc-video-gen deliberately excluded, same reasoning as clay-enrichment
+// above it: a live run spends a connected org's own paid ElevenLabs
+// credits, unlike every other job here.
 await run("retention", () => enforceRetention(context));
 await run("prune-orphans", () => pruneOrphanedPersons(context));
 await run("optimize", () => optimizeAggregates(context));

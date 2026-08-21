@@ -3,25 +3,52 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { schema } from "@falorb/db";
 import { AiSignalError, complete } from "@falorb/ai";
+import { PROSPECT_SOURCES } from "@falorb/core";
 import type { McpContext, Scope } from "../context";
 import { requireScope, resolveProjects, ScopeError } from "../context";
 import { ago, failure, table, text } from "../format";
 
 /**
- * Prospects discovered off-site (social listening, Reddit today) and their
- * contact enrichment — the other half of "who to contact" alongside
- * `leads.ts`'s on-site hot leads. Connect/disconnect for the Clay
- * integration is deliberately **not** exposed here, matching FEATURES.md
- * §13's stated rule for integrations generally: connect/disconnect stays a
- * dashboard action, only read tools are available over MCP.
+ * Prospects discovered off-site (social listening across Reddit, Hacker
+ * News, and job postings) and their contact enrichment — the other half of
+ * "who to contact" alongside `leads.ts`'s on-site hot leads. Connect/
+ * disconnect for the Clay/Exa/Firecrawl integrations is deliberately **not**
+ * exposed here, matching FEATURES.md §13's stated rule for integrations
+ * generally: connect/disconnect stays a dashboard action, only read tools
+ * are available over MCP. Re-crawling a property's profile is the same kind
+ * of action (spends a connected org's own paid Exa/Firecrawl credits) and
+ * is likewise dashboard-only — see `apps/web/src/server/actions/property-profile.ts`.
  */
 export function registerProspectTools(server: McpServer, ctx: () => McpContext): void {
+  server.registerTool(
+    "list_prospect_sources",
+    {
+      title: "What each prospecting source is",
+      description:
+        "Describes every listening source `list_prospects`/`get_prospect` can return (Reddit, Hacker News, job postings today) — what it is and why a match there is worth reading. Call this before reasoning about a batch of prospects from an unfamiliar source.",
+      inputSchema: {},
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async () => {
+      return text(
+        table(
+          Object.values(PROSPECT_SOURCES),
+          [
+            { header: "Source", get: (s) => s.key },
+            { header: "Label", get: (s) => s.label },
+            { header: "What it is", get: (s) => s.description },
+          ],
+        ),
+      );
+    },
+  );
+
   server.registerTool(
     "list_prospects",
     {
       title: "Prospects discovered off-site",
       description:
-        "People or accounts discovered talking about the product somewhere the organization doesn't own (Reddit today), optionally enriched with contact info. Complements get_hot_leads, which only covers people already tracked as on-site visitors.",
+        "People, accounts, or job postings discovered talking about (or hiring for) something relevant to the product, somewhere the organization doesn't own — Reddit, Hacker News, and job postings today (see list_prospect_sources). Optionally enriched with contact info. Complements get_hot_leads, which only covers people already tracked as on-site visitors.",
       inputSchema: {
         project: z.string().optional().describe('Project slug to filter by its keyword list; omit or "all" for the whole portfolio.'),
         status: z.enum(["new", "enriching", "enriched", "contacted", "dismissed"]).optional(),
@@ -114,7 +141,7 @@ export function registerProspectTools(server: McpServer, ctx: () => McpContext):
     "list_prospect_keywords",
     {
       title: "Listening keywords per property",
-      description: "What each property is watching for on social listening sources (Reddit today).",
+      description: "What each property is watching for across all listening sources (Reddit, Hacker News, job postings — see list_prospect_sources).",
       inputSchema: {
         project: z.string().optional().describe('Project slug; omit or "all" for every property.'),
       },
@@ -225,9 +252,11 @@ export function registerProspectTools(server: McpServer, ctx: () => McpContext):
           .limit(1);
         if (!row) return failure("No such prospect.");
 
-        const projectName = project
-          ? scope.projects.find((p) => p.slug === project)?.name
-          : scope.projects.find((p) => p.id === row.projectId)?.name ?? scope.projects[0]?.name;
+        const matchedProject = project
+          ? scope.projects.find((p) => p.slug === project)
+          : (scope.projects.find((p) => p.id === row.projectId) ?? scope.projects[0]);
+        const projectName = matchedProject?.name;
+        const propertySummary = matchedProject?.profileSummary ?? null;
 
         try {
           const draft = await complete(
@@ -237,7 +266,8 @@ export function registerProspectTools(server: McpServer, ctx: () => McpContext):
               "post (its title/content and the matched keyword), and do not imply any prior relationship or " +
               "that they have visited the product's site. Write 3-5 short sentences. Use their name only if " +
               "one is given, otherwise address them generically. No markdown, no subject line, no greeting " +
-              "placeholder brackets like [Name] — just the message body, ready to send.",
+              "placeholder brackets like [Name] — just the message body, ready to send." +
+              (propertySummary ? ` What ${projectName} actually does, to draw on: ${propertySummary}` : ""),
             {
               handle: row.authorHandle,
               source: row.source,

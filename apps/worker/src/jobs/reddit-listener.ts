@@ -1,16 +1,19 @@
 import { and, eq, isNull } from "drizzle-orm";
-import { complete, AiSignalError } from "@falorb/ai";
 import { schema, type WorkerContext } from "../context";
 import type { Watermarks } from "../scheduler";
+import { scoreProspectRelevance } from "./prospect-relevance";
 
 /**
- * Social listening, Reddit only for now.
+ * Social listening, one of three sources alongside `hackernews-listener.ts`
+ * and `job-listener.ts` — see `packages/core/src/prospect-sources.ts` for
+ * what each source actually is.
  *
  * Needs no per-org OAuth: Reddit's public search API is reachable with a
  * single app-only client-credentials grant, so — like `IPINFO_TOKEN` in
  * enrichment.ts — this is one platform-wide credential, not part of the
  * per-org `integrations` table. Only contact enrichment (clay-enrichment.ts)
- * is genuinely per-organization.
+ * and web-research-backed listening (job-listener.ts, property-profiler.ts)
+ * are genuinely per-organization.
  *
  * Scoped to submissions only for now: Reddit's public search endpoint
  * searches posts, not comments — comment-level listening would need a
@@ -56,6 +59,7 @@ export async function listenReddit(
       keyword: schema.prospectKeywords.keyword,
       organizationId: schema.projects.organizationId,
       projectName: schema.projects.name,
+      propertySummary: schema.projects.profileSummary,
     })
     .from(schema.prospectKeywords)
     .innerJoin(schema.projects, eq(schema.projects.id, schema.prospectKeywords.projectId))
@@ -91,7 +95,13 @@ export async function listenReddit(
 async function listenForKeyword(
   context: WorkerContext,
   token: string,
-  row: { projectId: number; keyword: string; organizationId: string; projectName: string },
+  row: {
+    projectId: number;
+    keyword: string;
+    organizationId: string;
+    projectName: string;
+    propertySummary: string | null;
+  },
 ): Promise<number> {
   const results = await searchReddit(row.keyword, token);
   let newCount = 0;
@@ -128,7 +138,14 @@ async function listenForKeyword(
     // A scoring failure must never drop the underlying discovery — the
     // prospect stays with relevanceScore null, still visible on the dashboard.
     try {
-      const scored = await scoreRelevance(row.projectName, row.keyword, post.title, excerpt);
+      const scored = await scoreProspectRelevance({
+        source: "reddit",
+        projectName: row.projectName,
+        propertySummary: row.propertySummary,
+        keyword: row.keyword,
+        title: post.title,
+        excerpt,
+      });
       if (scored) {
         await context.db
           .update(schema.prospects)
@@ -141,46 +158,6 @@ async function listenForKeyword(
   }
 
   return newCount;
-}
-
-async function scoreRelevance(
-  projectName: string,
-  keyword: string,
-  title: string,
-  excerpt: string,
-): Promise<{ score: number; rationale: string } | null> {
-  let text: string;
-  try {
-    text = await complete(
-      "You score how likely a Reddit post is to be a genuine sales/outreach " +
-        "opportunity for the given product, based on the matched keyword and " +
-        "the post's own content. Reply with exactly two lines: " +
-        "\"SCORE: <integer 0-100>\" then \"WHY: <one short sentence>\". " +
-        "0 means unrelated or purely coincidental keyword match; 100 means " +
-        "someone is actively asking for a solution this product provides. " +
-        "No other text.",
-      { project: projectName, matchedKeyword: keyword, postTitle: title, postExcerpt: excerpt },
-      { maxTokens: 100, stripMarkdown: false },
-    );
-  } catch (error) {
-    if (error instanceof AiSignalError) return null;
-    throw error;
-  }
-
-  return parseRelevanceResponse(text);
-}
-
-/** Pulled out of `scoreRelevance` so the parsing itself is unit-testable
- * without an OpenRouter call. */
-export function parseRelevanceResponse(text: string): { score: number; rationale: string } | null {
-  const scoreMatch = text.match(/SCORE:\s*(\d{1,3})/i);
-  const whyMatch = text.match(/WHY:\s*(.+)/i);
-  if (!scoreMatch) return null;
-
-  return {
-    score: Math.max(0, Math.min(100, Number(scoreMatch[1]))),
-    rationale: whyMatch?.[1]?.trim() ?? "",
-  };
 }
 
 async function getAccessToken(clientId: string, clientSecret: string): Promise<string> {

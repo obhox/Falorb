@@ -8,7 +8,8 @@ export const metadata: Metadata = { title: "Prospecting" };
 export const dynamic = "force-dynamic";
 
 /**
- * Everyone worth reaching out to, discovered off-site (Reddit today) rather
+ * Everyone worth reaching out to, discovered off-site (Reddit, Hacker News,
+ * and job postings — see `packages/core/src/prospect-sources.ts`) rather
  * than on one of the org's own properties — the other half of "who to
  * contact" alongside `/p/[project]/signals`'s on-site hot leads.
  *

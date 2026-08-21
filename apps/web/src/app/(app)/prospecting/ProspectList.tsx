@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { Badge, Button, Icon, Switch } from "@falorb/ui";
+import { describeProspectSource, labelProspectSource } from "@falorb/core";
 import { Empty } from "@/components/Empty";
 import { CopyField } from "@/components/CopyField";
 import { useToast } from "@/components/Toast";
@@ -53,7 +54,7 @@ export function ProspectList({ prospects }: { prospects: ProspectView[] }) {
         <Empty
           icon="radar"
           title="No prospects yet"
-          body="Add a listening keyword on a property's settings page — matches from Reddit show up here, enriched with contact info once Clay is connected on Settings → Integrations."
+          body="Add a listening keyword on a property's settings page — matches from Reddit, Hacker News, and job postings show up here, enriched with contact info once Clay is connected on Settings → Integrations."
         />
       ) : (
         <div style={{ display: "grid", gap: "var(--space-3)" }}>
@@ -136,7 +137,9 @@ function ProspectRow({ prospect }: { prospect: ProspectView }) {
             >
               {prospect.title ?? prospect.sourceUrl}
             </a>
-            <Badge tone="neutral">{prospect.source}</Badge>
+            <span title={describeProspectSource(prospect.source)}>
+              <Badge tone="neutral">{labelProspectSource(prospect.source)}</Badge>
+            </span>
             {prospect.relevanceScore != null && (
               <Badge tone="accent" mono>
                 {prospect.relevanceScore}

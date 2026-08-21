@@ -174,7 +174,7 @@ function registerResources(server: McpServer, ctx: () => McpContext): void {
             "- Cached AI recommendations: what to write, who to contact, which channel is working, what's broken",
             "- Whether a project's tracker is actually installed and sending events, per domain",
             "- Workspace membership, invitations, and delivery channels for alerts",
-            "- Prospects discovered off-site (social listening, Reddit today) and any contact enrichment found for them",
+            "- Prospects discovered off-site (Reddit, Hacker News, job postings — see list_prospect_sources) and any contact enrichment found for them",
             "",
             "## Can change (write scope)",
             "- Create a project, a goal, a referral link, an alert (and its delivery channel), a share link",

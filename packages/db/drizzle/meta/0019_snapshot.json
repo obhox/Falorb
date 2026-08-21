@@ -1,6 +1,6 @@
 {
-  "id": "a8c86e5c-2df0-4bb1-87e1-0a78e1f90350",
-  "prevId": "bcdf1118-7d3c-4989-a859-961c37699876",
+  "id": "6397518e-fefd-4bdc-a82e-0ddccc5f7774",
+  "prevId": "a8c86e5c-2df0-4bb1-87e1-0a78e1f90350",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -7362,6 +7362,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "buffer_organization_id": {
+          "name": "buffer_organization_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "service": {
           "name": "service",
           "type": "text",
@@ -7409,6 +7415,30 @@
         "weekly_posting_limit": {
           "name": "weekly_posting_limit",
           "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "weekly_posting_limit_detail": {
+          "name": "weekly_posting_limit_detail",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "posting_schedule": {
+          "name": "posting_schedule",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "posting_goal": {
+          "name": "posting_goal",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "allowed_actions": {
+          "name": "allowed_actions",
+          "type": "jsonb",
           "primaryKey": false,
           "notNull": false
         },
@@ -7550,6 +7580,12 @@
         "metrics_updated_at": {
           "name": "metrics_updated_at",
           "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "error_message": {
+          "name": "error_message",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },

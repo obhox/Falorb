@@ -17,6 +17,7 @@ import { BadgeEmbedControl } from "./BadgeEmbedControl";
 import { ConnectionPanel } from "./ConnectionPanel";
 import { ProjectCreatedTracker } from "./ProjectCreatedTracker";
 import { ProspectKeywordsCard } from "./ProspectKeywordsCard";
+import { PropertyProfileCard } from "./PropertyProfileCard";
 import { IntegrationsPanel } from "./IntegrationsPanel";
 
 export const dynamic = "force-dynamic";
@@ -104,9 +105,23 @@ export default async function ProjectSettingsPage({
       </>
       )}
 
+      <PropertyProfileCard
+        slug={project.slug}
+        profile={{
+          summary: project.profileSummary,
+          icp: project.profileIcp,
+          keyFeatures: project.profileKeyFeatures,
+          suggestedKeywords: project.profileSuggestedKeywords,
+          crawledAt: project.profileCrawledAt?.toISOString() ?? null,
+          hasDomain: project.domains.length > 0,
+        }}
+        canEdit={can.writeAnalysis(session.workspace.role)}
+      />
+
       <ProspectKeywordsCard
         slug={project.slug}
         keywords={keywords}
+        suggestedKeywords={project.profileSuggestedKeywords}
         canEdit={can.writeAnalysis(session.workspace.role)}
       />
 

@@ -9,6 +9,9 @@ import { sessionize } from "./jobs/sessionizer";
 import { optimizeAggregates, rebuildPathTransitions, refreshSegmentCounts } from "./jobs/rollups";
 import { enrichCompanies } from "./jobs/enrichment";
 import { listenReddit } from "./jobs/reddit-listener";
+import { listenHackerNews } from "./jobs/hackernews-listener";
+import { listenJobs } from "./jobs/job-listener";
+import { profileProperties } from "./jobs/property-profiler";
 import { enrichProspectsViaClay } from "./jobs/clay-enrichment";
 import { scoreInterests } from "./jobs/interest-scorer";
 import { evaluateAlerts } from "./jobs/alerts";
@@ -120,6 +123,39 @@ scheduler.add({
   timeoutMs: 10 * MINUTE,
   run: async () => {
     await listenReddit(context, watermarks);
+  },
+});
+
+scheduler.add({
+  name: "hackernews-listener",
+  intervalMs: 15 * MINUTE,
+  timeoutMs: 10 * MINUTE,
+  run: async () => {
+    await listenHackerNews(context, watermarks);
+  },
+});
+
+// Per-org, unlike reddit/hackernews above — spends a connected org's own
+// paid Exa/Firecrawl credits, so this runs less often and caps how many
+// keywords it processes per org per run (see job-listener.ts).
+scheduler.add({
+  name: "job-listener",
+  intervalMs: 30 * MINUTE,
+  timeoutMs: 15 * MINUTE,
+  run: async () => {
+    await listenJobs(context);
+  },
+});
+
+// Rarely: a property's homepage doesn't change day to day, and — like
+// job-listener above — this spends a connected org's own paid Exa/Firecrawl
+// credits per crawl.
+scheduler.add({
+  name: "property-profiler",
+  intervalMs: 6 * 60 * MINUTE,
+  timeoutMs: 15 * MINUTE,
+  run: async () => {
+    await profileProperties(context);
   },
 });
 

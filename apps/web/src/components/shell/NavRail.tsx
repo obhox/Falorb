@@ -33,7 +33,25 @@ export function NavRail({ sections }: { sections: NavSection[] }) {
   const pathname = usePathname();
 
   return (
-    <nav style={{ display: "flex", flexDirection: "column", gap: "var(--space-8)", flex: 1 }}>
+    /**
+     * The scrolling part of the rail. Everything around it — wordmark,
+     * workspace switcher, theme toggle, account footer — stays pinned, so a
+     * workspace with more properties than fit lengthens this list rather than
+     * pushing the account footer out through the bottom of the panel, which is
+     * what used to happen on a short viewport.
+     */
+    <nav
+      className="falorb-nav-scroll"
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: "var(--space-8)",
+        flex: 1,
+        // Without this a flex child refuses to shrink below its content, and
+        // `overflow-y: auto` on it never has anything to scroll.
+        minHeight: 0,
+      }}
+    >
       {sections.map((section, index) => (
         <div key={section.label ?? index} style={{ display: "grid", gap: 2 }}>
           {section.label && (

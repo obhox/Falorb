@@ -139,6 +139,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           flex: "0 0 224px",
           display: "flex",
           flexDirection: "column",
+          // The rail is exactly as tall as the shell; the nav inside it is what
+          // scrolls (see `NavRail`). `hidden` here keeps a long property list
+          // from painting past the panel's rounded corner.
+          minHeight: 0,
+          overflow: "hidden",
           padding: 10,
           background: "var(--surface-panel)",
           border: "1px solid var(--border-subtle)",

@@ -56,6 +56,32 @@ body > div:first-of-type,
   overscroll-behavior: contain;
 }
 
+/* The nav list inside the rail and the mobile drawer.
+   Deliberately *not* `.falorb-scroll`: that class is flattened to
+   `overflow-y: visible` below 768px, where the shell becomes document flow —
+   but the drawer stays a fixed, full-height panel at every width, so its nav
+   has to keep scrolling on a phone. A thin scrollbar rather than a hidden one:
+   a nav that runs past the fold should say so. */
+.falorb-nav-scroll {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-subtle) transparent;
+}
+
+.falorb-nav-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.falorb-nav-scroll::-webkit-scrollbar-thumb {
+  background: var(--border-subtle);
+  border-radius: var(--radius-2);
+}
+
+.falorb-nav-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 /* Links inside data tables inherit the row's colour rather than going glacier —
    the accent is reserved for selection, focus and the series in view. */
 .falorb-scroll a[data-plain],

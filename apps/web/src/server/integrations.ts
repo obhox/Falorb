@@ -1,17 +1,11 @@
 import "server-only";
 import { and, eq, isNull, or } from "drizzle-orm";
-import { db, decryptCredential, schema } from "@falorb/db";
+import { db, decryptCredential, resolveAiCredentials, schema } from "@falorb/db";
 import { LinkiClient } from "@falorb/linki-client";
 import { BundAiClient } from "@falorb/bund-ai-client";
 import { BufferClient } from "@falorb/buffer-client";
 import { ExaClient, FirecrawlClient, type ResearchClients } from "@falorb/research";
-import {
-  AI_PROVIDER_DEFAULT_MODELS,
-  envCredentials,
-  isAiProvider,
-  type AiCredentials,
-  type AiProvider,
-} from "@falorb/ai";
+import type { AiCredentials, AiProvider } from "@falorb/ai";
 
 /**
  * Builds a typed client from a stored `integrationConnections` row, for
@@ -127,52 +121,21 @@ export async function getResearchClients(organizationId: string, projectId?: num
 
 /**
  * Which AI gateway, on whose key and which model, this organization's AI
- * features should run on — the "bring your own model" read path
- * (FEATURES.md §19). Returns null only when the organization has connected
- * neither gateway *and* the deployment has no `OPENROUTER_API_KEY` either;
- * callers turn that into "AI is not configured" the same way they always
- * have.
+ * features should run on — the web app's door onto `resolveAiCredentials`
+ * (`@falorb/db`), which the worker and MCP server come through too. Kept
+ * behind `src/server` like every other secret-reading helper in this file
+ * rather than imported directly at each call site.
  *
- * Precedence, in order:
- *
- *   1. a connection this property owns, if it has one (same
- *      override-with-fallback rule as every other provider);
- *   2. otherwise the organization's;
- *   3. otherwise the deployment-wide `OPENROUTER_API_KEY`.
- *
- * Both gateways can be connected at once — an org may be trying Ramp Router
- * while keeping its OpenRouter key. Within one scope the most recently
- * updated active connection wins, so connecting or reconnecting a gateway
- * is what switches to it, and the Integrations panel marks which one is
- * currently in use rather than leaving it implicit.
+ * The result goes straight into `complete()`/`chat()`/`generateSignal()`,
+ * including when it is null: those fall back to the deployment-wide
+ * `OPENROUTER_API_KEY` on a null, which is what every caller did before
+ * organizations could bring their own.
  */
-export async function getAiCredentials(organizationId: string, projectId?: number): Promise<AiCredentials | null> {
-  const rows = await db()
-    .select()
-    .from(schema.integrationConnections)
-    .where(
-      and(
-        eq(schema.integrationConnections.organizationId, organizationId),
-        eq(schema.integrationConnections.status, "active"),
-        or(
-          eq(schema.integrationConnections.provider, "openrouter"),
-          eq(schema.integrationConnections.provider, "router"),
-        ),
-      ),
-    );
-
-  const scoped = projectId != null ? rows.filter((r) => r.projectId === projectId) : [];
-  const candidates = scoped.length ? scoped : rows.filter((r) => r.projectId === null);
-
-  const row = candidates.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())[0];
-  if (!row || !isAiProvider(row.provider)) return envCredentials();
-
-  return {
-    provider: row.provider,
-    baseUrl: row.baseUrl,
-    apiKey: decryptCredential({ ciphertext: row.encryptedApiKey, iv: row.iv, authTag: row.authTag }),
-    model: row.model?.trim() || AI_PROVIDER_DEFAULT_MODELS[row.provider],
-  };
+export async function getAiCredentials(
+  organizationId: string,
+  projectId?: number | null,
+): Promise<AiCredentials | null> {
+  return resolveAiCredentials(db(), organizationId, projectId);
 }
 
 export type Provider =

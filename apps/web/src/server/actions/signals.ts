@@ -9,6 +9,7 @@ import { breakdown, contentInterests, entryPages, exitPages, topDropoffs } from 
 import { hotLeads } from "@/server/sales";
 import { listReferralLinks, referralLeaderboard } from "@/server/referrals";
 import { AiSignalError, generateSignal } from "@/server/ai";
+import { getAiCredentials } from "@/server/integrations";
 import type { ActionResult } from "./project";
 import { deny } from "./guard";
 
@@ -67,7 +68,7 @@ export async function regenerateContentSignal(
       exitPages: exits,
       interests,
       interestsPreviousPeriod: interestsPrevious,
-    });
+    }, await getAiCredentials(session.workspace.organizationId, project.id));
   } catch (error) {
     return {
       ok: false,
@@ -149,7 +150,7 @@ export async function regenerateSalesSignal(
         propertiesVisited: lead.projectCount,
         interests: lead.interestScores,
       })),
-    });
+    }, await getAiCredentials(session.workspace.organizationId, project.id));
   } catch (error) {
     return {
       ok: false,
@@ -215,7 +216,7 @@ export async function regenerateMarketingSignal(slug: string, range: DateRange):
         conversions: row.conversions,
         conversionRate: row.conversionRate,
       })),
-    });
+    }, await getAiCredentials(session.workspace.organizationId, project.id));
   } catch (error) {
     return {
       ok: false,
@@ -282,7 +283,7 @@ export async function regenerateProductSignal(slug: string, range: DateRange): P
       interests,
       interestsPreviousPeriod: interestsPrevious,
       dropoffs,
-    });
+    }, await getAiCredentials(session.workspace.organizationId, project.id));
   } catch (error) {
     return {
       ok: false,

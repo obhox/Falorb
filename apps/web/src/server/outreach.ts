@@ -1,4 +1,5 @@
 import "server-only";
+import type { AiCredentials } from "@falorb/ai";
 import { complete } from "@/server/ai";
 import type { HotLead } from "@/server/sales";
 
@@ -10,7 +11,11 @@ import type { HotLead } from "@/server/sales";
  * to be copied and sent, not a recommendation read on the dashboard, so it
  * doesn't belong in `SYSTEM_PROMPTS` alongside those.
  */
-export async function generateOutreachMessage(lead: HotLead, projectName: string): Promise<string> {
+export async function generateOutreachMessage(
+  lead: HotLead,
+  projectName: string,
+  credentials?: AiCredentials | null,
+): Promise<string> {
   const systemPrompt =
     `You are a sales rep at ${projectName} drafting a first outreach email/DM to a hot ` +
     "lead based on their observed activity. Write 3-5 short sentences, personal and " +
@@ -30,7 +35,7 @@ export async function generateOutreachMessage(lead: HotLead, projectName: string
     lastSeenAt: lead.lastSeenAt,
     propertiesVisited: lead.projectCount,
     interests: lead.interestScores,
-  });
+  }, { credentials });
 }
 
 export interface ProspectOutreachInput {
@@ -58,6 +63,7 @@ export async function generateProspectOutreachMessage(
   prospect: ProspectOutreachInput,
   projectName: string,
   propertySummary: string | null = null,
+  credentials?: AiCredentials | null,
 ): Promise<string> {
   const systemPrompt =
     `You are drafting a first cold-outreach message from ${projectName} to someone who ` +
@@ -81,5 +87,5 @@ export async function generateProspectOutreachMessage(
     contactName: prospect.contactName,
     contactTitle: prospect.contactTitle,
     contactCompanyDomain: prospect.contactCompanyDomain,
-  });
+  }, { credentials });
 }

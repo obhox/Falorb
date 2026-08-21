@@ -1,11 +1,5 @@
-import { and, eq, isNull, or } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { decryptCredential, schema, type Database } from "@falorb/db";
-import {
-  AI_PROVIDER_DEFAULT_MODELS,
-  envCredentials,
-  isAiProvider,
-  type AiCredentials,
-} from "@falorb/ai";
 import { LinkiClient } from "@falorb/linki-client";
 import { BundAiClient } from "@falorb/bund-ai-client";
 
@@ -75,56 +69,4 @@ export async function getBundAiClient(
       authTag: row.authTag,
     }),
   });
-}
-
-/**
- * The AI gateway an agent's shift should be billed to.
- *
- * Mirrors `getAiCredentials` in `apps/web/src/server/integrations.ts` — same
- * precedence, different database handle (this package takes one explicitly
- * rather than using the web app's singleton). Without it every shift would
- * quietly fall through to the deployment-wide `OPENROUTER_API_KEY`, so an
- * organization that connected its own gateway would still be spending
- * someone else's key, and the model it chose in Settings would be ignored.
- *
- * Falls back to `envCredentials()` rather than returning null when nothing
- * is connected, which is the single-tenant self-hosted case and the one most
- * installs are in.
- */
-export async function getAiCredentials(
-  db: Database,
-  organizationId: string,
-): Promise<AiCredentials | null> {
-  const rows = await db
-    .select()
-    .from(schema.integrationConnections)
-    .where(
-      and(
-        eq(schema.integrationConnections.organizationId, organizationId),
-        eq(schema.integrationConnections.status, "active"),
-        or(
-          eq(schema.integrationConnections.provider, "openrouter"),
-          eq(schema.integrationConnections.provider, "router"),
-        ),
-      ),
-    );
-
-  // Org-level only: an agent is not scoped to one property, so a per-project
-  // override has no meaning here — same reasoning as the Linki/Bund AI
-  // getters above.
-  const row = rows
-    .filter((r) => r.projectId === null)
-    .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())[0];
-  if (!row || !isAiProvider(row.provider)) return envCredentials();
-
-  return {
-    provider: row.provider,
-    baseUrl: row.baseUrl,
-    apiKey: decryptCredential({
-      ciphertext: row.encryptedApiKey,
-      iv: row.iv,
-      authTag: row.authTag,
-    }),
-    model: row.model?.trim() || AI_PROVIDER_DEFAULT_MODELS[row.provider],
-  };
 }

@@ -1,8 +1,14 @@
 import type { ClickHouseClient } from "@clickhouse/client";
 import { and, desc, eq, gte, sql } from "drizzle-orm";
 import { chat, stripMarkdown, type ChatMessage, type ToolCall } from "@falorb/ai";
-import { AUDIT_ACTIONS, audit, can, schema, type Database } from "@falorb/db";
-import { getAiCredentials } from "./clients";
+import {
+  AUDIT_ACTIONS,
+  audit,
+  can,
+  resolveAiCredentials,
+  schema,
+  type Database,
+} from "@falorb/db";
 import { decide } from "./policy";
 import { buildSystemPrompt, buildUserPrompt, loadMemories, loadRecentRuns } from "./prompt";
 import { getTool, toolsForAgent, toSpecs } from "./tools/index";
@@ -90,9 +96,12 @@ export async function executeRun(deps: RunDeps, runId: string): Promise<RunOutco
     loadMemories(db, agent.id),
     loadRecentRuns(db, agent.id),
     loadTask(db, run.taskId),
-    // Resolved once per shift, not per turn: it decrypts a stored key, and a
-    // gateway swapped mid-run would bill half a conversation to each.
-    getAiCredentials(db, agent.organizationId),
+    // `@falorb/db`'s shared resolver, not a copy: the dashboard, the worker
+    // and this runtime must agree on which gateway an org's AI runs against,
+    // and two implementations of that eventually disagree. Resolved once per
+    // shift rather than per turn — it decrypts a stored key, and a gateway
+    // swapped mid-run would bill half a conversation to each.
+    resolveAiCredentials(db, agent.organizationId),
   ]);
 
   const ctx: AgentContext = {
@@ -508,7 +517,7 @@ export async function executeApproval(
     runId: approval.runId,
     projects,
     projectIds: projects.map((p) => p.id),
-    credentials: await getAiCredentials(db, approval.organizationId),
+    credentials: await resolveAiCredentials(db, approval.organizationId),
     log: (message) => deps.onLog?.(approval.runId, message),
   };
 

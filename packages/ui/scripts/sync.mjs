@@ -95,6 +95,31 @@ const DELTAS = [
     required: true,
     apply: () => readFileSync(join(here, "overrides/fonts.css"), "utf8"),
   },
+  {
+    /**
+     * Every one of these components is a control someone puts inside a form —
+     * a Tabs strip above a fieldset, a SegmentedControl choosing an option, an
+     * IconButton clearing a field, a Tag's remove "×". The design system emits
+     * them as bare `<button>`, and a `<button>` with no `type` inside a
+     * `<form>` defaults to `type="submit"`: clicking any of them submitted the
+     * form instead of doing what it looked like it did. That is not a styling
+     * difference, it is the control being wired to the wrong action.
+     *
+     * `Select` already carries `type="button"` upstream, which is what makes
+     * this an oversight in the others rather than a house convention.
+     *
+     * Inserted immediately after the opening tag so anything spread later can
+     * still override it — a caller who genuinely wants a submit button says so.
+     */
+    name: "Buttons inside forms do not submit them",
+    test: (path) =>
+      path === "components/core/IconButton.jsx" ||
+      path === "components/core/Tag.jsx" ||
+      path === "components/navigation/SegmentedControl.jsx" ||
+      path === "components/navigation/Tabs.jsx",
+    required: true,
+    apply: (text) => text.replace(/<button\n(\s+)/g, '<button\n$1type="button"\n$1'),
+  },
 ];
 
 const COPY = [

@@ -33,6 +33,7 @@ export function SegmentedControl({ options = [], value, onChange, size = "md", f
         const on = o === value;
         return (
           <button
+            type="button"
             key={o}
             onClick={() => onChange && onChange(o)}
             style={{

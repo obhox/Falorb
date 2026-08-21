@@ -5,13 +5,14 @@ import type { ChatMessage, ChatResult, ToolCall, ToolSpec } from "./types";
 /**
  * The one place that knows a gateway's wire protocol.
  *
- * Both supported gateways (see `credentials.ts`) put many vendors' models
- * behind one key, but behind two different OpenAI-shaped APIs: OpenRouter
- * speaks chat completions, Ramp Router speaks responses. Rather than teach
- * every caller which one it is talking to, `callModel` takes the internal
- * `ChatMessage[]` shape, translates it for whichever gateway the
- * organization connected, and translates the answer back into one
- * `ChatResult`. `chat()` and `complete()` are both thin wrappers over it.
+ * All three supported providers (see `credentials.ts`) answer an
+ * OpenAI-shaped API, but not the *same* OpenAI-shaped API: OpenRouter and
+ * Gemini's compatibility layer speak chat completions, Ramp Router speaks
+ * responses. Rather than teach every caller which one it is talking to,
+ * `callModel` takes the internal `ChatMessage[]` shape, translates it for
+ * whichever provider the organization connected, and translates the answer
+ * back into one `ChatResult`. `chat()` and `complete()` are both thin
+ * wrappers over it.
  *
  * Errors all surface as `AiTransportError`; the two wrappers re-throw them
  * as `AiChatError`/`AiSignalError` so the existing error handling at every
@@ -38,10 +39,11 @@ export async function callModel(credentials: AiCredentials, request: ModelReques
 
 /**
  * The model id(s) to ask for: the per-call override, else the connection's,
- * else the provider's default. Ramp Router has no default (its callable ids
- * are key-specific), so a connection to it that names no model is a
- * configuration error worth saying plainly rather than a request that fails
- * upstream with a less obvious message.
+ * else the provider's default. Only OpenRouter has a default — Ramp
+ * Router's callable ids are key-specific and Gemini has no auto-select — so
+ * a connection to either that names no model is a configuration error worth
+ * saying plainly rather than a request that fails upstream with a less
+ * obvious message.
  */
 function requireModel(credentials: AiCredentials, override: string | null | undefined): string {
   const model = (override ?? credentials.model ?? AI_PROVIDER_DEFAULT_MODELS[credentials.provider] ?? "").trim();
@@ -52,6 +54,94 @@ function requireModel(credentials: AiCredentials, override: string | null | unde
     );
   }
   return model;
+}
+
+/**
+ * The OpenAI error envelope, which both gateways use:
+ * `{ error: { message, type, param, code } }`. A body that isn't that shape
+ * (an HTML error page from a proxy, say) still yields its text, truncated.
+ */
+function parseErrorBody(raw: string): { message: string | null; code: string | null } {
+  const trimmed = raw.trim();
+  if (!trimmed) return { message: null, code: null };
+  try {
+    const parsed = JSON.parse(trimmed) as { error?: { message?: unknown; code?: unknown } | null };
+    const message = typeof parsed.error?.message === "string" ? parsed.error.message : null;
+    const code = typeof parsed.error?.code === "string" ? parsed.error.code : null;
+    return message ? { message, code } : { message: trimmed.slice(0, 300), code };
+  } catch {
+    return { message: trimmed.slice(0, 300), code: null };
+  }
+}
+
+/** What the request asked to run on, for an error that is about the model. */
+function modelFromBody(body: unknown): string | null {
+  if (typeof body !== "object" || body === null) return null;
+  const record = body as { model?: unknown; models?: unknown };
+  if (typeof record.model === "string") return record.model;
+  if (Array.isArray(record.models)) return record.models.filter((m) => typeof m === "string").join(", ") || null;
+  return null;
+}
+
+/**
+ * Turns a gateway's status code into a sentence that says what to do about it.
+ *
+ * The statuses are not interchangeable and reporting them as one thing costs
+ * real debugging time: 401 is the key, 402 is the balance, 403 is a *provider*
+ * that isn't available right now (Ramp Router documents it exactly that way —
+ * it is not an auth failure), 404 is a model this key can't call, 429 is rate
+ * limiting, 501 is a capability the chosen model doesn't have and won't grow by
+ * being retried, and 5xx is the gateway or the provider rather than anything
+ * about this request.
+ */
+function describeFailure(
+  credentials: AiCredentials,
+  status: number,
+  raw: string,
+  retryAfter: string | null,
+  requestBody: unknown,
+): string {
+  const label = AI_PROVIDER_LABELS[credentials.provider];
+  const { message, code } = parseErrorBody(raw);
+  const detail = message ? ` ${message}` : "";
+
+  switch (status) {
+    case 400:
+      return `${label} rejected the request as invalid (400).${detail}`;
+    case 401:
+      // Router distinguishes a key it doesn't know from one that has been
+      // switched off — the second is recoverable by re-enabling it, so it is
+      // worth not calling both "invalid".
+      return code === "api_key_deactivated"
+        ? `${label} reports this API key as deactivated — re-enable it or connect another.${detail}`
+        : `${label} rejected the API key (${status}).${detail}`;
+    case 402:
+      return `${label} rejected the request: insufficient credits.${detail}`;
+    case 403:
+      return credentials.provider === "router"
+        ? `${label} could not use the selected provider right now (403) — this is the provider, not the key.${detail}`
+        : `${label} refused the request (403).${detail}`;
+    case 404: {
+      const model = modelFromBody(requestBody);
+      return (
+        `${label} has no model ${model ? `"${model}" ` : ""}available to this key (404) — ` +
+        `pick one from the model list in Settings → Integrations.${detail}`
+      );
+    }
+    case 429:
+      return `${label} rate-limited the request (429)${retryAfter ? `; retry after ${retryAfter}s` : ""}.${detail}`;
+    case 501:
+      return (
+        `${label} could not run this request on the selected model (501) — ` +
+        `it doesn't support something the request used, so retrying it unchanged will fail the same way.${detail}`
+      );
+    case 502:
+    case 503:
+    case 504:
+      return `${label} could not get an answer from the model provider (${status}) — worth retrying.${detail}`;
+    default:
+      return `${label} request failed (${status}).${detail}`;
+  }
 }
 
 async function post(credentials: AiCredentials, path: string, body: unknown, timeoutMs: number): Promise<unknown> {
@@ -75,23 +165,16 @@ async function post(credentials: AiCredentials, path: string, body: unknown, tim
   }
 
   if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    if (response.status === 401 || response.status === 403) {
-      throw new AiTransportError(`${label} rejected the API key (${response.status}).`);
-    }
-    if (response.status === 402) {
-      throw new AiTransportError(`${label} rejected the request: insufficient credits.`);
-    }
-    throw new AiTransportError(
-      `${label} request failed (${response.status}).${detail ? ` ${detail.slice(0, 300)}` : ""}`,
-    );
+    const raw = await response.text().catch(() => "");
+    const retryAfter = response.headers?.get?.("retry-after") ?? null;
+    throw new AiTransportError(describeFailure(credentials, response.status, raw, retryAfter, body));
   }
 
   return response.json();
 }
 
 /* ------------------------------------------------------------------ *
- * OpenAI chat completions — OpenRouter
+ * OpenAI chat completions — OpenRouter, Google Gemini
  * ------------------------------------------------------------------ */
 
 interface ChatCompletionsChoice {
@@ -100,6 +183,26 @@ interface ChatCompletionsChoice {
     tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }>;
   };
   finish_reason?: string;
+}
+
+/**
+ * Which route selector this provider's chat-completions endpoint accepts.
+ *
+ * `models` — an ordered fallback chain tried in turn — is an OpenRouter
+ * extension here. Router has its own version of the idea on the responses
+ * side (see `routerRouteSelector`), but Gemini's compatibility layer takes
+ * a single `model` string and 400s on the array. So a comma-separated
+ * connection model stays a real chain on OpenRouter and collapses to its
+ * first entry on Gemini, which is the honest reading of a preference list
+ * a provider cannot honour.
+ */
+function chatCompletionsRouteSelector(
+  credentials: AiCredentials,
+  resolved: { model: string } | { models: string[] },
+): Record<string, unknown> {
+  if ("model" in resolved) return { model: resolved.model };
+  if (credentials.provider === "openrouter") return { models: resolved.models };
+  return { model: resolved.models[0]! };
 }
 
 /**
@@ -121,12 +224,17 @@ interface ChatCompletionsChoice {
  * invoice.
  *
  * Both are OpenRouter extensions, so both are sent only to OpenRouter.
+ * Gemini shares this request path but none of those extensions: it routes
+ * to nothing (the model id names the generation outright, so there is no
+ * auto-select to constrain) and it reports no per-request cost, which is
+ * why an agent running on Gemini shows tokens and a zero spend — the same
+ * gap Ramp Router has, documented on `ChatUsage.costUsd`.
  */
 async function callChatCompletions(credentials: AiCredentials, request: ModelRequest): Promise<ChatResult> {
   const isOpenRouter = credentials.provider === "openrouter";
 
   const body: Record<string, unknown> = {
-    ...resolveModel(requireModel(credentials, request.model)),
+    ...chatCompletionsRouteSelector(credentials, resolveModel(requireModel(credentials, request.model))),
     messages: request.messages.map(toChatCompletionsMessage),
     max_tokens: request.maxTokens,
   };
@@ -211,6 +319,32 @@ interface ResponsesOutputItem {
   arguments?: string;
 }
 
+/** Router's documented ceiling for a `models` fallback list. */
+const ROUTER_MAX_CANDIDATES = 15;
+
+/**
+ * Which of Router's two route selectors to send. Exactly one of `model` or
+ * `models` is allowed — sending both, or neither, is a 400.
+ *
+ * `models` is a real fallback chain (tried in order, first success wins), so a
+ * connection configured with several models gets the same resilience on Router
+ * as on OpenRouter. The catch is that its entries have to be *concrete*
+ * `provider:provider-model[:service-tier]` candidates, while `model` takes a
+ * catalogue id from `GET /v1/models`, which need not carry a provider prefix.
+ * A list whose entries are not all provider-qualified therefore cannot legally
+ * be a `models` array, and pinning the first entry — what this client did with
+ * every list — stays the honest reading of it.
+ *
+ * Over-long lists are truncated rather than sent and rejected: the entries are
+ * in preference order, so the first fifteen are the ones that matter.
+ */
+function routerRouteSelector(resolved: { model: string } | { models: string[] }): Record<string, unknown> {
+  if ("model" in resolved) return { model: resolved.model };
+  const candidates = resolved.models;
+  if (!candidates.every((candidate) => candidate.includes(":"))) return { model: candidates[0]! };
+  return { models: candidates.slice(0, ROUTER_MAX_CANDIDATES) };
+}
+
 /**
  * The responses API differs from chat completions in three ways that matter
  * here, and all three are handled below rather than papered over:
@@ -223,15 +357,15 @@ interface ResponsesOutputItem {
  *     `function_call` items, so text and tool calls are collected in one
  *     pass instead of read off a single choice.
  *
- * A model *list* has no equivalent either: `resolveModel`'s comma-separated
- * fallback chain is an OpenRouter feature, so only the first entry is sent.
+ * A fallback chain *does* carry over, unlike what this comment used to claim:
+ * Router takes a `models` array as an alternative route selector — see
+ * `routerRouteSelector`.
  */
 async function callResponses(credentials: AiCredentials, request: ModelRequest): Promise<ChatResult> {
   const resolved = resolveModel(requireModel(credentials, request.model));
-  const model = "model" in resolved ? resolved.model : resolved.models[0]!;
 
   const body: Record<string, unknown> = {
-    model,
+    ...routerRouteSelector(resolved),
     input: request.messages.flatMap(toResponsesInputItems),
     max_output_tokens: request.maxTokens,
   };

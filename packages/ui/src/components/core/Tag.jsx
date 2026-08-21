@@ -33,6 +33,7 @@ export function Tag({ children, onRemove, icon, active = false, onClick, style }
       {children}
       {onRemove && (
         <button
+          type="button"
           onClick={(e) => { e.stopPropagation(); onRemove(); }}
           aria-label="Remove"
           style={{

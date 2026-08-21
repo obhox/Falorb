@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Badge, Button, Card, Select } from "@falorb/ui";
+import { getVideoModel } from "@falorb/elevenlabs-client/models";
+import { Badge, Button, Card, Icon, Select } from "@falorb/ui";
 import { CopyField } from "@/components/CopyField";
 import { queueVideoForPosting, setPostQueueStatus } from "@/server/actions/ugc-videos";
 import { useAction } from "@/lib/use-action";
@@ -9,8 +10,16 @@ import { shortDate } from "@/lib/format";
 
 export interface UgcVideoDetailData {
   id: string;
+  mode: string;
   brief: string;
   script: string | null;
+  videoPrompt: string | null;
+  voiceName: string | null;
+  videoModel: string;
+  aspectRatio: string | null;
+  resolution: string | null;
+  requestedDurationSecs: number | null;
+  generateAudio: boolean;
   status: string;
   lastError: string | null;
   videoUrl: string | null;
@@ -37,13 +46,23 @@ const QUEUE_TONE: Record<string, "neutral" | "up" | "down"> = {
 export function UgcVideoDetail({ video, queue }: { video: UgcVideoDetailData; queue: PostQueueEntry[] }) {
   return (
     <>
-      <Card title="Brief">
+      <Card title="Brief" action={<Recipe video={video} />}>
         <p style={{ fontSize: "var(--size-body-sm)", color: "var(--text-primary)" }}>{video.brief}</p>
       </Card>
 
+      {/* Script and shot description are both "the words Falorb wrote", but
+          they are not the same artefact and copying the wrong one into a
+          caption is a real mistake — so each is labelled for what it is
+          rather than sharing a generic heading. */}
       {video.script && (
-        <Card title="Script">
+        <Card title="Script" subtitle="What the presenter says, voiced by your ElevenLabs voice">
           <CopyField value={video.script} />
+        </Card>
+      )}
+
+      {video.videoPrompt && (
+        <Card title="Shot description" subtitle="What Falorb asked the model to film">
+          <CopyField value={video.videoPrompt} />
         </Card>
       )}
 
@@ -58,17 +77,37 @@ export function UgcVideoDetail({ video, queue }: { video: UgcVideoDetailData; qu
       {video.status !== "ready" && video.status !== "failed" && (
         <Card title="Generating">
           <p style={{ fontSize: "var(--size-body-sm)", color: "var(--text-secondary)" }}>
-            Still working on it — refresh this page in a minute or two.
+            {STAGE_DETAIL[video.status] ?? "Still working on it."} Refresh this page in a minute or two.
           </p>
         </Card>
       )}
 
       {video.status === "ready" && video.videoUrl && (
-        <Card title="Video">
+        <Card
+          title="Video"
+          subtitle="Hosted by ElevenLabs, not re-hosted by Falorb — save anything you want to keep"
+          action={
+            /* Opened rather than downloaded: `download` is ignored on a
+               cross-origin href, so a "Download" button would silently just
+               navigate. Opening the original and letting the browser's own
+               save do the rest is what actually happens either way. */
+            <a href={video.videoUrl} target="_blank" rel="noreferrer">
+              <Button size="sm" variant="secondary" iconLeft={<Icon name="external-link" size={13} />}>
+                Open original
+              </Button>
+            </a>
+          }
+        >
           <video
             src={video.videoUrl}
             controls
-            style={{ width: "100%", maxWidth: 420, borderRadius: "var(--radius-2)" }}
+            style={{
+              width: "100%",
+              maxWidth: 420,
+              maxHeight: 420,
+              borderRadius: "var(--radius-2)",
+              background: "var(--ink-1000)",
+            }}
           />
         </Card>
       )}
@@ -85,6 +124,46 @@ export function UgcVideoDetail({ video, queue }: { video: UgcVideoDetailData; qu
         </Card>
       )}
     </>
+  );
+}
+
+/**
+ * Which stage the chain is actually on, so a wait is legible rather than an
+ * indefinite spinner. Keyed by the row's own resume point — the two modes
+ * pass through different ones and neither needs to be mode-aware here.
+ */
+const STAGE_DETAIL: Record<string, string> = {
+  pending: "Writing the words now.",
+  script_ready: "Recording the voiceover on your ElevenLabs voice.",
+  voice_ready: "Sending the photo and voiceover off to be lip-synced.",
+  prompt_ready: "Sending the shot description off to the video model.",
+  video_processing: "The model is rendering. This is the slow part.",
+};
+
+/**
+ * The generation's settings, in the header of the brief it came from.
+ * A finished video is judged against what it was asked to be — which model,
+ * which voice, what shape — and none of that is recoverable from watching
+ * the clip.
+ */
+function Recipe({ video }: { video: UgcVideoDetailData }) {
+  const model = getVideoModel(video.videoModel);
+  const isAvatar = video.mode === "avatar";
+
+  const parts = [
+    model?.label ?? video.videoModel,
+    isAvatar ? video.voiceName ?? "voice by ID" : null,
+    video.aspectRatio,
+    video.resolution,
+    video.requestedDurationSecs ? `${video.requestedDurationSecs}s` : null,
+    !isAvatar && video.generateAudio ? "model audio" : null,
+  ].filter(Boolean);
+
+  return (
+    <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <Icon name={isAvatar ? "user-round" : "film"} size={13} color="var(--text-muted)" />
+      <span style={{ fontSize: "var(--size-micro)", color: "var(--text-muted)" }}>{parts.join(" · ")}</span>
+    </span>
   );
 }
 

@@ -1,16 +1,27 @@
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { decryptCredential, resolveAiCredentials, schema } from "@falorb/db";
 import { complete, AiSignalError } from "@falorb/ai";
-import { ElevenLabsClient, ElevenLabsApiError, LIPSYNC_MODEL_ID } from "@falorb/elevenlabs-client";
+import {
+  ElevenLabsClient,
+  ElevenLabsApiError,
+  type AspectRatio,
+  type Resolution,
+} from "@falorb/elevenlabs-client";
 import type { WorkerContext } from "../context";
 
 /**
- * Advances UGC videos (FEATURES.md §18) one stage per tick: script -> voice
- * -> submit for lipsync video -> poll for completion. One stage per row per
- * run, not the whole chain in one call, so a crash mid-chain resumes from
- * the last persisted stage instead of re-running (and re-billing) earlier
- * stages — same reasoning `apps/worker/src/jobs/clay-enrichment.ts` gives
- * for caching both hits and misses.
+ * Advances UGC videos (FEATURES.md §18) one stage per tick, along whichever
+ * chain the row's `mode` selects:
+ *
+ *   avatar  script -> voiceover -> submit avatar video -> poll
+ *   prompt  shot description -> submit text-to-video -> poll
+ *
+ * One stage per row per run, not the whole chain in one call, so a crash
+ * mid-chain resumes from the last persisted stage instead of re-running
+ * (and re-billing) earlier stages — same reasoning
+ * `apps/worker/src/jobs/clay-enrichment.ts` gives for caching both hits and
+ * misses. The two chains converge at `video_processing`: once something is
+ * submitted, polling is identical whichever model produced it.
  *
  * Per-organization, like `clay-enrichment.ts`: each org connects its own
  * ElevenLabs account via `integrationConnections` (`provider: "elevenlabs"`)
@@ -37,7 +48,22 @@ const SCRIPT_SYSTEM_PROMPT =
   "brackets, no markdown. Keep it under 80 words so it fits a short " +
   "voiceover.";
 
-const IN_FLIGHT_STATUSES = ["pending", "script_ready", "voice_ready", "video_processing"] as const;
+const PROMPT_SYSTEM_PROMPT =
+  "You write prompts for text-to-video generation models. Given a brief " +
+  "describing a product or offer, write a single-paragraph description of " +
+  "ONE short shot that would sell it: the subject, the setting, the " +
+  "lighting, and the camera move. Write it as visual direction only — what " +
+  "the camera sees. No dialogue, no voiceover lines, no on-screen text, no " +
+  "shot lists, no markdown, no preamble. Keep it under 80 words; these " +
+  "models lose coherence on longer prompts.";
+
+const IN_FLIGHT_STATUSES = [
+  "pending",
+  "script_ready",
+  "voice_ready",
+  "prompt_ready",
+  "video_processing",
+] as const;
 
 type UgcVideoRow = typeof schema.ugcVideos.$inferSelect;
 
@@ -138,10 +164,15 @@ async function advanceOne(
   row: UgcVideoRow,
 ): Promise<boolean> {
   switch (row.status) {
+    // Both chains start by turning the brief into words, but into different
+    // words: a script the presenter speaks, or direction the camera follows.
+    // Same `complete()` call, different system prompt and different landing
+    // column, so they share one case rather than duplicating the AI plumbing.
     case "pending": {
-      let script: string;
+      const isPrompt = row.mode === "prompt";
+      let written: string;
       try {
-        script = await complete(SCRIPT_SYSTEM_PROMPT, row.brief, {
+        written = await complete(isPrompt ? PROMPT_SYSTEM_PROMPT : SCRIPT_SYSTEM_PROMPT, row.brief, {
           maxTokens: 300,
           credentials: await resolveAiCredentials(context.db, row.organizationId, row.projectId),
         });
@@ -151,14 +182,56 @@ async function advanceOne(
       }
       await context.db
         .update(schema.ugcVideos)
-        .set({ script, status: "script_ready", updatedAt: new Date() })
+        .set(
+          isPrompt
+            ? { videoPrompt: written, status: "prompt_ready", updatedAt: new Date() }
+            : { script: written, status: "script_ready", updatedAt: new Date() },
+        )
+        .where(eq(schema.ugcVideos.id, row.id));
+      return true;
+    }
+
+    case "prompt_ready": {
+      if (!row.videoPrompt) {
+        await fail(context, row.id, "No shot description to render — this row should not have reached this stage.");
+        return true;
+      }
+      let submission: Awaited<ReturnType<ElevenLabsClient["createPromptVideo"]>>;
+      try {
+        submission = await client.createPromptVideo({
+          modelId: row.videoModel,
+          prompt: row.videoPrompt,
+          // Null where the composer had nothing to offer for this model —
+          // the client omits those so the model applies its own default,
+          // rather than Falorb guessing one on its behalf.
+          aspectRatio: (row.aspectRatio as AspectRatio | null) ?? undefined,
+          resolution: (row.resolution as Resolution | null) ?? undefined,
+          durationSecs: row.requestedDurationSecs ?? undefined,
+          generateAudio: row.generateAudio,
+        });
+      } catch (error) {
+        await fail(context, row.id, describeElevenLabsError(error));
+        return true;
+      }
+      await context.db
+        .update(schema.ugcVideos)
+        .set({
+          elevenlabsGenerationId: submission.id,
+          status: "video_processing",
+          processingStartedAt: new Date(),
+          updatedAt: new Date(),
+        })
         .where(eq(schema.ugcVideos.id, row.id));
       return true;
     }
 
     case "script_ready": {
-      if (!row.script) {
-        await fail(context, row.id, "No script to voice — this row should not have reached this stage.");
+      if (!row.script || !row.voiceId) {
+        await fail(
+          context,
+          row.id,
+          "No script or no voice selected — this row should not have reached this stage.",
+        );
         return true;
       }
       let speech: Awaited<ReturnType<ElevenLabsClient["textToSpeech"]>>;
@@ -181,17 +254,26 @@ async function advanceOne(
     }
 
     case "voice_ready": {
-      if (!row.audioBase64 || !row.audioMimeType) {
-        await fail(context, row.id, "No voiceover to animate — this row should not have reached this stage.");
+      if (!row.audioBase64 || !row.audioMimeType || !row.presenterImageBase64 || !row.presenterImageMimeType) {
+        await fail(
+          context,
+          row.id,
+          "No voiceover or no presenter photo — this row should not have reached this stage.",
+        );
         return true;
       }
-      let submission: Awaited<ReturnType<ElevenLabsClient["createLipsyncVideo"]>>;
+      let submission: Awaited<ReturnType<ElevenLabsClient["createAvatarVideo"]>>;
       try {
-        submission = await client.createLipsyncVideo({
+        submission = await client.createAvatarVideo({
+          // The row's own model, not the client's default: a video started
+          // under one avatar model must not finish under another because the
+          // default moved on between ticks.
+          modelId: row.videoModel,
           imageBase64: row.presenterImageBase64,
           imageMimeType: row.presenterImageMimeType,
           audioBase64: row.audioBase64,
           audioMimeType: row.audioMimeType,
+          resolution: (row.resolution as Resolution | null) ?? undefined,
         });
       } catch (error) {
         await fail(context, row.id, describeElevenLabsError(error));
@@ -201,7 +283,6 @@ async function advanceOne(
         .update(schema.ugcVideos)
         .set({
           elevenlabsGenerationId: submission.id,
-          videoModel: LIPSYNC_MODEL_ID,
           status: "video_processing",
           processingStartedAt: new Date(),
           updatedAt: new Date(),
@@ -238,7 +319,10 @@ async function advanceOne(
           .update(schema.ugcVideos)
           .set({
             videoUrl: result.videoUrl,
-            durationSeconds: result.durationSeconds,
+            // ElevenLabs does not always report a length. For a prompt model
+            // the requested duration is what it rendered, so it is a truthful
+            // fallback; the avatar model has none to fall back on.
+            durationSeconds: result.durationSeconds ?? row.requestedDurationSecs,
             status: "ready",
             processingStartedAt: null,
             updatedAt: new Date(),

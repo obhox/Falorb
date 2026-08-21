@@ -9,26 +9,28 @@ import {
   pickEnumValue,
   planArgs,
   pruneWishes,
+  requiresArgumentMatching,
   resultShape,
 } from "./schema";
-import { INTROSPECTION } from "./schema.fixture";
+import { FLAT_INTROSPECTION, INTROSPECTION } from "./schema.fixture";
 
 const schema = new BufferSchema(INTROSPECTION);
+const flat = new BufferSchema(FLAT_INTROSPECTION);
 
 describe("buildSelection", () => {
   it("expands an object-typed field into its subfields", () => {
     // The exact failure that broke the first client: `weeklyPostingLimit` is
     // a `WeeklyPostingLimit`, so selecting it bare is a validation error.
     const selection = buildSelection(schema, "Channel", ["id", "name", "weeklyPostingLimit"]);
-    expect(selection).toBe("id name weeklyPostingLimit { limit remaining }");
+    expect(selection).toBe("id name weeklyPostingLimit { limit scheduled sent }");
   });
 
   it("drops fields the schema doesn't have instead of failing the query", () => {
-    expect(buildSelection(schema, "Channel", ["id", "postingGoal", "allowedActions"])).toBe("id");
+    expect(buildSelection(schema, "Channel", ["id", "nickname", "postingCadence"])).toBe("id");
   });
 
   it("never auto-walks into a paginated connection", () => {
-    expect(buildSelection(schema, "Channel", ["id", "posts"])).toBe("id");
+    expect(buildSelection(flat, "Channel", ["id", "posts"])).toBe("id");
   });
 
   it("honours pinned subfields", () => {
@@ -41,25 +43,81 @@ describe("buildSelection", () => {
 });
 
 describe("planArgs", () => {
-  it("emits only the arguments the live field declares", () => {
-    const plan = planArgs(schema.queryField("channels"), {
-      organizationId: "org_1",
-      // Written for a schema that takes `channels(input:)` — silently ignored here.
-      input: { organizationId: "org_1" },
-    });
-    expect(plan.variableDefinitions).toBe("($organizationId: OrganizationId!)");
-    expect(plan.argumentList).toBe("(organizationId: $organizationId)");
-    expect(plan.variables).toEqual({ organizationId: "org_1" });
+  it("folds flat values into the input object the live schema declares", () => {
+    const plan = planArgs(
+      schema.queryField("channels"),
+      { organizationId: "org_1", input: { organizationId: "org_1" } },
+      schema,
+    );
+    expect(plan.variableDefinitions).toBe("($input: ChannelsInput!)");
+    expect(plan.argumentList).toBe("(input: $input)");
+    expect(plan.variables).toEqual({ input: { organizationId: "org_1" } });
     expect(plan.missingRequired).toEqual([]);
   });
 
+  it("names the required input field nothing could fill", () => {
+    // `channels(input: {})` is what the client used to send when it had no
+    // organization id — accepted as valid GraphQL, then rejected by Buffer.
+    const plan = planArgs(schema.queryField("channels"), { input: {} }, schema);
+    expect(plan.missingRequired).toEqual(["input.organizationId"]);
+  });
+
+  it("moves a channel filter into the nested filter object, as a list", () => {
+    const plan = planArgs(
+      schema.queryField("posts"),
+      { channelIds: ["ch_1"], status: "scheduled", organizationId: "org_1", first: 100 },
+      schema,
+    );
+    expect(plan.argumentList).toBe("(first: $first, input: $input)");
+    expect(plan.variables.input).toEqual({
+      filter: { channelIds: ["ch_1"], status: ["scheduled"] },
+      organizationId: "org_1",
+    });
+  });
+
+  it("drops a filter value the enum doesn't define rather than failing the query", () => {
+    const plan = planArgs(
+      schema.queryField("posts"),
+      { channelIds: ["ch_1"], status: "pending_review", organizationId: "org_1" },
+      schema,
+    );
+    expect(plan.variables.input).toEqual({ filter: { channelIds: ["ch_1"] }, organizationId: "org_1" });
+  });
+
+  it("still emits flat arguments for a schema that declares them", () => {
+    const plan = planArgs(
+      flat.queryField("channels"),
+      // Written for the input-object spelling — silently ignored here.
+      { organizationId: "org_1", input: { organizationId: "org_1" } },
+      flat,
+    );
+    expect(plan.variableDefinitions).toBe("($organizationId: OrganizationId!)");
+    expect(plan.argumentList).toBe("(organizationId: $organizationId)");
+    expect(plan.variables).toEqual({ organizationId: "org_1" });
+  });
+
   it("reports a required argument it has no value for", () => {
-    expect(planArgs(schema.queryField("channels"), {}).missingRequired).toEqual(["organizationId"]);
+    expect(planArgs(flat.queryField("channels"), {}, flat).missingRequired).toEqual(["organizationId"]);
   });
 
   it("omits optional arguments that are absent", () => {
-    const plan = planArgs(schema.queryField("posts"), { channelId: "ch_1", first: 100 });
+    const plan = planArgs(flat.queryField("posts"), { channelId: "ch_1", first: 100 }, flat);
     expect(plan.argumentList).toBe("(channelId: $channelId, first: $first)");
+  });
+});
+
+describe("requiresArgumentMatching", () => {
+  it("sees an organization required inside an input object", () => {
+    expect(requiresArgumentMatching(schema, schema.queryField("channels"), /organization/i)).toBe(true);
+    expect(requiresArgumentMatching(schema, schema.queryField("posts"), /organization/i)).toBe(true);
+  });
+
+  it("sees one required as a plain argument", () => {
+    expect(requiresArgumentMatching(flat, flat.queryField("channels"), /organization/i)).toBe(true);
+  });
+
+  it("is false for a field that needs nothing", () => {
+    expect(requiresArgumentMatching(schema, schema.queryField("account"), /organization/i)).toBe(false);
   });
 });
 
@@ -71,7 +129,7 @@ describe("resultShape", () => {
   it("recognises a Relay connection and its node type", () => {
     expect(resultShape(schema, schema.queryField("posts"))).toEqual({
       kind: "connection",
-      typeName: "PostConnection",
+      typeName: "PostsResults",
       nodeTypeName: "Post",
       via: "edges",
     });
@@ -86,11 +144,12 @@ describe("enum and input handling", () => {
   });
 
   it("picks the enum member the schema defines for our intent", () => {
-    expect(inputValueForCandidates(schema, "CreatePostInput", "schedulingType", ["draft"])).toBe("DRAFT");
+    expect(inputValueForCandidates(schema, "CreatePostInput", "mode", ["addToQueue", "queue"])).toBe("addToQueue");
+    expect(inputValueForCandidates(schema, "CreatePostInput", "schedulingType", ["automatic"])).toBe("automatic");
   });
 
   it("returns null for an input field Buffer doesn't declare, so the caller omits it", () => {
-    expect(inputValueForCandidates(schema, "CreatePostInput", "mode", ["queue"])).toBeNull();
+    expect(inputValueForCandidates(flat, "CreatePostInput", "mode", ["queue"])).toBeNull();
   });
 
   it("falls back to the documented spelling when the schema is unknown", () => {
@@ -98,7 +157,7 @@ describe("enum and input handling", () => {
   });
 
   it("strips input keys the mutation doesn't declare", () => {
-    const filtered = filterInputObjects(schema, schema.mutationField("createPost"), {
+    const filtered = filterInputObjects(flat, flat.mutationField("createPost"), {
       input: { channelId: "ch_1", text: "hello", mode: "queue", nonsense: 1 },
     });
     expect(filtered.input).toEqual({ channelId: "ch_1", text: "hello" });

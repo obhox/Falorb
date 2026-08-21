@@ -1,14 +1,29 @@
-import { index, integer, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { boolean, index, integer, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { organizations, projects } from "./tenancy";
 import { user } from "./auth";
 
 /**
  * AI-generated UGC-style video for social posting (FEATURES.md §18).
  * Built in-house rather than integrating a single UGC vendor (Arcads,
- * HeyGen, ...) — a chain of three ElevenLabs calls owned end to end by
- * Falorb: a script (`@falorb/ai`'s `complete()`), a voiceover
- * (`ElevenLabsClient.textToSpeech`), then a lip-synced talking video from a
- * user-supplied presenter photo (`ElevenLabsClient.createLipsyncVideo`).
+ * HeyGen, ...) — a chain of ElevenLabs calls owned end to end by Falorb.
+ *
+ * `mode` is the fork, and it decides which columns below are meaningful,
+ * which stages the worker runs, and what the composer asks for:
+ *
+ *   avatar  A script (`@falorb/ai`'s `complete()`), a voiceover
+ *           (`ElevenLabsClient.textToSpeech`), then a lip-synced talking
+ *           video from a user-supplied presenter photo
+ *           (`createAvatarVideo`). Needs `voiceId` and a presenter photo.
+ *   prompt  A shot description written from the same brief, sent straight
+ *           to a text-to-video model — Veo, Seedance
+ *           (`createPromptVideo`). No presenter, no voiceover; the model
+ *           generates its own audio when `generateAudio` is set.
+ *
+ * Both modes exist because they answer different asks. The avatar mode is
+ * the testimonial ad — a person to camera, in a voice the org has cloned.
+ * The prompt mode is the b-roll/product cut, where there is no presenter to
+ * photograph. Which one a row is cannot be inferred from `videoModel`
+ * alone once the catalog grows, so it is stored rather than derived.
  *
  * Org-wide rather than project-scoped, same reasoning as `prospects`: a
  * social video is marketing content for the business, not analysis of one
@@ -21,9 +36,10 @@ import { user } from "./auth";
  * restarting a (billed) generation from scratch. `status` is therefore both
  * the lifecycle and the resume point:
  *
- *   pending          just created, script not yet generated
- *   script_ready     script written, voiceover not yet requested
- *   voice_ready      voiceover generated, video not yet submitted
+ *   pending          just created, nothing written yet
+ *   script_ready     avatar: script written, voiceover not yet requested
+ *   voice_ready      avatar: voiceover generated, video not yet submitted
+ *   prompt_ready     prompt: shot description written, not yet submitted
  *   video_processing submitted to ElevenLabs, awaiting completion
  *   ready            video generated, `videoUrl` set
  *   failed           any stage errored; see `lastError`
@@ -51,25 +67,52 @@ export const ugcVideos = pgTable(
       .references(() => organizations.id, { onDelete: "cascade" }),
     projectId: integer("project_id").references(() => projects.id, { onDelete: "set null" }),
 
-    /** What the user typed: the product/offer/angle the video should sell. */
-    brief: text("brief").notNull(),
-    script: text("script"),
+    /** "avatar" | "prompt" — see the table docblock. Defaulted so every row
+     * written before text-to-video existed reads back as what it was. */
+    mode: text("mode").notNull().default("avatar"),
 
-    voiceId: text("voice_id").notNull(),
+    /** What the user typed: the product/offer/angle the video should sell.
+     * The same field in both modes — one brief, two ways of filming it. */
+    brief: text("brief").notNull(),
+    /** Avatar mode: the words the presenter speaks aloud. */
+    script: text("script"),
+    /** Prompt mode: the shot description sent to the video model. Kept apart
+     * from `script` because they are not interchangeable — one is dialogue,
+     * the other is camera direction, and the review page labels them so. */
+    videoPrompt: text("video_prompt"),
+
+    /** Avatar mode only. `voiceName` is denormalised from the org's
+     * ElevenLabs library at submit time so the review page can say which
+     * voice was used without a live API call — and still can after the voice
+     * is renamed or deleted upstream. */
+    voiceId: text("voice_id"),
+    voiceName: text("voice_name"),
     audioBase64: text("audio_base64"),
     audioMimeType: text("audio_mime_type"),
 
-    presenterImageBase64: text("presenter_image_base64").notNull(),
-    presenterImageMimeType: text("presenter_image_mime_type").notNull(),
+    /** Avatar mode only — the face the lipsync model animates. */
+    presenterImageBase64: text("presenter_image_base64"),
+    presenterImageMimeType: text("presenter_image_mime_type"),
 
-    /** The ElevenLabs Flows model used — see `LIPSYNC_MODEL_ID` in
+    /** The ElevenLabs Flows model used — an id from `VIDEO_MODELS` in
      * `@falorb/elevenlabs-client`. Stored per-row, not just read from the
      * client's constant, so a future model change doesn't retroactively
      * mislabel videos generated under the old one. */
     videoModel: text("video_model").notNull(),
+    /** What was *asked for*, within the chosen model's advertised caps. Null
+     * where the model doesn't take that parameter (the avatar model frames
+     * itself from the photo and runs as long as the voiceover). */
+    aspectRatio: text("aspect_ratio"),
+    resolution: text("resolution"),
+    requestedDurationSecs: integer("requested_duration_secs"),
+    /** Prompt mode: let the model score its own audio. Meaningless in avatar
+     * mode, where the audio is the ElevenLabs voiceover. */
+    generateAudio: boolean("generate_audio").notNull().default(true),
     /** ElevenLabs' generation id, for polling `GET /v1/flows/video/{id}`. */
     elevenlabsGenerationId: text("elevenlabs_generation_id"),
     videoUrl: text("video_url"),
+    /** The finished clip's actual length, as ElevenLabs reported it — not
+     * `requestedDurationSecs`, which is what was asked for. */
     durationSeconds: integer("duration_seconds"),
 
     status: text("status").notNull().default("pending"),
@@ -87,6 +130,7 @@ export const ugcVideos = pgTable(
     index("ugc_videos_org_idx").on(t.organizationId),
     index("ugc_videos_org_status_idx").on(t.organizationId, t.status),
     index("ugc_videos_project_idx").on(t.projectId),
+    index("ugc_videos_org_mode_idx").on(t.organizationId, t.mode),
   ],
 );
 

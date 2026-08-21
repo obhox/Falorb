@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { decryptCredential, schema } from "@falorb/db";
 import {
   LinkiClient,
@@ -33,11 +33,17 @@ import type { WorkerContext } from "../context";
 const PAGE_SIZE = 200;
 
 export async function syncLinki(context: WorkerContext): Promise<void> {
+  // Org-level connections only. A property's own override (see
+  // `packages/db/src/schema/integrations.ts`) is used on demand by
+  // `getLinkiClient`, not mirrored here — Linki's data isn't scoped to one
+  // property, so pulling it again per override would just duplicate the
+  // same org-wide mirror under a second credential.
   const connections = await context.db
     .select()
     .from(schema.integrationConnections)
     .where(
       and(
+        isNull(schema.integrationConnections.projectId),
         eq(schema.integrationConnections.provider, "linki"),
         eq(schema.integrationConnections.status, "active"),
       ),

@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, or } from "drizzle-orm";
 import { db, decryptCredential, schema } from "@falorb/db";
 import { LinkiClient } from "@falorb/linki-client";
 import { BundAiClient } from "@falorb/bund-ai-client";
@@ -10,48 +10,75 @@ import { ExaClient, FirecrawlClient, type ResearchClients } from "@falorb/resear
  * Builds a typed client from a stored `integrationConnections` row, for
  * server actions that take a real action on Linki/Bund AI/Buffer (not just
  * reading the mirror) or research on Exa/Firecrawl's behalf. Returns null
- * when the org has never connected, or has revoked/errored — callers turn
- * that into "connect it in Settings" rather than a stack trace. Clay and
- * ElevenLabs have no equivalent getter here — nothing in the web app calls
- * either directly; only `apps/worker/src/jobs/clay-enrichment.ts`/
- * `ugc-video-gen.ts` do, and each builds its own client from the connection
- * row.
+ * when neither the project nor the org has connected, or the connection has
+ * revoked/errored — callers turn that into "connect it in Settings" rather
+ * than a stack trace. Clay and ElevenLabs have no equivalent getter here —
+ * nothing in the web app calls either directly; only
+ * `apps/worker/src/jobs/clay-enrichment.ts`/`ugc-video-gen.ts` do, and each
+ * builds its own client from the connection row (org-level only — see those
+ * jobs' own queries).
  */
 
+/**
+ * A project's own connection for this provider, if it has one, else the
+ * org's — the override-with-fallback behaviour described in FEATURES.md
+ * §13: a property with its own Buffer/Exa/etc. account uses that one, a
+ * property with none uses whatever the organization has connected.
+ * `projectId` omitted (org-only call sites — Linki/Bund AI have none today)
+ * goes straight to the org-level row.
+ */
 async function activeConnection(
   organizationId: string,
   provider: "linki" | "bund_ai" | "buffer" | "exa" | "firecrawl",
+  projectId?: number,
 ) {
-  const [row] = await db()
+  if (projectId != null) {
+    const [projectRow] = await db()
+      .select()
+      .from(schema.integrationConnections)
+      .where(
+        and(
+          eq(schema.integrationConnections.organizationId, organizationId),
+          eq(schema.integrationConnections.projectId, projectId),
+          eq(schema.integrationConnections.provider, provider),
+          eq(schema.integrationConnections.status, "active"),
+        ),
+      )
+      .limit(1);
+    if (projectRow) return projectRow;
+  }
+
+  const [orgRow] = await db()
     .select()
     .from(schema.integrationConnections)
     .where(
       and(
         eq(schema.integrationConnections.organizationId, organizationId),
+        isNull(schema.integrationConnections.projectId),
         eq(schema.integrationConnections.provider, provider),
         eq(schema.integrationConnections.status, "active"),
       ),
     )
     .limit(1);
-  return row ?? null;
+  return orgRow ?? null;
 }
 
-export async function getLinkiClient(organizationId: string): Promise<LinkiClient | null> {
-  const row = await activeConnection(organizationId, "linki");
+export async function getLinkiClient(organizationId: string, projectId?: number): Promise<LinkiClient | null> {
+  const row = await activeConnection(organizationId, "linki", projectId);
   if (!row) return null;
   const apiKey = decryptCredential({ ciphertext: row.encryptedApiKey, iv: row.iv, authTag: row.authTag });
   return new LinkiClient({ baseUrl: row.baseUrl, apiKey });
 }
 
-export async function getBundAiClient(organizationId: string): Promise<BundAiClient | null> {
-  const row = await activeConnection(organizationId, "bund_ai");
+export async function getBundAiClient(organizationId: string, projectId?: number): Promise<BundAiClient | null> {
+  const row = await activeConnection(organizationId, "bund_ai", projectId);
   if (!row) return null;
   const apiKey = decryptCredential({ ciphertext: row.encryptedApiKey, iv: row.iv, authTag: row.authTag });
   return new BundAiClient({ baseUrl: row.baseUrl, apiKey });
 }
 
-export async function getBufferClient(organizationId: string): Promise<BufferClient | null> {
-  const row = await activeConnection(organizationId, "buffer");
+export async function getBufferClient(organizationId: string, projectId?: number): Promise<BufferClient | null> {
+  const row = await activeConnection(organizationId, "buffer", projectId);
   if (!row) return null;
   const apiKey = decryptCredential({ ciphertext: row.encryptedApiKey, iv: row.iv, authTag: row.authTag });
   return new BufferClient({ baseUrl: row.baseUrl, apiKey });
@@ -59,15 +86,16 @@ export async function getBufferClient(organizationId: string): Promise<BufferCli
 
 /**
  * Builds `@falorb/research`'s `ResearchClients` bag from whichever of
- * Exa/Firecrawl this organization has connected — either, both, or neither.
- * `search`/`fetchPage` (`@falorb/research`) treat a `null` entry as "no
- * connection" and fall back to the other provider, so this never throws for
- * an org that hasn't connected one or either.
+ * Exa/Firecrawl this organization (or, when `projectId` is given, this
+ * project — falling back to the org) has connected — either, both, or
+ * neither. `search`/`fetchPage` (`@falorb/research`) treat a `null` entry as
+ * "no connection" and fall back to the other provider, so this never throws
+ * for an org/project that hasn't connected one or either.
  */
-export async function getResearchClients(organizationId: string): Promise<ResearchClients> {
+export async function getResearchClients(organizationId: string, projectId?: number): Promise<ResearchClients> {
   const [exaRow, firecrawlRow] = await Promise.all([
-    activeConnection(organizationId, "exa"),
-    activeConnection(organizationId, "firecrawl"),
+    activeConnection(organizationId, "exa", projectId),
+    activeConnection(organizationId, "firecrawl", projectId),
   ]);
 
   return {
@@ -90,8 +118,12 @@ export async function getResearchClients(organizationId: string): Promise<Resear
   };
 }
 
+export type Provider = "linki" | "bund_ai" | "buffer" | "clay" | "exa" | "firecrawl" | "elevenlabs";
+
+export const PROVIDERS: Provider[] = ["linki", "bund_ai", "buffer", "clay", "exa", "firecrawl", "elevenlabs"];
+
 export interface ConnectionView {
-  provider: "linki" | "bund_ai" | "buffer" | "clay" | "exa" | "firecrawl" | "elevenlabs";
+  provider: Provider;
   baseUrl: string;
   status: "active" | "revoked" | "error";
   lastVerifiedAt: string | null;
@@ -100,14 +132,8 @@ export interface ConnectionView {
   updatedAt: string;
 }
 
-/** For the Settings → Integrations page. Never returns key material — there is nothing here safe to display. */
-export async function listConnections(organizationId: string): Promise<ConnectionView[]> {
-  const rows = await db()
-    .select()
-    .from(schema.integrationConnections)
-    .where(eq(schema.integrationConnections.organizationId, organizationId));
-
-  return rows.map((r) => ({
+function toConnectionView(r: typeof schema.integrationConnections.$inferSelect): ConnectionView {
+  return {
     provider: r.provider,
     baseUrl: r.baseUrl,
     status: r.status,
@@ -115,5 +141,62 @@ export async function listConnections(organizationId: string): Promise<Connectio
     lastSyncedAt: r.lastSyncedAt?.toISOString() ?? null,
     lastError: r.lastError,
     updatedAt: r.updatedAt.toISOString(),
+  };
+}
+
+/**
+ * For the org Settings → Integrations page. Org-level rows only
+ * (`projectId is null`) — a project's own overrides are managed on that
+ * project's settings page instead, via `listProjectConnections`. Never
+ * returns key material — there is nothing here safe to display.
+ */
+export async function listConnections(organizationId: string): Promise<ConnectionView[]> {
+  const rows = await db()
+    .select()
+    .from(schema.integrationConnections)
+    .where(
+      and(
+        eq(schema.integrationConnections.organizationId, organizationId),
+        isNull(schema.integrationConnections.projectId),
+      ),
+    );
+
+  return rows.map(toConnectionView);
+}
+
+export interface ProjectConnectionView {
+  provider: Provider;
+  /** This project's own connection for the provider, if it has one. */
+  override: ConnectionView | null;
+  /** The organization's connection, used when `override` is null. */
+  inherited: ConnectionView | null;
+}
+
+/**
+ * For a property's Settings → Integrations panel: every provider, showing
+ * whether the property has its own override and what it would otherwise
+ * inherit from the organization. Never returns key material.
+ */
+export async function listProjectConnections(
+  organizationId: string,
+  projectId: number,
+): Promise<ProjectConnectionView[]> {
+  const rows = await db()
+    .select()
+    .from(schema.integrationConnections)
+    .where(
+      and(
+        eq(schema.integrationConnections.organizationId, organizationId),
+        or(eq(schema.integrationConnections.projectId, projectId), isNull(schema.integrationConnections.projectId)),
+      ),
+    );
+
+  const overrides = new Map(rows.filter((r) => r.projectId === projectId).map((r) => [r.provider, toConnectionView(r)]));
+  const inherited = new Map(rows.filter((r) => r.projectId === null).map((r) => [r.provider, toConnectionView(r)]));
+
+  return PROVIDERS.map((provider) => ({
+    provider,
+    override: overrides.get(provider) ?? null,
+    inherited: inherited.get(provider) ?? null,
   }));
 }

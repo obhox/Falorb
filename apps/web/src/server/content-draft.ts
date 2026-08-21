@@ -27,14 +27,14 @@ const BODY_DELIMITER = "---";
 /**
  * Best-effort external research folded into the draft prompt, or null when
  * unavailable. `search()` picks exactly one connected provider (Exa,
- * falling back to Firecrawl only if the organization has no Exa connection
- * or Exa itself errors) — this never combines both for one topic. Both are
- * per-organization connections (Settings → Integrations), same as
- * Linki/Bund AI/Clay — an organization that has connected neither just
- * skips this step.
+ * falling back to Firecrawl only if there's no Exa connection or Exa itself
+ * errors) — this never combines both for one topic. Each is either this
+ * property's own connection (Settings → Integrations on the property) or,
+ * absent that, the organization's — a property and an organization that
+ * have connected neither just skip this step.
  */
-async function researchTopic(topic: string, organizationId: string): Promise<string | null> {
-  const clients = await getResearchClients(organizationId);
+async function researchTopic(topic: string, organizationId: string, projectId: number): Promise<string | null> {
+  const clients = await getResearchClients(organizationId, projectId);
   let results: Awaited<ReturnType<typeof search>>;
   try {
     results = await search(clients, topic, { limit: 5 });
@@ -56,8 +56,9 @@ export async function generateContentDraft(
   contextData: unknown,
   projectName: string,
   organizationId: string,
+  projectId: number,
 ): Promise<ContentDraft> {
-  const research = await researchTopic(topic, organizationId);
+  const research = await researchTopic(topic, organizationId, projectId);
 
   const systemPrompt =
     `You are a content strategist writing a new landing/content page for ${projectName}. ` +

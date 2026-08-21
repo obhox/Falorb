@@ -1,5 +1,5 @@
 {
-  "id": "e17ecdfb-5b33-452a-acd9-b5f9cf9118f6",
+  "id": "bcdf1118-7d3c-4989-a859-961c37699876",
   "prevId": "56cd6ba4-2d78-46fe-b312-677cb79bedf3",
   "version": "7",
   "dialect": "postgresql",
@@ -988,51 +988,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'{}'::jsonb"
-        },
-        "profile_summary": {
-          "name": "profile_summary",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "profile_icp": {
-          "name": "profile_icp",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "profile_key_features": {
-          "name": "profile_key_features",
-          "type": "text[]",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'"
-        },
-        "profile_suggested_keywords": {
-          "name": "profile_suggested_keywords",
-          "type": "text[]",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'"
-        },
-        "profile_raw": {
-          "name": "profile_raw",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
-        },
-        "profile_crawled_at": {
-          "name": "profile_crawled_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "profile_crawl_failed_at": {
-          "name": "profile_crawl_failed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
         },
         "created_at": {
           "name": "created_at",
@@ -4011,6 +3966,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "project_id": {
+          "name": "project_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
         "provider": {
           "name": "provider",
           "type": "integration_provider",
@@ -4120,6 +4081,35 @@
             }
           ],
           "isUnique": true,
+          "where": "\"integration_connections\".\"project_id\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "integration_connections_project_provider_uq": {
+          "name": "integration_connections_project_provider_uq",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "provider",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"integration_connections\".\"project_id\" is not null",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -4138,6 +4128,21 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "integration_connections_project_idx": {
+          "name": "integration_connections_project_idx",
+          "columns": [
+            {
+              "expression": "project_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -4147,6 +4152,19 @@
           "tableTo": "organizations",
           "columnsFrom": [
             "organization_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "integration_connections_project_id_projects_id_fk": {
+          "name": "integration_connections_project_id_projects_id_fk",
+          "tableFrom": "integration_connections",
+          "tableTo": "projects",
+          "columnsFrom": [
+            "project_id"
           ],
           "columnsTo": [
             "id"

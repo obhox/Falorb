@@ -13,7 +13,7 @@ Living record of what exists, what is half-built, and what has not been started.
 
 **Where things stand:** the collection pipeline, storage layer, identity graph,
 query layer, background workers, MCP server and self-serve account system are
-complete and verified. The dashboard is built — 36 routes on the Falorb design
+complete and verified. The dashboard is built — 41 routes on the Falorb design
 system, light and dark, role-enforced. Most routes are driven end to end by
 Playwright; the eight newest — sales lead actions, the weekly digest, the
 product signal's drop-off data, the public benchmark report, the referral
@@ -298,11 +298,36 @@ read mirror:
 
 - **Credential storage** — `schema.integrationConnections`
   (`packages/db/src/schema/integrations.ts`), one `provider`-discriminated
-  table (`linki` | `bund_ai` | `buffer` | `clay` | `elevenlabs`) rather than
-  one table per service. API keys are AES-256-GCM encrypted
-  (`packages/db/src/crypto.ts`, `INTEGRATION_CREDENTIAL_ENC_KEY`) — envelope
-  encryption with a key outside the database, since these must be
+  table (`linki` | `bund_ai` | `buffer` | `clay` | `exa` | `firecrawl` |
+  `elevenlabs`) rather than one table per service. API keys are AES-256-GCM
+  encrypted (`packages/db/src/crypto.ts`, `INTEGRATION_CREDENTIAL_ENC_KEY`) —
+  envelope encryption with a key outside the database, since these must be
   decryptable to use, unlike `api_keys.keyHash`.
+- **Property-level overrides** — a row is either org-level (`projectId`
+  null) or one property's own override (`projectId` set), same table, same
+  shape, distinguished by two partial unique indexes rather than a second
+  table: `(organizationId, provider)` where `projectId is null`, and
+  `(organizationId, projectId, provider)` where `projectId is not null`. Read
+  side is `activeConnection` in `apps/web/src/server/integrations.ts`: it
+  prefers the calling property's own row and falls back to the
+  organization's when the property has none for that provider. Write side is
+  each property's Settings → Integrations panel
+  (`apps/web/src/app/(app)/p/[project]/settings/IntegrationsPanel.tsx`),
+  calling `connectProjectIntegration`/`testProjectIntegrationConnection`/
+  `revokeProjectIntegrationConnection`
+  (`apps/web/src/server/actions/integrations.ts`) — same
+  connect/verify/revoke shape as the organization's panel, just scoped to
+  one property's row instead. Wired into the read path today for Exa/
+  Firecrawl (`content-draft.ts`'s `researchTopic`, which already has a
+  property in scope) and exposed on every getter (`getBufferClient`,
+  `getResearchClients`, etc. all take an optional `projectId`) for callers
+  that gain property scope later. The periodic mirror/enrichment jobs
+  (`linki-sync`, `bund-ai-sync`, `buffer-sync`, `clay-enrichment`,
+  `ugc-video-gen`) deliberately stay org-level only — they pull one
+  provider's full account into org-scoped mirror tables
+  (`crm.*`/`support.*`/`social.*`) with no property dimension to mirror a
+  property's override into, so a property override is read on demand, never
+  swept by a background job.
 - **Typed clients** — `packages/linki-client`, `packages/bund-ai-client`,
   `packages/buffer-client`, `packages/clay-client`,
   `packages/elevenlabs-client`, thin wrappers confirmed against each
@@ -395,10 +420,16 @@ integration's auth model:
   `POST /api/integrations/bund-ai/events` to receive it yet — `bund-ai-sync`
   is poll-only, which the design always treated as an acceptable fallback,
   not a broken half-measure.
-- **Full read-only dashboard.** Only a person's linked Linki contact (on
-  `/people/[personId]`) and Bund AI escalations (`/support`) are visible.
-  Contacts/lists/workflows/runs/opportunities list views, and Bund AI
-  conversations/leads/tickets views, are not built.
+- **Full read-only dashboard.** `/crm` now covers contacts (full paginated
+  mirror at `/crm/contacts`, plus the pre-existing unmatched-backlog tab),
+  workflows, lists, signal rules, runs (`/crm/runs/[id]` for per-target,
+  per-channel track state), sent messages and suppressions. `/support` now
+  has detail pages for all four entities (`/support/{conversations,
+  escalations,leads,tickets}/[id]`) showing the fields the list tables omit
+  — a ticket's `description`, a lead's `phone`/`notes`, and each entity's
+  originating conversation via `conversationId`; a conversation's detail
+  page shows what it turned into (which escalations/leads/tickets trace
+  back to it).
 - **Buffer post editing/deletion/queue reordering.** Only `createPost` is
   wired to a manual action (`/social`); `BufferClient.deletePost` exists but
   nothing in the UI calls it yet, and `movePostInQueue`/`editPost` aren't in
@@ -744,7 +775,6 @@ the most.
 
 | Backend | State | What is missing in the UI |
 |---|---|---|
-| `segments` | table + `segment-counts` worker | People can be filtered but not *saved* as a segment; the worker caches sizes for segments that cannot be created. No condition-tree filter builder exists anywhere in the app yet — the People page's filter bar is a flat search+checkbox, not the `Filter[]` AST `compileFilters`/`refreshSegmentCounts` already expect |
 | `dashboardWidgets` | table | The design system's custom-view builder (widget grid) is not built; `/insights` is a single fixed layout |
 
 `dataRequests`, `webhooks`, `consentRecords`, `auditLog` and `personMerges` are
@@ -754,6 +784,16 @@ sessions into Postgres totals against raw `events`) with different
 correctness requirements than the UI's own `sessionList` (which reads
 `events_v` live, so identity merges are reflected) — not a missing frontend
 feature, just a different consumer.
+
+`segments` is now built: a two-level condition-tree builder
+(`@/components/ConditionTreeBuilder` — AND across groups, OR within a group,
+producing the exact `Filter[]` `compileFilters`/`refreshSegmentCounts` already
+expect), a `/segments` management page (list/rename/delete, showing
+`cachedCount`/`cachedAt`), and a "Save as segment" entry point on the People
+page that scopes the saved segment to that property. Verified end to end: a
+saved segment's definition round-tripped through `refreshSegmentCounts`
+(`apps/worker/src/jobs/rollups.ts`) via `verify-jobs.ts` and its `cachedCount`
+updated in the UI.
 
 `funnels` and `insights` are now built: the funnel builder has a "Save"
 button (`apps/web/src/server/actions/funnels.ts`) alongside the existing
@@ -832,8 +872,7 @@ it.
 2. Apply §18's merge-bug fix to `apps/api/src/routes/people.ts` and
    `identity-resolver.ts` — the automatic merge path runs continuously in
    production and may be silently erroring right now.
-3. Saved funnels (mostly built — only save/delete is missing), then saved
-   insights, then segments (the one genuinely new UI: a condition-tree filter
-   builder doesn't exist anywhere yet).
+3. Saved funnels, saved insights and segments (condition-tree builder,
+   `/segments`, "Save as segment" on the People page) are now built.
 4. The custom-view widget builder — depends on saved insights existing first.
 5. Coolify deploy, then instrument the primary site first.

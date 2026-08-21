@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   index,
   integer,
@@ -9,7 +10,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { user } from "./auth";
-import { organizations } from "./tenancy";
+import { organizations, projects } from "./tenancy";
 
 /**
  * Credentials Falorb holds to call another product's API on the
@@ -31,6 +32,11 @@ import { organizations } from "./tenancy";
  * only ever compared against a caller-presented value; this key must be
  * presented in plaintext *to* the other product on every outbound call, so a
  * one-way hash would be useless here.
+ *
+ * A row is either org-level (`projectId` null) or a project-level override
+ * (`projectId` set) — same table, same shape, `activeConnection` in
+ * `apps/web/src/server/integrations.ts` prefers the project's row and falls
+ * back to the org's when the project has none for that provider.
  */
 export const integrationProviderEnum = pgEnum("integration_provider", [
   "linki",
@@ -55,6 +61,14 @@ export const integrationConnections = pgTable(
     organizationId: uuid("organization_id")
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
+    /**
+     * Null means an org-level connection, used by every project that has no
+     * connection of its own. Set means a project overriding the org's
+     * connection for this provider — `activeConnection` in
+     * `apps/web/src/server/integrations.ts` looks up the project-scoped row
+     * first and falls back to the org-scoped one.
+     */
+    projectId: integer("project_id").references(() => projects.id, { onDelete: "cascade" }),
     provider: integrationProviderEnum("provider").notNull(),
     baseUrl: text("base_url").notNull(),
     /** AES-256-GCM ciphertext, hex-encoded. Never returned by any API response. */
@@ -79,8 +93,20 @@ export const integrationConnections = pgTable(
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
   },
   (t) => [
-    // One connection per provider per org — reconnecting rotates the same row.
-    uniqueIndex("integration_connections_org_provider_uq").on(t.organizationId, t.provider),
+    // One org-level connection per provider per org — reconnecting rotates
+    // the same row. A plain unique index on (organizationId, provider,
+    // projectId) would not enforce this on its own: SQL never treats two
+    // NULLs as equal, so it would happily accept a second org-level (NULL
+    // projectId) row for the same provider. Partial, so it only applies to
+    // org-level rows.
+    uniqueIndex("integration_connections_org_provider_uq")
+      .on(t.organizationId, t.provider)
+      .where(sql`${t.projectId} is null`),
+    // One project-level override per provider per project.
+    uniqueIndex("integration_connections_project_provider_uq")
+      .on(t.organizationId, t.projectId, t.provider)
+      .where(sql`${t.projectId} is not null`),
     index("integration_connections_org_idx").on(t.organizationId),
+    index("integration_connections_project_idx").on(t.projectId),
   ],
 );

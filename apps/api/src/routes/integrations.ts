@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import {
   AUDIT_ACTIONS,
   audit,
@@ -22,7 +22,13 @@ import { requireHumanSession } from "../guards";
 /**
  * Connection management for the external products Falorb drives on the
  * organization's behalf (Linki, Bund AI, Buffer, Clay, Exa, Firecrawl,
- * ElevenLabs, more over time).
+ * ElevenLabs, more over time) — org-level by default, or scoped to one
+ * property (`?project=<slug>`) to store an override for that property alone.
+ * A property with its own connection for a provider uses that one; a
+ * property with none falls back to the organization's. See
+ * `packages/db/src/schema/integrations.ts` for the two-partial-index shape
+ * this rests on, and `apps/web/src/server/integrations.ts`'s
+ * `activeConnection` for the read-side fallback.
  *
  * Deliberately human-session-only end to end, not scope-gated for API keys —
  * same reasoning as `POST /api/keys` in `index.ts`: storing, testing, or
@@ -85,6 +91,7 @@ async function pingProvider(
 function publicConnection(row: typeof schema.integrationConnections.$inferSelect) {
   return {
     provider: row.provider,
+    projectId: row.projectId,
     baseUrl: row.baseUrl,
     status: row.status,
     lastVerifiedAt: row.lastVerifiedAt,
@@ -97,15 +104,40 @@ function publicConnection(row: typeof schema.integrationConnections.$inferSelect
   };
 }
 
+/**
+ * Resolves the optional `?project=<slug>` query param to a project id scoped
+ * to the caller's own organization — same pattern `POST /api/keys` in
+ * `index.ts` uses for its body `project` field. `null` (no query param) means
+ * "the organization's own connection," not "any project."
+ */
+async function resolveProjectId(db: Database, organizationId: string, slug: string | undefined): Promise<number | null> {
+  if (!slug) return null;
+  const [project] = await db
+    .select({ id: schema.projects.id })
+    .from(schema.projects)
+    .where(and(eq(schema.projects.slug, slug), eq(schema.projects.organizationId, organizationId)))
+    .limit(1);
+  if (!project) throw new HttpError(404, `No project "${slug}".`);
+  return project.id;
+}
+
 export function integrationsRoutes(db: Database): Hono<{ Variables: Vars }> {
   const app = new Hono<{ Variables: Vars }>();
 
   app.get("/connections", async (c) => {
     const workspace = requireHumanSession(c, "view connected integrations");
+    const projectId = await resolveProjectId(db, workspace.organizationId, c.req.query("project"));
     const rows = await db
       .select()
       .from(schema.integrationConnections)
-      .where(eq(schema.integrationConnections.organizationId, workspace.organizationId));
+      .where(
+        and(
+          eq(schema.integrationConnections.organizationId, workspace.organizationId),
+          projectId === null
+            ? isNull(schema.integrationConnections.projectId)
+            : eq(schema.integrationConnections.projectId, projectId),
+        ),
+      );
     return c.json({ connections: rows.map(publicConnection) });
   });
 
@@ -117,6 +149,7 @@ export function integrationsRoutes(db: Database): Hono<{ Variables: Vars }> {
   app.post("/:provider/connection", async (c) => {
     const workspace = requireHumanSession(c, "connect an integration");
     const provider = parseProvider(c.req.param("provider"));
+    const projectId = await resolveProjectId(db, workspace.organizationId, c.req.query("project"));
 
     const parsed = connectSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) throw new HttpError(422, "apiKey is required.");
@@ -126,13 +159,45 @@ export function integrationsRoutes(db: Database): Hono<{ Variables: Vars }> {
     }
     const baseUrl = fixedBaseUrl ?? parsed.data.baseUrl!;
 
-    const check = await pingProvider(provider, baseUrl, parsed.data.apiKey);
-    const encrypted = encryptCredential(parsed.data.apiKey);
+    let check: { ok: boolean; detail: string };
+    let encrypted: ReturnType<typeof encryptCredential>;
+    try {
+      check = await pingProvider(provider, baseUrl, parsed.data.apiKey);
+      encrypted = encryptCredential(parsed.data.apiKey);
+    } catch (error) {
+      // pingProvider's own client always catches its network errors and
+      // returns { ok: false }, so a throw here is almost always
+      // encryptCredential() rejecting a missing/malformed
+      // INTEGRATION_CREDENTIAL_ENC_KEY — an operator misconfiguration, not a
+      // caller error, but still one the caller should see plainly.
+      throw new HttpError(500, error instanceof Error ? error.message : "Could not connect this integration.");
+    }
+
+    // Which of the two partial unique indexes on `integration_connections`
+    // (`packages/db/src/schema/integrations.ts`) is the upsert's conflict
+    // target depends on scope — `targetWhere` has to match it, or Postgres
+    // rejects the insert with "no unique or exclusion constraint matching
+    // the ON CONFLICT specification".
+    const conflict =
+      projectId === null
+        ? {
+            target: [schema.integrationConnections.organizationId, schema.integrationConnections.provider],
+            targetWhere: sql`${schema.integrationConnections.projectId} is null`,
+          }
+        : {
+            target: [
+              schema.integrationConnections.organizationId,
+              schema.integrationConnections.projectId,
+              schema.integrationConnections.provider,
+            ],
+            targetWhere: sql`${schema.integrationConnections.projectId} is not null`,
+          };
 
     const [row] = await db
       .insert(schema.integrationConnections)
       .values({
         organizationId: workspace.organizationId,
+        projectId,
         provider,
         baseUrl,
         encryptedApiKey: encrypted.ciphertext,
@@ -144,7 +209,7 @@ export function integrationsRoutes(db: Database): Hono<{ Variables: Vars }> {
         createdBy: c.get("userId"),
       })
       .onConflictDoUpdate({
-        target: [schema.integrationConnections.organizationId, schema.integrationConnections.provider],
+        ...conflict,
         set: {
           baseUrl,
           encryptedApiKey: encrypted.ciphertext,
@@ -165,7 +230,7 @@ export function integrationsRoutes(db: Database): Hono<{ Variables: Vars }> {
       action: AUDIT_ACTIONS.integrationConnected,
       targetType: "integration_connection",
       targetId: row!.id,
-      metadata: { provider, baseUrl, verified: check.ok },
+      metadata: { provider, baseUrl, verified: check.ok, projectId },
     });
 
     return c.json(
@@ -177,6 +242,7 @@ export function integrationsRoutes(db: Database): Hono<{ Variables: Vars }> {
   app.post("/:provider/connection/test", async (c) => {
     const workspace = requireHumanSession(c, "test an integration connection");
     const provider = parseProvider(c.req.param("provider"));
+    const projectId = await resolveProjectId(db, workspace.organizationId, c.req.query("project"));
 
     const [row] = await db
       .select()
@@ -184,6 +250,9 @@ export function integrationsRoutes(db: Database): Hono<{ Variables: Vars }> {
       .where(
         and(
           eq(schema.integrationConnections.organizationId, workspace.organizationId),
+          projectId === null
+            ? isNull(schema.integrationConnections.projectId)
+            : eq(schema.integrationConnections.projectId, projectId),
           eq(schema.integrationConnections.provider, provider),
         ),
       )
@@ -192,12 +261,20 @@ export function integrationsRoutes(db: Database): Hono<{ Variables: Vars }> {
     if (!row) throw new HttpError(404, `No ${PROVIDERS[provider].label} connection to test.`);
     if (row.status === "revoked") throw new HttpError(409, "This connection has been revoked.");
 
-    const apiKey = decryptCredential({
-      ciphertext: row.encryptedApiKey,
-      iv: row.iv,
-      authTag: row.authTag,
-    });
-    const check = await pingProvider(provider, row.baseUrl, apiKey);
+    let check: { ok: boolean; detail: string };
+    try {
+      const apiKey = decryptCredential({
+        ciphertext: row.encryptedApiKey,
+        iv: row.iv,
+        authTag: row.authTag,
+      });
+      check = await pingProvider(provider, row.baseUrl, apiKey);
+    } catch (error) {
+      throw new HttpError(
+        500,
+        error instanceof Error ? error.message : `Could not test the ${PROVIDERS[provider].label} connection.`,
+      );
+    }
 
     await db
       .update(schema.integrationConnections)
@@ -215,6 +292,7 @@ export function integrationsRoutes(db: Database): Hono<{ Variables: Vars }> {
   app.delete("/:provider/connection", async (c) => {
     const workspace = requireHumanSession(c, "revoke an integration connection");
     const provider = parseProvider(c.req.param("provider"));
+    const projectId = await resolveProjectId(db, workspace.organizationId, c.req.query("project"));
 
     const [revoked] = await db
       .update(schema.integrationConnections)
@@ -222,6 +300,9 @@ export function integrationsRoutes(db: Database): Hono<{ Variables: Vars }> {
       .where(
         and(
           eq(schema.integrationConnections.organizationId, workspace.organizationId),
+          projectId === null
+            ? isNull(schema.integrationConnections.projectId)
+            : eq(schema.integrationConnections.projectId, projectId),
           eq(schema.integrationConnections.provider, provider),
         ),
       )
@@ -235,7 +316,7 @@ export function integrationsRoutes(db: Database): Hono<{ Variables: Vars }> {
       action: AUDIT_ACTIONS.integrationRevoked,
       targetType: "integration_connection",
       targetId: revoked.id,
-      metadata: { provider },
+      metadata: { provider, projectId },
     });
 
     return c.json({ revoked: true, provider });

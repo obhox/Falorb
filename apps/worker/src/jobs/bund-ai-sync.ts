@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { decryptCredential, schema } from "@falorb/db";
 import {
   BundAiClient,
@@ -26,11 +26,14 @@ import type { WorkerContext } from "../context";
 const PAGE_SIZE = 200;
 
 export async function syncBundAi(context: WorkerContext): Promise<void> {
+  // Org-level connections only — same reasoning as `linki-sync.ts`: a
+  // property's own override is used on demand, not mirrored by this job.
   const connections = await context.db
     .select()
     .from(schema.integrationConnections)
     .where(
       and(
+        isNull(schema.integrationConnections.projectId),
         eq(schema.integrationConnections.provider, "bund_ai"),
         eq(schema.integrationConnections.status, "active"),
       ),

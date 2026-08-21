@@ -738,8 +738,6 @@ the most.
 | Backend | State | What is missing in the UI |
 |---|---|---|
 | `segments` | table + `segment-counts` worker | People can be filtered but not *saved* as a segment; the worker caches sizes for segments that cannot be created. No condition-tree filter builder exists anywhere in the app yet — the People page's filter bar is a flat search+checkbox, not the `Filter[]` AST `compileFilters`/`refreshSegmentCounts` already expect |
-| `funnels` | table | The funnel builder is URL-only. Nothing saves a funnel, so one cannot be shared by name or reused in an alert. `listFunnels`/`SavedFunnels.tsx` (read path) already exist — only a save/delete action is missing |
-| `insights` | table | Same for the cross-project builder — the query lives in the URL and nowhere else |
 | `dashboardWidgets` | table | The design system's custom-view builder (widget grid) is not built; `/insights` is a single fixed layout |
 
 `dataRequests`, `webhooks`, `consentRecords`, `auditLog` and `personMerges` are
@@ -749,6 +747,15 @@ sessions into Postgres totals against raw `events`) with different
 correctness requirements than the UI's own `sessionList` (which reads
 `events_v` live, so identity merges are reflected) — not a missing frontend
 feature, just a different consumer.
+
+`funnels` and `insights` are now built: the funnel builder has a "Save"
+button (`apps/web/src/server/actions/funnels.ts`) alongside the existing
+read path (`listFunnels`/`SavedFunnels.tsx`), and the cross-project builder
+gained the same for the pragmatic scope it actually has today — metric,
+dimension, chart, property selection (`apps/web/src/server/actions/insights.ts`,
+`SavedInsights.tsx`) — not the fuller `kind`/query vocabulary the `insights`
+schema leaves room for later. Verified live: saved and deleted both, in both
+places.
 
 Auth internals (`account`, `session`, `verification`) are managed by better-auth
 and correctly have no UI.

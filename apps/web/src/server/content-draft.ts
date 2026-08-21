@@ -1,7 +1,7 @@
 import "server-only";
 import { ResearchUnavailableError, search } from "@falorb/research";
 import { complete } from "@/server/ai";
-import { getResearchClients } from "@/server/integrations";
+import { getAiCredentials, getResearchClients } from "@/server/integrations";
 
 /**
  * Turns a "rising interest, thin coverage" topic into a draft landing/content
@@ -81,7 +81,11 @@ export async function generateContentDraft(
   const raw = await complete(
     systemPrompt,
     { topic, projectName, interestContext: contextData, ...(research ? { research } : {}) },
-    { maxTokens: 2000, stripMarkdown: false },
+    {
+      maxTokens: 2000,
+      stripMarkdown: false,
+      credentials: await getAiCredentials(organizationId, projectId),
+    },
   );
 
   return parseContentDraft(raw, topic);

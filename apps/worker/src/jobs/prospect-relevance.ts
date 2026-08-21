@@ -1,4 +1,4 @@
-import { complete, AiSignalError } from "@falorb/ai";
+import { complete, AiSignalError, type AiCredentials } from "@falorb/ai";
 import { describeProspectSource } from "@falorb/core";
 
 /**
@@ -22,6 +22,9 @@ export interface RelevanceInput {
   keyword: string;
   title: string;
   excerpt: string;
+  /** The organization's own AI gateway when it has connected one (see
+   * `resolveAiCredentials`); null falls back to the deployment's key. */
+  credentials?: AiCredentials | null;
 }
 
 export async function scoreProspectRelevance(
@@ -44,7 +47,7 @@ export async function scoreProspectRelevance(
     text = await complete(
       systemPrompt,
       { project: input.projectName, matchedKeyword: input.keyword, title: input.title, excerpt: input.excerpt },
-      { maxTokens: 100, stripMarkdown: false },
+      { maxTokens: 100, stripMarkdown: false, credentials: input.credentials },
     );
   } catch (error) {
     if (error instanceof AiSignalError) return null;
@@ -54,7 +57,7 @@ export async function scoreProspectRelevance(
   return parseRelevanceResponse(text);
 }
 
-/** Pulled out so the parsing itself is unit-testable without an OpenRouter call. */
+/** Pulled out so the parsing itself is unit-testable without a gateway call. */
 export function parseRelevanceResponse(text: string): { score: number; rationale: string } | null {
   const scoreMatch = text.match(/SCORE:\s*(\d{1,3})/i);
   const whyMatch = text.match(/WHY:\s*(.+)/i);

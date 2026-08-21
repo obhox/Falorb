@@ -9,6 +9,7 @@ export * from "./audit";
 export * from "./workspace";
 export * from "./roles";
 export * from "./crypto";
+export * from "./ai-credentials";
 
 export type Database = ReturnType<typeof createDatabase>;
 

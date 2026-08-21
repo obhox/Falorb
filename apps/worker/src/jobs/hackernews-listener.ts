@@ -1,4 +1,5 @@
 import { and, eq, isNull } from "drizzle-orm";
+import { resolveAiCredentials } from "@falorb/db";
 import { schema, type WorkerContext } from "../context";
 import type { Watermarks } from "../scheduler";
 import { scoreProspectRelevance } from "./prospect-relevance";
@@ -87,6 +88,11 @@ async function listenForKeyword(
   },
 ): Promise<number> {
   const hits = await searchHackerNews(row.keyword);
+  // The organization's own AI gateway and model when it has connected one
+  // (see `resolveAiCredentials`). Resolved once per keyword rather than per
+  // result — it decrypts a stored key, and every result here scores against
+  // the same organization.
+  const credentials = await resolveAiCredentials(context.db, row.organizationId, row.projectId);
   let newCount = 0;
 
   for (const hit of hits) {
@@ -129,6 +135,7 @@ async function listenForKeyword(
         keyword: row.keyword,
         title,
         excerpt,
+        credentials,
       });
       if (scored) {
         await context.db

@@ -1,5 +1,5 @@
 import { and, eq, inArray, isNull } from "drizzle-orm";
-import { schema } from "@falorb/db";
+import { resolveAiCredentials, schema } from "@falorb/db";
 import { researchProperty, PropertyResearchError } from "@falorb/research";
 import type { WorkerContext } from "../context";
 import { buildResearchClients } from "../research-clients";
@@ -82,6 +82,9 @@ async function profileForOrg(
   connections: ConnectionRow[],
 ): Promise<number> {
   const clients = buildResearchClients(connections);
+  // Resolved once per org rather than per property: it decrypts a stored
+  // key, and every property in this loop bills the same organization.
+  const credentials = await resolveAiCredentials(context.db, organizationId);
 
   const staleCutoff = new Date(Date.now() - RECRAWL_INTERVAL_MS);
   const recheckCutoff = new Date(Date.now() - FAILED_RECHECK_MS);
@@ -101,7 +104,7 @@ async function profileForOrg(
   for (const project of candidates) {
     const domain = project.domains[0]!;
     try {
-      const result = await researchProperty(clients, project.name, domain);
+      const result = await researchProperty(clients, project.name, domain, credentials);
       await context.db
         .update(schema.projects)
         .set({

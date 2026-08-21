@@ -9,3 +9,4 @@ export * from "./support";
 export * from "./social";
 export * from "./prospecting";
 export * from "./ugc";
+export * from "./agents";

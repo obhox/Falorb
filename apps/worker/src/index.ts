@@ -22,6 +22,12 @@ import { syncLinki } from "./jobs/linki-sync";
 import { syncBundAi } from "./jobs/bund-ai-sync";
 import { syncBuffer } from "./jobs/buffer-sync";
 import { generateUgcVideos } from "./jobs/ugc-video-gen";
+import {
+  enqueueAgentTasks,
+  enqueueDueAgents,
+  runQueuedAgentRuns,
+  settleApprovals,
+} from "./jobs/agents";
 
 /**
  * Worker entrypoint.
@@ -281,6 +287,43 @@ scheduler.add({
   },
 });
 
+/**
+ * The AI-employee shift system (FEATURES.md §19).
+ *
+ * Four small sweeps rather than one, because they have genuinely different
+ * cadences and costs. Enqueueing is a cheap indexed lookup and can run often
+ * so that assigning a task to an agent feels immediate. Executing costs real
+ * model calls, so it runs on its own slower beat with a small per-sweep cap
+ * — an agent platform's characteristic failure is spending money faster than
+ * anyone notices, and the cheapest place to bound that is here.
+ *
+ * `skipOnBoot` on the executor for the same reason `digest` has it: a
+ * restart loop must not fire a paid shift on every boot.
+ */
+scheduler.add({
+  name: "agents-enqueue",
+  intervalMs: MINUTE,
+  run: async () => {
+    await enqueueDueAgents(context);
+    await enqueueAgentTasks(context);
+  },
+});
+
+scheduler.add({
+  name: "agents-run",
+  intervalMs: 2 * MINUTE,
+  timeoutMs: 15 * MINUTE,
+  skipOnBoot: true,
+  run: () => runQueuedAgentRuns(context),
+});
+
+scheduler.add({
+  name: "agents-approvals",
+  intervalMs: MINUTE,
+  timeoutMs: 5 * MINUTE,
+  run: () => settleApprovals(context),
+});
+
 // Reclaim stream entries orphaned by a writer that died before acknowledging.
 const reclaimTimer = setInterval(() => {
   void writer.reclaimStale().catch((e) => console.error("[reclaim]", String(e)));
@@ -313,7 +356,7 @@ process.on("SIGTERM", () => void shutdown("SIGTERM"));
 process.on("SIGINT", () => void shutdown("SIGINT"));
 
 console.log(
-  `[worker] ${instanceId} started — ${context.projectIds.length} active projects, ${18} scheduled jobs`,
+  `[worker] ${instanceId} started — ${context.projectIds.length} active projects, ${21} scheduled jobs`,
 );
 
 await writer.start();

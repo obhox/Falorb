@@ -29,6 +29,7 @@
   },
   "dependencies": {
     "@clickhouse/client": "^1.10.1",
+    "@falorb/ai": "workspace:*",
     "@falorb/core": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "postgres": "^3.4.5"

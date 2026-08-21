@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@clickhouse/client": "^1.23.1",
+    "@falorb/agents": "workspace:*",
     "@falorb/ai": "workspace:*",
     "@falorb/buffer-client": "workspace:*",
     "@falorb/bund-ai-client": "workspace:*",

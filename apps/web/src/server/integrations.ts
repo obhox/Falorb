@@ -1,10 +1,11 @@
 import "server-only";
 import { and, eq, isNull, or } from "drizzle-orm";
-import { db, decryptCredential, schema } from "@falorb/db";
+import { db, decryptCredential, resolveAiCredentials, schema } from "@falorb/db";
 import { LinkiClient } from "@falorb/linki-client";
 import { BundAiClient } from "@falorb/bund-ai-client";
 import { BufferClient } from "@falorb/buffer-client";
 import { ExaClient, FirecrawlClient, type ResearchClients } from "@falorb/research";
+import type { AiCredentials, AiProvider } from "@falorb/ai";
 
 /**
  * Builds a typed client from a stored `integrationConnections` row, for
@@ -118,13 +119,53 @@ export async function getResearchClients(organizationId: string, projectId?: num
   };
 }
 
-export type Provider = "linki" | "bund_ai" | "buffer" | "clay" | "exa" | "firecrawl" | "elevenlabs";
+/**
+ * Which AI gateway, on whose key and which model, this organization's AI
+ * features should run on — the web app's door onto `resolveAiCredentials`
+ * (`@falorb/db`), which the worker and MCP server come through too. Kept
+ * behind `src/server` like every other secret-reading helper in this file
+ * rather than imported directly at each call site.
+ *
+ * The result goes straight into `complete()`/`chat()`/`generateSignal()`,
+ * including when it is null: those fall back to the deployment-wide
+ * `OPENROUTER_API_KEY` on a null, which is what every caller did before
+ * organizations could bring their own.
+ */
+export async function getAiCredentials(
+  organizationId: string,
+  projectId?: number | null,
+): Promise<AiCredentials | null> {
+  return resolveAiCredentials(db(), organizationId, projectId);
+}
 
-export const PROVIDERS: Provider[] = ["linki", "bund_ai", "buffer", "clay", "exa", "firecrawl", "elevenlabs"];
+export type Provider =
+  | "linki"
+  | "bund_ai"
+  | "buffer"
+  | "clay"
+  | "exa"
+  | "firecrawl"
+  | "elevenlabs"
+  | AiProvider;
+
+export const PROVIDERS: Provider[] = [
+  "openrouter",
+  "router",
+  "linki",
+  "bund_ai",
+  "buffer",
+  "clay",
+  "exa",
+  "firecrawl",
+  "elevenlabs",
+];
 
 export interface ConnectionView {
   provider: Provider;
   baseUrl: string;
+  /** The chosen model, for the AI gateways; null for every other provider,
+   * and for a gateway left on its default. Not a secret — shown in the UI. */
+  model: string | null;
   status: "active" | "revoked" | "error";
   lastVerifiedAt: string | null;
   lastSyncedAt: string | null;
@@ -136,6 +177,7 @@ function toConnectionView(r: typeof schema.integrationConnections.$inferSelect):
   return {
     provider: r.provider,
     baseUrl: r.baseUrl,
+    model: r.model,
     status: r.status,
     lastVerifiedAt: r.lastVerifiedAt?.toISOString() ?? null,
     lastSyncedAt: r.lastSyncedAt?.toISOString() ?? null,

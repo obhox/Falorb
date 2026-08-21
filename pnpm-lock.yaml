@@ -161,6 +161,9 @@ importers:
       '@clickhouse/client':
         specifier: ^1.10.1
         version: 1.23.1
+      '@falorb/agents':
+        specifier: workspace:*
+        version: link:../../packages/agents
       '@falorb/ai':
         specifier: workspace:*
         version: link:../../packages/ai
@@ -243,6 +246,9 @@ importers:
       '@clickhouse/client':
         specifier: ^1.23.1
         version: 1.23.1
+      '@falorb/agents':
+        specifier: workspace:*
+        version: link:../../packages/agents
       '@falorb/ai':
         specifier: workspace:*
         version: link:../../packages/ai
@@ -282,6 +288,49 @@ importers:
       ioredis:
         specifier: ^5.4.2
         version: 5.11.1
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.5
+        version: 22.20.1
+      tsx:
+        specifier: ^4.19.2
+        version: 4.23.12
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.5
+        version: 3.2.7(@types/node@22.20.1)(tsx@4.23.12)
+
+  packages/agents:
+    dependencies:
+      '@clickhouse/client':
+        specifier: ^1.23.1
+        version: 1.23.1
+      '@falorb/ai':
+        specifier: workspace:*
+        version: link:../ai
+      '@falorb/bund-ai-client':
+        specifier: workspace:*
+        version: link:../bund-ai-client
+      '@falorb/db':
+        specifier: workspace:*
+        version: link:../db
+      '@falorb/linki-client':
+        specifier: workspace:*
+        version: link:../linki-client
+      '@falorb/queries':
+        specifier: workspace:*
+        version: link:../queries
+      drizzle-orm:
+        specifier: ^0.45.2
+        version: 0.45.2(@types/pg@8.21.0)(bun-types@1.3.14)(gel@2.2.0)(kysely@0.29.5)(pg@8.23.0)(postgres@3.4.9)
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+      zod-to-json-schema:
+        specifier: ^3.24.1
+        version: 3.25.2(zod@3.25.76)
     devDependencies:
       '@types/node':
         specifier: ^22.10.5
@@ -384,6 +433,9 @@ importers:
       '@clickhouse/client':
         specifier: ^1.10.1
         version: 1.23.1
+      '@falorb/ai':
+        specifier: workspace:*
+        version: link:../ai
       '@falorb/core':
         specifier: workspace:*
         version: link:../core

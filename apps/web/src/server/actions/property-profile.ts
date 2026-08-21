@@ -6,7 +6,7 @@ import { db, schema } from "@falorb/db";
 import { PropertyResearchError, researchProperty } from "@falorb/research";
 import { requireSession } from "@/server/session";
 import { AiSignalError } from "@/server/ai";
-import { getResearchClients } from "@/server/integrations";
+import { getAiCredentials, getResearchClients } from "@/server/integrations";
 import type { ActionResult } from "./project";
 import { deny } from "./guard";
 
@@ -37,7 +37,12 @@ export async function recrawlProperty(slug: string): Promise<ActionResult> {
 
   try {
     const clients = await getResearchClients(orgId);
-    const result = await researchProperty(clients, project.name, domain);
+    const result = await researchProperty(
+      clients,
+      project.name,
+      domain,
+      await getAiCredentials(orgId, project.id),
+    );
 
     await db()
       .update(schema.projects)

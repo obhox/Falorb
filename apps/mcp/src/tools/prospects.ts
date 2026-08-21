@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { and, desc, eq, inArray } from "drizzle-orm";
-import { schema } from "@falorb/db";
+import { schema, resolveAiCredentials } from "@falorb/db";
 import { AiSignalError, complete } from "@falorb/ai";
 import { PROSPECT_SOURCES } from "@falorb/core";
 import type { McpContext, Scope } from "../context";
@@ -280,6 +280,7 @@ export function registerProspectTools(server: McpServer, ctx: () => McpContext):
               contactTitle: row.contactTitle,
               contactCompanyDomain: row.contactCompanyDomain,
             },
+            { credentials: await resolveAiCredentials(db, scope.organizationId, row.projectId) },
           );
           return text(draft);
         } catch (error) {

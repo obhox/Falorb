@@ -1,4 +1,4 @@
-import { complete } from "@falorb/ai";
+import { complete, type AiCredentials } from "@falorb/ai";
 import { fetchPage, ResearchUnavailableError, type ResearchClients } from "./orchestrate";
 
 /**
@@ -12,8 +12,9 @@ import { fetchPage, ResearchUnavailableError, type ResearchClients } from "./orc
  *
  * Callers (the `property-profiler` worker job, and the manual "Re-crawl"
  * settings action) build their own `ResearchClients` from the organization's
- * stored `integrationConnections` — this module never reads credentials
- * itself, same separation `orchestrate.ts` already draws.
+ * stored `integrationConnections`, and pass the organization's AI
+ * credentials the same way — this module never reads credentials itself,
+ * same separation `orchestrate.ts` already draws.
  */
 export class PropertyResearchError extends Error {}
 
@@ -28,6 +29,7 @@ export async function researchProperty(
   clients: ResearchClients,
   name: string,
   domain: string,
+  credentials?: AiCredentials | null,
 ): Promise<PropertyProfileResult> {
   let homepage: string;
   try {
@@ -53,7 +55,7 @@ export async function researchProperty(
     "postings to find prospects — pain points the product solves, category terms, " +
     "competitor names, or job titles of the likely buyer.";
 
-  const raw = await complete(systemPrompt, { homepage }, { maxTokens: 500, stripMarkdown: false });
+  const raw = await complete(systemPrompt, { homepage }, { maxTokens: 500, stripMarkdown: false, credentials });
   return parsePropertyProfile(raw);
 }
 

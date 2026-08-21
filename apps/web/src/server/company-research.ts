@@ -1,7 +1,7 @@
 import "server-only";
 import { fetchPage, ResearchUnavailableError } from "@falorb/research";
 import { complete } from "@/server/ai";
-import { getResearchClients } from "@/server/integrations";
+import { getAiCredentials, getResearchClients } from "@/server/integrations";
 
 export class CompanyResearchError extends Error {}
 
@@ -54,7 +54,11 @@ export async function researchCompany(
     'LinkedIn URL if one is linked from the page, a fourth line "SUMMARY: " one sentence on ' +
     "what the company does.";
 
-  const raw = await complete(systemPrompt, { homepage }, { maxTokens: 300, stripMarkdown: false });
+  const raw = await complete(systemPrompt, { homepage }, {
+    maxTokens: 300,
+    stripMarkdown: false,
+    credentials: await getAiCredentials(organizationId),
+  });
 
   return parseCompanyResearch(raw);
 }

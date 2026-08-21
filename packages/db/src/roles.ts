@@ -89,6 +89,31 @@ export const can = {
   manageCrm: (role: string) => atLeast(role, "member"),
   /** Generate a UGC video (spends AI credits) and queue it for posting — normal marketing work, same tier as `manageCrm`/`writeAnalysis` rather than admin/credential territory. */
   manageUgcVideos: (role: string) => atLeast(role, "member"),
+  /**
+   * Hire, brief, re-role, pause or delete an AI employee.
+   *
+   * Admin, not member, and for exactly the reason `manageTeam` is: an agent's
+   * `role` column decides what it may do, so anyone who can edit an agent can
+   * mint permissions. Being able to create a `member` agent while holding
+   * only `member` yourself would be a privilege escalation with extra steps —
+   * `assertAgentRoleGrantable` in `agent-policy.ts` closes the remaining half
+   * of that hole by refusing to grant an agent a role above the granter's own.
+   */
+  manageAgents: (role: string) => atLeast(role, "admin"),
+  /** Assign work to an agent, or press run. Ordinary delegation — the agent's
+   * own role, not the delegator's, still bounds what it can then do. */
+  runAgents: (role: string) => atLeast(role, "member"),
+  /** Create, assign, comment on and close tasks on the shared board. */
+  manageTasks: (role: string) => atLeast(role, "member"),
+  /**
+   * Decide a pending agent action.
+   *
+   * The floor, not the whole check: approving is exercising, so the reviewer
+   * must *also* hold the capability the queued tool itself declares. That
+   * second half lives at the decision site (`agentApprovals.requiredCapability`),
+   * because it varies per approval and cannot be expressed as a rank.
+   */
+  reviewAgentWork: (role: string) => atLeast(role, "member"),
 } satisfies Record<string, (role: string) => boolean>;
 
 /**

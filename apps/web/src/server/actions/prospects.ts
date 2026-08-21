@@ -7,6 +7,7 @@ import { requireSession } from "@/server/session";
 import { getProspect } from "@/server/prospects";
 import { generateProspectOutreachMessage } from "@/server/outreach";
 import { AiSignalError } from "@/server/ai";
+import { getAiCredentials } from "@/server/integrations";
 import type { ActionResult } from "./project";
 import { deny } from "./guard";
 
@@ -100,6 +101,7 @@ export async function draftProspectOutreach(
       },
       project?.name ?? session.workspace.organizationName,
       project?.profileSummary ?? null,
+      await getAiCredentials(session.workspace.organizationId, prospect.projectId),
     );
     return { ok: true, message: draft };
   } catch (error) {

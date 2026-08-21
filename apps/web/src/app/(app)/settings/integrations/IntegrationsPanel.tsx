@@ -18,6 +18,7 @@ import { AiModelPicker } from "./AiModelPicker";
 const LABELS: Record<Provider, string> = {
   openrouter: "OpenRouter",
   router: "Ramp Router",
+  gemini: "Google Gemini",
   linki: "Linki",
   bund_ai: "Bund AI",
   buffer: "Buffer",
@@ -31,6 +32,8 @@ const BLURBS: Record<Provider, string> = {
     "Bring your own AI. Every AI feature — signals, digests, drafts, agents — runs on this key and this model instead of the platform's. Generate a key at openrouter.ai/keys.",
   router:
     "Bring your own AI, through Ramp Router (router.com) — one key across OpenAI, Anthropic and open models, routed for cost. Generate a key at router.com, then pick a model.",
+  gemini:
+    "Bring your own AI, straight from Google — Gemini's own API rather than a gateway in front of it. Generate a key at aistudio.google.com/apikey, then pick a model.",
   linki: "Sales outreach & CRM. Generate a scoped key in Linki at Platform → Workspace & API.",
   bund_ai: "AI customer support. Generate a key in Bund AI at Settings → API access.",
   buffer:
@@ -47,6 +50,7 @@ const BLURBS: Record<Provider, string> = {
 const HAS_BASE_URL: Record<Provider, boolean> = {
   openrouter: false,
   router: false,
+  gemini: false,
   linki: true,
   bund_ai: true,
   buffer: false,
@@ -59,6 +63,7 @@ const HAS_BASE_URL: Record<Provider, boolean> = {
 const KEY_PLACEHOLDERS: Record<Provider, string> = {
   openrouter: "sk-or-v1-…",
   router: "Your Ramp Router API key",
+  gemini: "AIza…",
   linki: "lnk_…",
   bund_ai: "bund_sk_…",
   buffer: "buf_…",
@@ -75,6 +80,7 @@ const KEY_PLACEHOLDERS: Record<Provider, string> = {
 const NEVER_SYNCED: Record<Provider, string> = {
   openrouter: "not applicable — called on demand, every time an AI feature writes something",
   router: "not applicable — called on demand, every time an AI feature writes something",
+  gemini: "not applicable — called on demand, every time an AI feature writes something",
   linki: "never — the mirror job runs every 15 minutes",
   bund_ai: "never — the mirror job runs every 15 minutes",
   buffer: "never — the mirror job runs every 15 minutes",
@@ -87,6 +93,7 @@ const NEVER_SYNCED: Record<Provider, string> = {
 const PROVIDERS: Provider[] = [
   "openrouter",
   "router",
+  "gemini",
   "linki",
   "bund_ai",
   "buffer",
@@ -97,9 +104,9 @@ const PROVIDERS: Provider[] = [
 ];
 
 /**
- * Which AI gateway the organization's AI features are actually running on.
+ * Which AI provider the organization's AI features are actually running on.
  *
- * Both can be connected at once — an org trying Ramp Router while keeping
+ * All three can be connected at once — an org trying Gemini while keeping
  * its OpenRouter key — so one of them wins, and it should not be a mystery
  * which. The rule matches `getAiCredentials` in `@/server/integrations`
  * exactly: most recently updated active connection. Recomputing it here

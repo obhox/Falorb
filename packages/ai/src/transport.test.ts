@@ -4,14 +4,21 @@ import { AiTransportError, callModel } from "./transport";
 import type { ChatMessage } from "./types";
 
 /**
- * The two gateways' protocols, pinned.
+ * The three providers' protocols, pinned.
  *
- * `transport.ts` is the only place that knows OpenRouter speaks chat
- * completions and Ramp Router speaks responses, and the Ramp Router half was
- * written against published docs rather than a live key (see FEATURES.md
- * §13c). These tests are what stops a refactor from quietly reshaping either
- * request — the failure mode there is not a type error, it is a 400 from a
- * vendor nobody runs in CI.
+ * `transport.ts` is the only place that knows OpenRouter and Gemini speak
+ * chat completions while Ramp Router speaks responses, and the Ramp Router
+ * and Gemini halves were both written against published docs rather than a
+ * live key (see FEATURES.md §13c). These tests are what stops a refactor
+ * from quietly reshaping any of the three requests — the failure mode there
+ * is not a type error, it is a 400 from a vendor nobody runs in CI.
+ *
+ * Gemini shares OpenRouter's request path, which is exactly why it needs
+ * its own cases: everything OpenRouter-specific on that path
+ * (`usage.include`, `provider.require_parameters`, the `models` fallback
+ * array) is a 400 or a silently-ignored field on Google's compatibility
+ * layer, and nothing but a test distinguishes "shared path" from "sends
+ * OpenRouter's extensions to Google".
  */
 
 const OPENROUTER: AiCredentials = {
@@ -26,6 +33,13 @@ const ROUTER: AiCredentials = {
   baseUrl: AI_PROVIDER_BASE_URLS.router,
   apiKey: "rr-test",
   model: "gpt-5",
+};
+
+const GEMINI: AiCredentials = {
+  provider: "gemini",
+  baseUrl: AI_PROVIDER_BASE_URLS.gemini,
+  apiKey: "AIza-test",
+  model: "gemini-2.5-flash",
 };
 
 function mockFetch(body: unknown, init: { status?: number; text?: string; headers?: Record<string, string> } = {}) {
@@ -333,5 +347,78 @@ describe("failures", () => {
     await expect(
       callModel(OPENROUTER, { messages: CONVERSATION, maxTokens: 10, timeoutMs: 100 }),
     ).rejects.toBeInstanceOf(AiTransportError);
+  });
+});
+
+describe("Google Gemini (chat completions, via the OpenAI-compatibility layer)", () => {
+  it("posts to the /openai path with none of OpenRouter's extensions", async () => {
+    const spy = mockFetch({
+      choices: [{ message: { content: "nobody" }, finish_reason: "stop" }],
+      usage: { prompt_tokens: 11, completion_tokens: 3 },
+    });
+
+    const result = await callModel(GEMINI, {
+      messages: CONVERSATION,
+      tools: [{ name: "get_leads", description: "leads", parameters: { type: "object" } }],
+      maxTokens: 500,
+      timeoutMs: 1000,
+    });
+
+    const { url, body, headers } = lastRequest(spy);
+    expect(url).toBe("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions");
+    // Bearer auth, not the `?key=` query parameter Google's native API also
+    // takes — a key in a URL ends up in every access log along the way.
+    expect(headers.Authorization).toBe("Bearer AIza-test");
+    expect(body.model).toBe("gemini-2.5-flash");
+    expect(body.max_tokens).toBe(500);
+    // Both of these are OpenRouter extensions. `usage.include` means nothing
+    // to Google, and `provider.require_parameters` names a routing concept
+    // that does not exist when the model id is the whole routing decision.
+    expect(body.usage).toBeUndefined();
+    expect(body.provider).toBeUndefined();
+    // Tools still go in OpenAI's nested `function` shape, which the
+    // compatibility layer accepts — that is the point of using it.
+    expect(body.tools[0]).toEqual({
+      type: "function",
+      function: { name: "get_leads", description: "leads", parameters: { type: "object" } },
+    });
+
+    // No cost reported, like Ramp Router — see `ChatUsage.costUsd`.
+    expect(result.usage).toEqual({ promptTokens: 11, completionTokens: 3, costUsd: 0 });
+    expect(result.content).toBe("nobody");
+  });
+
+  it("collapses a fallback chain to its first entry, which is all it can honour", async () => {
+    const spy = mockFetch({ choices: [{ message: { content: "hi" } }] });
+    await callModel(
+      { ...GEMINI, model: "gemini-2.5-pro, gemini-2.5-flash" },
+      { messages: CONVERSATION, maxTokens: 10, timeoutMs: 100 },
+    );
+    const { body } = lastRequest(spy);
+    // A `models` array is an OpenRouter/Router route selector; here it is a 400.
+    expect(body.model).toBe("gemini-2.5-pro");
+    expect(body.models).toBeUndefined();
+  });
+
+  it("refuses to call at all when no model is set, since it has no auto model", async () => {
+    const spy = mockFetch({});
+    await expect(
+      callModel({ ...GEMINI, model: null }, { messages: CONVERSATION, maxTokens: 10, timeoutMs: 100 }),
+    ).rejects.toThrow(/No model is set for the Google Gemini connection/);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("reads tool calls back out of the shared chat-completions shape", async () => {
+    mockFetch({
+      choices: [
+        {
+          message: { content: null, tool_calls: [{ id: "c9", function: { name: "mark", arguments: '{"id":1}' } }] },
+          finish_reason: "tool_calls",
+        },
+      ],
+    });
+    const result = await callModel(GEMINI, { messages: CONVERSATION, maxTokens: 10, timeoutMs: 100 });
+    expect(result.toolCalls).toEqual([{ id: "c9", name: "mark", argumentsJson: '{"id":1}' }]);
+    expect(result.finishReason).toBe("tool_calls");
   });
 });

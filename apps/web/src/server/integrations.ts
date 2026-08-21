@@ -152,6 +152,7 @@ export type Provider =
 export const PROVIDERS: Provider[] = [
   "openrouter",
   "router",
+  "gemini",
   "linki",
   "bund_ai",
   "buffer",

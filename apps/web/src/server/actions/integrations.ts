@@ -23,8 +23,8 @@ import { deny } from "./guard";
 
 /**
  * Connect, test, or revoke Falorb's connection to Linki, Bund AI, Buffer,
- * Clay, Exa, Firecrawl, ElevenLabs, or one of the two AI gateways
- * (OpenRouter, Ramp Router) — at the organization level (this file) or, via
+ * Clay, Exa, Firecrawl, ElevenLabs, or one of the three AI providers
+ * (OpenRouter, Ramp Router, Google Gemini) — at the organization level (this file) or, via
  * the `*ProjectIntegration*` actions below, overriding it for one property.
  * A property with its own connection for a provider uses that one; a
  * property with none falls back to the organization's (see
@@ -62,6 +62,7 @@ const LABELS: Record<Provider, string> = {
   elevenlabs: "ElevenLabs",
   openrouter: "OpenRouter",
   router: "Ramp Router",
+  gemini: "Google Gemini",
 };
 
 /**
@@ -78,6 +79,7 @@ const FIXED_BASE_URLS: Partial<Record<Provider, string>> = {
   elevenlabs: ELEVENLABS_DEFAULT_BASE_URL,
   openrouter: AI_PROVIDER_BASE_URLS.openrouter,
   router: AI_PROVIDER_BASE_URLS.router,
+  gemini: AI_PROVIDER_BASE_URLS.gemini,
 };
 
 function clientFor(
@@ -297,7 +299,7 @@ async function revokeConnection(
 /**
  * The model field on the connect form — only the AI gateways have one, and
  * only they store anything in the column. Blank means "the provider's
- * default", which is `openrouter/auto` on OpenRouter and, on Ramp Router,
+ * default", which is `openrouter/auto` on OpenRouter and, on Ramp Router and Gemini,
  * nothing at all: it has no auto model, so a connection there is verified
  * but unusable until a model is chosen, which is what the panel says.
  */

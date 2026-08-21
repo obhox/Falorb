@@ -5,13 +5,14 @@ import type { ChatMessage, ChatResult, ToolCall, ToolSpec } from "./types";
 /**
  * The one place that knows a gateway's wire protocol.
  *
- * Both supported gateways (see `credentials.ts`) put many vendors' models
- * behind one key, but behind two different OpenAI-shaped APIs: OpenRouter
- * speaks chat completions, Ramp Router speaks responses. Rather than teach
- * every caller which one it is talking to, `callModel` takes the internal
- * `ChatMessage[]` shape, translates it for whichever gateway the
- * organization connected, and translates the answer back into one
- * `ChatResult`. `chat()` and `complete()` are both thin wrappers over it.
+ * All three supported providers (see `credentials.ts`) answer an
+ * OpenAI-shaped API, but not the *same* OpenAI-shaped API: OpenRouter and
+ * Gemini's compatibility layer speak chat completions, Ramp Router speaks
+ * responses. Rather than teach every caller which one it is talking to,
+ * `callModel` takes the internal `ChatMessage[]` shape, translates it for
+ * whichever provider the organization connected, and translates the answer
+ * back into one `ChatResult`. `chat()` and `complete()` are both thin
+ * wrappers over it.
  *
  * Errors all surface as `AiTransportError`; the two wrappers re-throw them
  * as `AiChatError`/`AiSignalError` so the existing error handling at every
@@ -38,10 +39,11 @@ export async function callModel(credentials: AiCredentials, request: ModelReques
 
 /**
  * The model id(s) to ask for: the per-call override, else the connection's,
- * else the provider's default. Ramp Router has no default (its callable ids
- * are key-specific), so a connection to it that names no model is a
- * configuration error worth saying plainly rather than a request that fails
- * upstream with a less obvious message.
+ * else the provider's default. Only OpenRouter has a default — Ramp
+ * Router's callable ids are key-specific and Gemini has no auto-select — so
+ * a connection to either that names no model is a configuration error worth
+ * saying plainly rather than a request that fails upstream with a less
+ * obvious message.
  */
 function requireModel(credentials: AiCredentials, override: string | null | undefined): string {
   const model = (override ?? credentials.model ?? AI_PROVIDER_DEFAULT_MODELS[credentials.provider] ?? "").trim();
@@ -172,7 +174,7 @@ async function post(credentials: AiCredentials, path: string, body: unknown, tim
 }
 
 /* ------------------------------------------------------------------ *
- * OpenAI chat completions — OpenRouter
+ * OpenAI chat completions — OpenRouter, Google Gemini
  * ------------------------------------------------------------------ */
 
 interface ChatCompletionsChoice {
@@ -181,6 +183,26 @@ interface ChatCompletionsChoice {
     tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }>;
   };
   finish_reason?: string;
+}
+
+/**
+ * Which route selector this provider's chat-completions endpoint accepts.
+ *
+ * `models` — an ordered fallback chain tried in turn — is an OpenRouter
+ * extension here. Router has its own version of the idea on the responses
+ * side (see `routerRouteSelector`), but Gemini's compatibility layer takes
+ * a single `model` string and 400s on the array. So a comma-separated
+ * connection model stays a real chain on OpenRouter and collapses to its
+ * first entry on Gemini, which is the honest reading of a preference list
+ * a provider cannot honour.
+ */
+function chatCompletionsRouteSelector(
+  credentials: AiCredentials,
+  resolved: { model: string } | { models: string[] },
+): Record<string, unknown> {
+  if ("model" in resolved) return { model: resolved.model };
+  if (credentials.provider === "openrouter") return { models: resolved.models };
+  return { model: resolved.models[0]! };
 }
 
 /**
@@ -202,12 +224,17 @@ interface ChatCompletionsChoice {
  * invoice.
  *
  * Both are OpenRouter extensions, so both are sent only to OpenRouter.
+ * Gemini shares this request path but none of those extensions: it routes
+ * to nothing (the model id names the generation outright, so there is no
+ * auto-select to constrain) and it reports no per-request cost, which is
+ * why an agent running on Gemini shows tokens and a zero spend — the same
+ * gap Ramp Router has, documented on `ChatUsage.costUsd`.
  */
 async function callChatCompletions(credentials: AiCredentials, request: ModelRequest): Promise<ChatResult> {
   const isOpenRouter = credentials.provider === "openrouter";
 
   const body: Record<string, unknown> = {
-    ...resolveModel(requireModel(credentials, request.model)),
+    ...chatCompletionsRouteSelector(credentials, resolveModel(requireModel(credentials, request.model))),
     messages: request.messages.map(toChatCompletionsMessage),
     max_tokens: request.maxTokens,
   };

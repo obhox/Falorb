@@ -7,3 +7,4 @@ export * from "./integrations";
 export * from "./crm";
 export * from "./support";
 export * from "./prospecting";
+export * from "./ugc";

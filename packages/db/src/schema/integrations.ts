@@ -14,12 +14,13 @@ import { organizations } from "./tenancy";
 /**
  * Credentials Falorb holds to call another product's API on the
  * organization's behalf — Linki (sales/outreach), Bund AI (customer
- * support) and Clay (prospect contact enrichment, see FEATURES.md §17)
- * today, more over time. One table, not one per provider, because the shape
- * is identical: a base URL, an encrypted key, and a status a sync job can
- * check before calling out. Clay's `baseUrl` is fixed rather than
- * user-entered (it has one API root, unlike Linki/Bund AI's self-hosted
- * deployments) — set server-side, not exposed on its connect form.
+ * support), Clay (prospect contact enrichment, see FEATURES.md §17), and
+ * ElevenLabs (UGC video generation, see FEATURES.md §18) today, more over
+ * time. One table, not one per provider, because the shape is identical: a
+ * base URL, an encrypted key, and a status a sync job can check before
+ * calling out. Clay's and ElevenLabs' `baseUrl` are fixed rather than
+ * user-entered (each has one API root, unlike Linki/Bund AI's self-hosted
+ * deployments) — set server-side, not exposed on their connect forms.
  *
  * The key is stored encrypted, not hashed, unlike `api_keys`. Those keys are
  * only ever compared against a caller-presented value; this key must be
@@ -30,6 +31,7 @@ export const integrationProviderEnum = pgEnum("integration_provider", [
   "linki",
   "bund_ai",
   "clay",
+  "elevenlabs",
 ]);
 
 export const integrationStatusEnum = pgEnum("integration_status", [

@@ -12,13 +12,14 @@ import {
 import { LinkiClient } from "@falorb/linki-client";
 import { BundAiClient } from "@falorb/bund-ai-client";
 import { ClayClient, CLAY_DEFAULT_BASE_URL } from "@falorb/clay-client";
+import { ElevenLabsClient, ELEVENLABS_DEFAULT_BASE_URL } from "@falorb/elevenlabs-client";
 import type { Workspace } from "../onboarding";
 import { HttpError } from "../http";
 import { requireHumanSession } from "../guards";
 
 /**
  * Connection management for the external products Falorb drives on the
- * organization's behalf (Linki, Bund AI, Clay, more over time).
+ * organization's behalf (Linki, Bund AI, Clay, ElevenLabs, more over time).
  *
  * Deliberately human-session-only end to end, not scope-gated for API keys —
  * same reasoning as `POST /api/keys` in `index.ts`: storing, testing, or
@@ -43,12 +44,18 @@ type Vars = {
 const PROVIDERS = {
   linki: { label: "Linki", hasBaseUrl: true },
   bund_ai: { label: "Bund AI", hasBaseUrl: true },
-  // Clay has one fixed API root, unlike Linki/Bund AI's self-hosted
-  // deployments — callers don't supply a baseUrl for it.
+  // Clay and ElevenLabs each have one fixed API root, unlike Linki/Bund AI's
+  // self-hosted deployments — callers don't supply a baseUrl for either.
   clay: { label: "Clay", hasBaseUrl: false },
+  elevenlabs: { label: "ElevenLabs", hasBaseUrl: false },
 } as const;
 
 type Provider = keyof typeof PROVIDERS;
+
+const FIXED_BASE_URL: Partial<Record<Provider, string>> = {
+  clay: CLAY_DEFAULT_BASE_URL,
+  elevenlabs: ELEVENLABS_DEFAULT_BASE_URL,
+};
 
 function parseProvider(raw: string): Provider {
   if (raw in PROVIDERS) return raw as Provider;
@@ -65,7 +72,9 @@ async function pingProvider(
       ? new LinkiClient({ baseUrl, apiKey })
       : provider === "bund_ai"
         ? new BundAiClient({ baseUrl, apiKey })
-        : new ClayClient({ baseUrl, apiKey });
+        : provider === "elevenlabs"
+          ? new ElevenLabsClient({ baseUrl, apiKey })
+          : new ClayClient({ baseUrl, apiKey });
   return client.verifyConnection();
 }
 
@@ -110,7 +119,7 @@ export function integrationsRoutes(db: Database): Hono<{ Variables: Vars }> {
     if (PROVIDERS[provider].hasBaseUrl && !parsed.data.baseUrl) {
       throw new HttpError(422, "baseUrl is required.");
     }
-    const baseUrl = PROVIDERS[provider].hasBaseUrl ? parsed.data.baseUrl! : CLAY_DEFAULT_BASE_URL;
+    const baseUrl = PROVIDERS[provider].hasBaseUrl ? parsed.data.baseUrl! : FIXED_BASE_URL[provider]!;
 
     const check = await pingProvider(provider, baseUrl, parsed.data.apiKey);
     const encrypted = encryptCredential(parsed.data.apiKey);

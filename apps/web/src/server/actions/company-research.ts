@@ -46,7 +46,7 @@ export async function enrichCompany(personId: string): Promise<ActionResult> {
   }
 
   try {
-    const result = await researchCompany(company.name ?? company.domain, company.domain);
+    const result = await researchCompany(company.name ?? company.domain, company.domain, orgId);
     if (!result.industry && !result.employeeRange && !result.linkedinUrl && !result.summary) {
       return { ok: false, message: "Web research found nothing new for this company." };
     }

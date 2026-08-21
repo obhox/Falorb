@@ -17,6 +17,7 @@ import { enforceRetention, processDataRequests, pruneOrphanedPersons } from "./j
 import { sendWeeklyDigests } from "./jobs/digest";
 import { syncLinki } from "./jobs/linki-sync";
 import { syncBundAi } from "./jobs/bund-ai-sync";
+import { syncBuffer } from "./jobs/buffer-sync";
 import { generateUgcVideos } from "./jobs/ugc-video-gen";
 
 /**
@@ -186,6 +187,15 @@ scheduler.add({
   timeoutMs: 20 * MINUTE,
   run: async () => {
     await syncBundAi(context);
+  },
+});
+
+scheduler.add({
+  name: "buffer-sync",
+  intervalMs: 15 * MINUTE,
+  timeoutMs: 20 * MINUTE,
+  run: async () => {
+    await syncBuffer(context);
   },
 });
 

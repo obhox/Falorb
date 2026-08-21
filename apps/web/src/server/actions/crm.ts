@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { AUDIT_ACTIONS, audit, db, schema } from "@falorb/db";
 import { LinkiApiError, type LinkiSignalType } from "@falorb/linki-client";
 import { requireSession } from "@/server/session";
@@ -292,6 +292,96 @@ export async function updateLinkiContact(personId: string): Promise<ActionResult
 function trimmedOrNull(formData: FormData, key: string): string | null {
   const value = String(formData.get(key) ?? "").trim();
   return value ? value : null;
+}
+
+/**
+ * Adds a brand-new contact to the CRM by hand — someone with no analytics
+ * history to attach to (unlike `addPersonToCrm`, which needs an existing
+ * `persons` row) and no existing Linki contact to promote (unlike
+ * `promoteLinkiContact`). Creates the `persons` row itself when needed.
+ *
+ * Email is required, not just accepted, because it is the only key
+ * `apps/worker/src/jobs/linki-sync.ts`'s `linkContactsToPersons` backfill
+ * matches on — a manually-added contact without one would never pick up a
+ * matching Linki contact's sent-email/campaign history were one to sync in
+ * later. If a person with this email already exists (from analytics or a
+ * prior manual add), this attaches the CRM profile to that person instead of
+ * fragmenting the identity graph with a duplicate.
+ */
+export async function createCrmContact(formData: FormData): Promise<ActionResult> {
+  const session = await requireSession();
+  const refusal = deny(session.workspace.role, "manageCrm", "add a contact to the CRM");
+  if (refusal) return refusal;
+
+  const orgId = session.workspace.organizationId;
+  const email = trimmedOrNull(formData, "email");
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { ok: false, message: "Enter a valid email — it's how this contact will match Linki's synced activity." };
+  }
+  const name = trimmedOrNull(formData, "name");
+  const title = trimmedOrNull(formData, "title");
+  const phone = trimmedOrNull(formData, "phone");
+  const notes = trimmedOrNull(formData, "notes");
+  const status = trimmedOrNull(formData, "status") ?? "lead";
+
+  const [existingPerson] = await db()
+    .select({ id: schema.persons.id })
+    .from(schema.persons)
+    .where(and(eq(schema.persons.organizationId, orgId), sql`lower(${schema.persons.email}) = lower(${email})`))
+    .limit(1);
+
+  if (existingPerson) {
+    const existingProfile = await getCrmProfileRow(orgId, existingPerson.id);
+    if (existingProfile) return { ok: false, message: `${email} is already in the CRM.` };
+  }
+
+  const personId = await db().transaction(async (tx) => {
+    let resolvedId = existingPerson?.id ?? null;
+    if (!resolvedId) {
+      const [person] = await tx
+        .insert(schema.persons)
+        .values({
+          organizationId: orgId,
+          name,
+          email,
+          firstChannel: "crm",
+          firstSource: "manual",
+          lastChannel: "crm",
+          lastSource: "manual",
+        })
+        .returning({ id: schema.persons.id });
+      if (!person) throw new Error("Person insert returned no row.");
+      resolvedId = person.id;
+    }
+
+    await tx.insert(schema.crmProfiles).values({
+      organizationId: orgId,
+      personId: resolvedId,
+      title,
+      phone,
+      notes,
+      status,
+      createdBy: session.user.id,
+    });
+
+    return resolvedId;
+  });
+
+  audit(db(), {
+    organizationId: orgId,
+    actorId: session.user.id,
+    action: AUDIT_ACTIONS.crmProfileCreated,
+    targetType: "person",
+    targetId: personId,
+    metadata: { source: "manual", email },
+  });
+
+  revalidatePath(`/people/${personId}`);
+  revalidatePath("/crm");
+  return {
+    ok: true,
+    message: existingPerson ? "Existing person added to the CRM." : "Contact added to the CRM.",
+  };
 }
 
 export async function addPersonToCrm(personId: string): Promise<ActionResult> {
@@ -589,6 +679,7 @@ export async function getLinkedContact(
   };
 }
 
+/** Org-level connection only — a property-only override doesn't light up this org-wide "Linki connected" check; see `packages/db/src/schema/integrations.ts`. */
 export async function isLinkiConnected(organizationId: string): Promise<boolean> {
   const [row] = await db()
     .select({ id: schema.integrationConnections.id })
@@ -596,6 +687,7 @@ export async function isLinkiConnected(organizationId: string): Promise<boolean>
     .where(
       and(
         eq(schema.integrationConnections.organizationId, organizationId),
+        isNull(schema.integrationConnections.projectId),
         eq(schema.integrationConnections.provider, "linki"),
         eq(schema.integrationConnections.status, "active"),
         isNull(schema.integrationConnections.revokedAt),

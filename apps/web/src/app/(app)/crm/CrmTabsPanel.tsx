@@ -7,6 +7,7 @@ import { Empty } from "@/components/Empty";
 import { relative } from "@/lib/format";
 import { useAction } from "@/lib/use-action";
 import {
+  createCrmContact,
   createDeal,
   promoteLinkiContact,
   updateCrmProfile,
@@ -88,8 +89,54 @@ export interface SignalRuleRow {
   autoStart: boolean;
 }
 
+export interface RunRow {
+  id: string;
+  status: string | null;
+  workflowName: string | null;
+  listName: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  trackCount: number;
+}
+
+export interface SentMessageRow {
+  id: string;
+  recipient: string | null;
+  subject: string | null;
+  status: string | null;
+  contactId: string | null;
+  contactName: string | null;
+  syncedAt: string;
+}
+
+export interface SuppressionRow {
+  id: string;
+  kind: string;
+  value: string;
+  reason: string | null;
+  syncedAt: string;
+}
+
 const STATUSES = ["lead", "prospect", "customer", "churned"];
 const UNASSIGNED = "Unassigned";
+
+const RUN_STATUS_TONE: Record<string, "up" | "down" | "warn" | "neutral"> = {
+  completed: "up",
+  sent: "up",
+  delivered: "up",
+  replied: "up",
+  failed: "down",
+  error: "down",
+  bounced: "down",
+  complained: "down",
+  pending: "warn",
+  in_progress: "warn",
+};
+
+function runStatusTone(value: string | null): "up" | "down" | "warn" | "neutral" {
+  if (!value) return "neutral";
+  return RUN_STATUS_TONE[value.toLowerCase()] ?? "neutral";
+}
 
 function ConnectLinkiPrompt({ what }: { what: string }) {
   return (
@@ -117,6 +164,9 @@ export function CrmTabsPanel({
   workflows,
   lists,
   signalRules,
+  runs,
+  sentMessages,
+  suppressions,
   now,
 }: {
   connected: boolean;
@@ -128,6 +178,9 @@ export function CrmTabsPanel({
   workflows: WorkflowRow[];
   lists: ListRow[];
   signalRules: SignalRuleRow[];
+  runs: RunRow[];
+  sentMessages: SentMessageRow[];
+  suppressions: SuppressionRow[];
   now: number;
 }) {
   const [tab, setTab] = useState("contacts");
@@ -135,6 +188,7 @@ export function CrmTabsPanel({
 
   const [editingProfile, setEditingProfile] = useState<CrmProfileRow | null>(null);
   const [newDealOpen, setNewDealOpen] = useState(false);
+  const [newContactOpen, setNewContactOpen] = useState(false);
 
   const ownerName = new Map(owners.map((o) => [o.id, o.name]));
   const stageName = new Map(stages.map((s) => [s.id, s.name]));
@@ -154,11 +208,22 @@ export function CrmTabsPanel({
           { value: "from-linki", label: "From Linki", count: unmatchedContacts.length },
           { value: "workflows", label: "Workflows & lists", count: workflows.length + lists.length },
           { value: "signals", label: "Signal rules", count: signalRules.length },
+          { value: "runs", label: "Runs", count: runs.length },
+          { value: "sent", label: "Sent messages", count: sentMessages.length },
+          { value: "suppressions", label: "Suppressions", count: suppressions.length },
         ]}
       />
 
       {tab === "contacts" && (
-        <Card title="Contacts" subtitle="Falorb's own CRM — people deliberately added, not every visitor">
+        <Card
+          title="Contacts"
+          subtitle="Falorb's own CRM — people deliberately added, not every visitor"
+          action={
+            <Button size="sm" variant="primary" onClick={() => setNewContactOpen(true)}>
+              Add contact
+            </Button>
+          }
+        >
           <DataTable
             dense
             columns={[
@@ -216,7 +281,7 @@ export function CrmTabsPanel({
                 dense
                 icon="users"
                 title="Nobody's in the CRM yet"
-                body="Add a person from their profile, or bring in an existing Linki contact from the “From Linki” tab."
+                body="Add a contact directly, add a person from their profile, or bring in an existing Linki contact from the “From Linki” tab."
               />
             }
           />
@@ -236,7 +301,16 @@ export function CrmTabsPanel({
           <DataTable
             dense
             columns={[
-              { key: "name", header: "Deal", width: "minmax(150px, 1.2fr)", render: (r: DealRow) => r.name },
+              {
+                key: "name",
+                header: "Deal",
+                width: "minmax(150px, 1.2fr)",
+                render: (r: DealRow) => (
+                  <Link href={`/crm/deals/${r.id}`} data-plain style={{ color: "var(--text-primary)" }}>
+                    {r.name}
+                  </Link>
+                ),
+              },
               {
                 key: "person",
                 header: "Contact",
@@ -319,7 +393,15 @@ export function CrmTabsPanel({
 
       {tab === "from-linki" &&
         (connected ? (
-          <Card title="From Linki" subtitle="Existing Linki contacts not yet brought into Falorb's CRM">
+          <Card
+            title="From Linki"
+            subtitle="Existing Linki contacts not yet brought into Falorb's CRM"
+            action={
+              <Link href="/crm/contacts" data-plain style={{ fontSize: "var(--size-label)", color: "var(--accent)" }}>
+                View all contacts →
+              </Link>
+            }
+          >
             <DataTable
               dense
               columns={[
@@ -430,6 +512,124 @@ export function CrmTabsPanel({
           <ConnectLinkiPrompt what="signal rules" />
         ))}
 
+      {tab === "runs" &&
+        (connected ? (
+          <Card title="Runs" subtitle="Workflow executions synced from Linki">
+            <DataTable
+              dense
+              columns={[
+                {
+                  key: "workflow",
+                  header: "Workflow",
+                  width: "minmax(140px, 1.2fr)",
+                  render: (r: RunRow) => (
+                    <Link href={`/crm/runs/${r.id}`} data-plain style={{ color: "var(--text-primary)" }}>
+                      {r.workflowName ?? "—"}
+                    </Link>
+                  ),
+                },
+                { key: "list", header: "List", width: "minmax(120px, 1fr)", render: (r: RunRow) => r.listName ?? "—" },
+                {
+                  key: "status",
+                  header: "Status",
+                  width: "110px",
+                  render: (r: RunRow) => <Badge tone={runStatusTone(r.status)}>{r.status ?? "—"}</Badge>,
+                },
+                { key: "targets", header: "Targets", width: "80px", align: "right", mono: true, render: (r: RunRow) => r.trackCount },
+                {
+                  key: "startedAt",
+                  header: "Started",
+                  width: "90px",
+                  align: "right",
+                  mono: true,
+                  render: (r: RunRow) => (r.startedAt ? relative(r.startedAt, now) : "—"),
+                },
+                {
+                  key: "completedAt",
+                  header: "Completed",
+                  width: "90px",
+                  align: "right",
+                  mono: true,
+                  render: (r: RunRow) => (r.completedAt ? relative(r.completedAt, now) : "—"),
+                },
+              ]}
+              rows={runs}
+              emptyState={<Empty dense icon="workflow" title="No runs yet" body="Nothing has synced yet." />}
+            />
+          </Card>
+        ) : (
+          <ConnectLinkiPrompt what="workflow runs" />
+        ))}
+
+      {tab === "sent" &&
+        (connected ? (
+          <Card title="Sent messages" subtitle="Delivery status for messages sent through Linki">
+            <DataTable
+              dense
+              columns={[
+                {
+                  key: "recipient",
+                  header: "Recipient",
+                  width: "minmax(150px, 1.2fr)",
+                  render: (r: SentMessageRow) =>
+                    r.contactId ? (
+                      <Link href={`/crm/contacts/${r.contactId}`} data-plain style={{ color: "var(--text-primary)" }}>
+                        {r.contactName ?? r.recipient ?? "—"}
+                      </Link>
+                    ) : (
+                      r.recipient ?? "—"
+                    ),
+                },
+                { key: "subject", header: "Subject", width: "minmax(160px, 1.6fr)", render: (r: SentMessageRow) => r.subject ?? "—" },
+                {
+                  key: "status",
+                  header: "Status",
+                  width: "110px",
+                  render: (r: SentMessageRow) => <Badge tone={runStatusTone(r.status)}>{r.status ?? "—"}</Badge>,
+                },
+                {
+                  key: "syncedAt",
+                  header: "Synced",
+                  width: "90px",
+                  align: "right",
+                  mono: true,
+                  render: (r: SentMessageRow) => relative(r.syncedAt, now),
+                },
+              ]}
+              rows={sentMessages}
+              emptyState={<Empty dense icon="mail" title="No messages yet" body="Nothing has synced yet." />}
+            />
+          </Card>
+        ) : (
+          <ConnectLinkiPrompt what="sent messages" />
+        ))}
+
+      {tab === "suppressions" &&
+        (connected ? (
+          <Card title="Suppressions" subtitle="Do-not-contact list, mirrored from Linki — read-only">
+            <DataTable
+              dense
+              columns={[
+                { key: "value", header: "Value", width: "minmax(160px, 1.4fr)", mono: true, render: (r: SuppressionRow) => r.value },
+                { key: "kind", header: "Kind", width: "100px", render: (r: SuppressionRow) => r.kind },
+                { key: "reason", header: "Reason", width: "minmax(140px, 1.2fr)", render: (r: SuppressionRow) => r.reason ?? "—" },
+                {
+                  key: "syncedAt",
+                  header: "Synced",
+                  width: "90px",
+                  align: "right",
+                  mono: true,
+                  render: (r: SuppressionRow) => relative(r.syncedAt, now),
+                },
+              ]}
+              rows={suppressions}
+              emptyState={<Empty dense icon="shield" title="No suppressions" body="Nobody is on the do-not-contact list." />}
+            />
+          </Card>
+        ) : (
+          <ConnectLinkiPrompt what="suppressions" />
+        ))}
+
       {editingProfile && (
         <EditProfileDialog
           profile={editingProfile}
@@ -454,6 +654,17 @@ export function CrmTabsPanel({
           onSave={async (personId, formData) => {
             const result = await run(() => createDeal(personId, formData), { success: "Deal created." });
             if (result?.ok) setNewDealOpen(false);
+          }}
+        />
+      )}
+
+      {newContactOpen && (
+        <NewContactDialog
+          pending={pending}
+          onClose={() => setNewContactOpen(false)}
+          onSave={async (formData) => {
+            const result = await run(() => createCrmContact(formData), { success: "Contact added." });
+            if (result?.ok) setNewContactOpen(false);
           }}
         />
       )}
@@ -513,6 +724,72 @@ export function EditProfileDialog({
         <Input label="Phone" value={phone} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPhone(e.target.value)} />
         <Select label="Status" value={status} options={STATUSES} onChange={setStatus} />
         <Select label="Owner" value={owner} options={[UNASSIGNED, ...owners.map((o) => o.name)]} onChange={setOwner} />
+      </div>
+    </Dialog>
+  );
+}
+
+function NewContactDialog({
+  pending,
+  onClose,
+  onSave,
+}: {
+  pending: boolean;
+  onClose: () => void;
+  onSave: (formData: FormData) => void;
+}) {
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [title, setTitle] = useState("");
+  const [phone, setPhone] = useState("");
+  const [status, setStatus] = useState(STATUSES[0]!);
+  const [notes, setNotes] = useState("");
+
+  return (
+    <Dialog
+      title="Add contact"
+      subtitle="Not in analytics or Linki yet — added by hand"
+      onClose={onClose}
+      footer={
+        <>
+          <Button size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            size="sm"
+            variant="primary"
+            disabled={pending || !email.trim()}
+            onClick={() => {
+              const data = new FormData();
+              data.set("name", name);
+              data.set("email", email);
+              data.set("title", title);
+              data.set("phone", phone);
+              data.set("status", status);
+              data.set("notes", notes);
+              onSave(data);
+            }}
+          >
+            {pending ? "Adding…" : "Add contact"}
+          </Button>
+        </>
+      }
+    >
+      <div style={{ display: "grid", gap: 10 }}>
+        <Input label="Name" value={name} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)} placeholder="Full name" />
+        <Input
+          label="Email"
+          value={email}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}
+          placeholder="name@company.com"
+          hint="Required — this is how a matching Linki contact's emails and campaigns link up later."
+        />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <Input label="Title" value={title} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setTitle(e.target.value)} />
+          <Input label="Phone" value={phone} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPhone(e.target.value)} />
+        </div>
+        <Select label="Status" value={status} options={STATUSES} onChange={setStatus} />
+        <Input label="Notes" value={notes} onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNotes(e.target.value)} />
       </div>
     </Dialog>
   );

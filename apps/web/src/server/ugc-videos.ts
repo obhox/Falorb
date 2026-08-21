@@ -1,5 +1,5 @@
 import "server-only";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { db, decryptCredential, schema } from "@falorb/db";
 import { ElevenLabsClient, type Voice } from "@falorb/elevenlabs-client";
 
@@ -88,6 +88,7 @@ export async function listAvailableVoices(organizationId: string): Promise<Voice
     .where(
       and(
         eq(schema.integrationConnections.organizationId, organizationId),
+        isNull(schema.integrationConnections.projectId),
         eq(schema.integrationConnections.provider, "elevenlabs"),
         eq(schema.integrationConnections.status, "active"),
       ),

@@ -1,21 +1,23 @@
 "use client";
 
-import { useRef, useState } from "react";
 import Link from "next/link";
-import { Badge, Button, Card, Icon, Input, Select } from "@falorb/ui";
+import { getVideoModel } from "@falorb/elevenlabs-client/models";
+import { Badge, Button, Card, Icon } from "@falorb/ui";
 import { Empty } from "@/components/Empty";
-import { createUgcVideo } from "@/server/actions/ugc-videos";
-import { useAction } from "@/lib/use-action";
 import { relative, duration } from "@/lib/format";
-
-const ELEVENLABS_NOTICE =
-  "Connect ElevenLabs under Settings → Integrations before generating a video — each org uses its own account.";
+import { UgcComposer } from "./UgcComposer";
+import type { VoiceOption } from "./VoicePicker";
 
 export interface UgcVideoListItem {
   id: string;
   projectId: number | null;
   projectName: string | null;
+  mode: string;
   brief: string;
+  voiceName: string | null;
+  videoModel: string;
+  aspectRatio: string | null;
+  resolution: string | null;
   status: string;
   lastError: string | null;
   videoUrl: string | null;
@@ -23,21 +25,27 @@ export interface UgcVideoListItem {
   createdAt: string;
 }
 
-const NO_PROJECT = "No property";
-
 const STATUS_TONE: Record<string, "neutral" | "accent" | "up" | "down" | "warn"> = {
   pending: "neutral",
   script_ready: "accent",
   voice_ready: "accent",
+  prompt_ready: "accent",
   video_processing: "warn",
   ready: "up",
   failed: "down",
 };
 
+/**
+ * Stage names a person recognises, not the resume points the column stores.
+ * The two chains land on different ones — `script_ready` only ever happens
+ * to an avatar video, `prompt_ready` only to a text-to-video one — so both
+ * appear here and neither needs to know the row's mode to be labelled.
+ */
 const STATUS_LABEL: Record<string, string> = {
   pending: "Queued",
-  script_ready: "Writing voiceover",
+  script_ready: "Recording voiceover",
   voice_ready: "Rendering video",
+  prompt_ready: "Rendering video",
   video_processing: "Rendering video",
   ready: "Ready",
   failed: "Failed",
@@ -46,25 +54,39 @@ const STATUS_LABEL: Record<string, string> = {
 /**
  * Org-wide UGC video generation. See `apps/web/src/app/(app)/ugc-videos/page.tsx`
  * for why this is a top-level route rather than a per-project tab.
+ *
+ * The composer lives in `UgcComposer.tsx`; this file is the composer plus
+ * the reel of what has been generated. Each card names the model and, for a
+ * talking-avatar video, the voice — a library that mixes Veo b-roll with
+ * lip-synced testimonials is unreadable if every card just says "video".
  */
 export function UgcVideoList({
   videos,
   projects,
+  voices,
+  voiceError,
   elevenlabsConnected,
 }: {
   videos: UgcVideoListItem[];
   projects: { id: number; name: string }[];
+  voices: VoiceOption[];
+  voiceError: string | null;
   elevenlabsConnected: boolean;
 }) {
   return (
     <>
-      <CreateForm projects={projects} elevenlabsConnected={elevenlabsConnected} />
+      <UgcComposer
+        projects={projects}
+        voices={voices}
+        voiceError={voiceError}
+        elevenlabsConnected={elevenlabsConnected}
+      />
 
       {videos.length === 0 ? (
         <Empty
           icon="clapperboard"
-          title="No UGC videos yet"
-          body="Describe a product or offer above to generate your first script, voiceover, and talking video."
+          title="No videos yet"
+          body="Describe a product or offer above. Pick a talking avatar to have a presenter deliver it, or text to video to have a model film it."
         />
       ) : (
         <div style={{ display: "grid", gap: "var(--space-4)" }}>
@@ -77,148 +99,42 @@ export function UgcVideoList({
   );
 }
 
-function CreateForm({
-  projects,
-  elevenlabsConnected,
-}: {
-  projects: { id: number; name: string }[];
-  elevenlabsConnected: boolean;
-}) {
-  const [brief, setBrief] = useState("");
-  const [projectName, setProjectName] = useState(NO_PROJECT);
-  const [voiceId, setVoiceId] = useState("");
-  const fileRef = useRef<HTMLInputElement>(null);
-  const { run, pending } = useAction();
-
-  const projectByName = new Map(projects.map((p) => [p.name, p.id]));
-
-  async function submit(event: React.FormEvent) {
-    event.preventDefault();
-    const file = fileRef.current?.files?.[0];
-    if (!file) return;
-
-    const data = new FormData();
-    data.set("brief", brief);
-    data.set("voiceId", voiceId);
-    const projectId = projectByName.get(projectName);
-    if (projectId) data.set("projectId", String(projectId));
-    data.set("presenterImage", file);
-
-    const result = await run(() => createUgcVideo(data), { quiet: true });
-    if (result?.ok) {
-      setBrief("");
-      setVoiceId("");
-      if (fileRef.current) fileRef.current.value = "";
-    }
-  }
-
-  return (
-    <Card title="Generate a UGC video" subtitle="Script, voiceover, and a lip-synced talking video">
-      {!elevenlabsConnected && (
-        <p
-          style={{
-            margin: "0 0 var(--space-5)",
-            padding: "8px 10px",
-            borderRadius: "var(--radius-control)",
-            background: "var(--signal-warn-dim)",
-            color: "var(--signal-warn)",
-            fontSize: "var(--size-body-sm)",
-          }}
-        >
-          {ELEVENLABS_NOTICE}
-        </p>
-      )}
-      <form onSubmit={submit} style={{ display: "grid", gap: "var(--space-5)" }}>
-        <label style={{ display: "grid", gap: 6 }}>
-          <span
-            style={{
-              fontSize: "var(--size-label)",
-              color: "var(--text-secondary)",
-              fontWeight: "var(--wt-medium)",
-            }}
-          >
-            Brief
-          </span>
-          <textarea
-            value={brief}
-            onChange={(e) => setBrief(e.target.value)}
-            placeholder="A skincare serum for combination skin — highlight the 2-week results and the no-fragrance formula."
-            rows={3}
-            maxLength={2000}
-            style={{
-              resize: "vertical",
-              padding: "8px 10px",
-              borderRadius: "var(--radius-control)",
-              background: "var(--surface-inset)",
-              border: "1px solid var(--control-border)",
-              boxShadow: "var(--edge-top)",
-              color: "var(--text-primary)",
-              fontFamily: "var(--font-sans)",
-              fontSize: "var(--size-body-sm)",
-            }}
-          />
-        </label>
-
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-5)" }}>
-          {projects.length > 0 && (
-            <Select
-              value={projectName}
-              options={[NO_PROJECT, ...projects.map((p) => p.name)]}
-              onChange={setProjectName}
-            />
-          )}
-          <Input
-            value={voiceId}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setVoiceId(e.target.value)}
-            placeholder="Voice ID — from your ElevenLabs voice library"
-            mono
-          />
-        </div>
-
-        <label style={{ display: "grid", gap: 6 }}>
-          <span
-            style={{
-              fontSize: "var(--size-label)",
-              color: "var(--text-secondary)",
-              fontWeight: "var(--wt-medium)",
-            }}
-          >
-            Presenter photo
-          </span>
-          <input ref={fileRef} type="file" accept="image/*" required />
-          <span style={{ fontSize: "var(--size-micro)", color: "var(--text-muted)" }}>
-            A clear, front-facing photo of the person who should deliver the script.
-          </span>
-        </label>
-
-        <div>
-          <Button
-            type="submit"
-            variant="primary"
-            disabled={pending || !brief.trim() || !voiceId.trim() || !elevenlabsConnected}
-            iconLeft={<Icon name="sparkles" size={14} />}
-          >
-            {pending ? "Starting" : "Generate video"}
-          </Button>
-        </div>
-      </form>
-    </Card>
-  );
-}
-
 function VideoCard({ video }: { video: UgcVideoListItem }) {
+  const model = getVideoModel(video.videoModel);
+  const isAvatar = video.mode === "avatar";
+
+  // Everything the generation was actually configured with, in one line —
+  // enough to tell two near-identical briefs apart at a glance.
+  const specs = [
+    model?.label ?? video.videoModel,
+    isAvatar ? video.voiceName ?? "Voice by ID" : null,
+    video.aspectRatio,
+    video.resolution,
+    video.durationSeconds ? duration(video.durationSeconds) : null,
+  ].filter(Boolean);
+
   return (
     <Card>
       <div style={{ display: "grid", gap: "var(--space-4)" }}>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
-          <div style={{ display: "grid", gap: 4, minWidth: 0 }}>
-            <p style={{ fontSize: "var(--size-body-sm)", color: "var(--text-primary)" }}>{video.brief}</p>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div style={{ display: "grid", gap: 6, minWidth: 0 }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <Icon
+                name={isAvatar ? "user-round" : "film"}
+                size={13}
+                color="var(--text-muted)"
+              />
               <span style={{ fontSize: "var(--size-micro)", color: "var(--text-muted)" }}>
-                {video.projectName ?? "No property"} · {relative(video.createdAt)}
-                {video.durationSeconds ? ` · ${duration(video.durationSeconds)}` : ""}
+                {isAvatar ? "Talking avatar" : "Text to video"}
               </span>
-            </div>
+            </span>
+            <p style={{ fontSize: "var(--size-body-sm)", color: "var(--text-primary)" }}>{video.brief}</p>
+            <span style={{ fontSize: "var(--size-micro)", color: "var(--text-muted)" }}>
+              {specs.join(" · ")}
+            </span>
+            <span style={{ fontSize: "var(--size-micro)", color: "var(--text-muted)" }}>
+              {video.projectName ?? "No property"} · {relative(video.createdAt)}
+            </span>
           </div>
           <Badge tone={STATUS_TONE[video.status] ?? "neutral"}>
             {STATUS_LABEL[video.status] ?? video.status}
@@ -233,7 +149,16 @@ function VideoCard({ video }: { video: UgcVideoListItem }) {
           <video
             src={video.videoUrl}
             controls
-            style={{ width: "100%", maxWidth: 360, borderRadius: "var(--radius-2)" }}
+            style={{
+              width: "100%",
+              // A 9:16 clip in a 360px-wide box is 640px tall and pushes
+              // every later card off the screen, so the box is capped by
+              // height and the element letterboxes itself inside it.
+              maxWidth: 360,
+              maxHeight: 320,
+              borderRadius: "var(--radius-2)",
+              background: "var(--ink-1000)",
+            }}
           />
         )}
 

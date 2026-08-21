@@ -34,8 +34,16 @@ export default async function UgcVideoDetailPage({ params }: { params: Promise<{
         <UgcVideoDetail
           video={{
             id: video.id,
+            mode: video.mode,
             brief: video.brief,
             script: video.script,
+            videoPrompt: video.videoPrompt,
+            voiceName: video.voiceName,
+            videoModel: video.videoModel,
+            aspectRatio: video.aspectRatio,
+            resolution: video.resolution,
+            requestedDurationSecs: video.requestedDurationSecs,
+            generateAudio: video.generateAudio,
             status: video.status,
             lastError: video.lastError,
             videoUrl: video.videoUrl,

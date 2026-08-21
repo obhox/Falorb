@@ -27,12 +27,39 @@ export const runtime = "nodejs";
  * nonce mechanism for those. It is the weakest line in the policy and it is
  * also the one with no alternative that does not mean rewriting the charts.
  *
- * Nothing in this app loads a cross-origin asset — fonts are self-hosted by
- * `next/font`, there are no `<img>` tags and no CDN — so every other directive
- * is `'self'`, and `default-src 'none'` makes anything overlooked fail closed.
+ * Almost nothing in this app loads a cross-origin asset — fonts are
+ * self-hosted by `next/font`, there are no `<img>` tags and no CDN — so every
+ * other directive is `'self'`, and `default-src 'none'` makes anything
+ * overlooked fail closed.
+ *
+ * `media-src` is the one exception, and it exists because of `/ugc-videos`
+ * (FEATURES.md §18): a generated video is played from ElevenLabs' own output
+ * URL and voice previews from ElevenLabs' hosted samples, neither of which
+ * Falorb re-hosts. Under `default-src 'none'` both were being blocked
+ * outright — the player rendered and simply never played. See
+ * `ELEVENLABS_MEDIA_ORIGINS` for why the allowlist is a named host rather
+ * than a blanket `https:`.
  */
 
 const isDev = process.env.NODE_ENV !== "production";
+
+/**
+ * Where ElevenLabs serves generated videos and voice previews from.
+ *
+ * Deliberately a named host rather than `https:`. This policy's whole
+ * posture is that anything not enumerated fails closed, and widening media
+ * to the entire web to play one vendor's clips would be the largest hole in
+ * it — in an app whose business is injecting scripts into other people's
+ * pages.
+ *
+ * The cost of being this narrow is that if ElevenLabs moves its output
+ * storage, videos stop playing until this list is updated. That failure is
+ * loud (a blocked-by-CSP message in the console, an empty player) and the
+ * fix is one line here. `storage.googleapis.com` is the host ElevenLabs'
+ * published `content_url` examples use — verify against a real generation
+ * and add whatever else it turns out to serve from.
+ */
+const ELEVENLABS_MEDIA_ORIGINS = "https://storage.googleapis.com";
 
 function buildCsp(nonce: string): string {
   return [
@@ -42,6 +69,9 @@ function buildCsp(nonce: string): string {
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${isDev ? " 'unsafe-eval'" : ""}`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
+    // blob: covers the local preview of a presenter photo before it is
+    // uploaded; the remote origin covers the finished video and voice samples.
+    `media-src 'self' blob: ${ELEVENLABS_MEDIA_ORIGINS}`,
     "font-src 'self'",
     // Same-origin only. The dashboard talks to its own routes — including the
     // `/api/live` event stream — and never to the collector from the browser.

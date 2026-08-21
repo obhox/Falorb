@@ -166,7 +166,7 @@ Verified end to end: one person, two devices, two products, both stores agreeing
 | ✅ | `digest` | 7d, `skipOnBoot` | Regenerates all four AI signals per project and emails one summary per org to its owners/admins; opt-out per org (`organizations.weeklyDigestEnabled`, on by default) |
 | 🟡 | `linki-sync` | 15m | Full paginated poll of a connected Linki workspace into `crm.*` (contacts, lists, workflows, runs, run profiles/tracks, pipeline stages, opportunities, signal rules, suppressions, sent messages), upserted on `(organizationId, linkiId)`. Typechecks, in `verify:jobs`; never run against a real Linki workspace — see §13 |
 | 🟡 | `bund-ai-sync` | 15m | Same shape, into `support.*` (conversations, escalations, leads, tickets) from a connected Bund AI business. Poll-only — the inbound-webhook push half is not built; see §13 |
-| 🟡 | `buffer-sync` | 15m | Full poll (cursor-paginated, not `limit`/`offset`) of a connected Buffer account into `social.*` (channels, posts + metrics), upserted on `(organizationId, bufferId)`. Typechecks, in `verify:jobs`; never run against a real Buffer account — see §13b |
+| 🟡 | `buffer-sync` | 15m | Full poll (cursor-paginated, not `limit`/`offset`) of a connected Buffer account into `social.*` (channels + posting schedule/limits, posts + metrics + failure text), upserted on `(organizationId, bufferId)`; walks the account's Buffer organizations, and flags channels that stopped coming back as disconnected. Queries are built from the live schema — see §13b |
 | ✅ | Scheduler | — | Redis distributed locks, watermarks, overlap guard |
 | ✅ | `webhooks` | 1m | Fires on goal conversion; HMAC over `timestamp.body`, auto-disables after 20 failures |
 | ✅ | `webhook-revive` | 6h | Re-enables hooks disabled by a transient outage |
@@ -209,7 +209,7 @@ Verified end to end: one person, two devices, two products, both stores agreeing
 
 | | Feature | Notes |
 |---|---|---|
-| ✅ | 213 unit tests | core 82, ingest 61, queries 30, worker 7, web 21, sdk-node 12 |
+| ✅ | 272 unit tests | core 82, ingest 61, buffer-client 48, queries 30, ai 12, sdk-node 12, worker 11, web 9, research 4, clay-client 3 |
 | ✅ | Injection-safety suite | Prototype pollution, wildcard leakage, param binding |
 | ✅ | Query smoke runner | 32 queries against live ClickHouse |
 | ✅ | Job verifier | Runs all 11 jobs once |
@@ -307,8 +307,8 @@ read mirror:
   `packages/buffer-client`, `packages/clay-client`,
   `packages/elevenlabs-client`, thin wrappers confirmed against each
   product's real API contract (not guessed) — except `buffer-client`, built
-  against Buffer's public GraphQL docs instead of a live account; see §13b
-  for why and the resulting caveats. Buffer, Clay, and ElevenLabs are all
+  against Buffer's live GraphQL schema, which the client introspects rather
+  than hardcoding; see §13b for why and what that buys. Buffer, Clay, and ElevenLabs are all
   proof the one-table design scales past the original two providers: none
   needed a schema change to add, just a new `provider` enum value and a new
   client with the same `verifyConnection()` shape the generic
@@ -374,13 +374,48 @@ integration's auth model:
   pagination — `BufferClient.listPosts` cursor-walks internally rather than
   `buffer-sync.ts` driving pages itself, so there's no `paginateAll` helper
   reused there.
-- **Caveat, stated rather than hidden**: `packages/buffer-client` was written
-  against Buffer's documented schema, not a live account — no personal API
-  key was available while building this. Field names, the exact auth header
-  format, and whether `dueAt`/`sentAt`/`metricsUpdatedAt` serialize as ISO
-  strings or Unix seconds are unconfirmed until a real key is connected and
-  `buffer-sync` runs against it. `buffer-sync.ts`'s `toDate()` handles both
-  serializations defensively for that reason.
+- **The client builds its queries from the live schema, not from the docs.**
+  The first version hardcoded selection sets taken from Buffer's developer
+  docs, and the first real API key rejected them:
+
+  ```
+  Field "weeklyPostingLimit" of type "WeeklyPostingLimit" must have a
+  selection of subfields.   extensions: { code: GRAPHQL_VALIDATION_FAILED }
+  ```
+
+  — a field the docs list flat is an object type in the running beta schema,
+  and because that is a *validation* error it arrives as **HTTP 200** with a
+  top-level `errors[]` array, not a 4xx. Rather than guessing a second time
+  against an API still changing under us, `packages/buffer-client/src/schema.ts`
+  introspects the schema once per client and builds every selection set,
+  argument list, enum value and mutation payload shape from what Buffer
+  actually exposes: a scalar is selected bare, an object gets its own
+  subfields expanded, a union payload (`Post | InvalidInputError`) gets
+  `__typename` plus inline fragments, and a field Buffer doesn't have is
+  dropped instead of failing the query. This also means `channels(organizationId:)`
+  and `channels(input:)` both work without this package picking a side.
+- **Three layers of tolerance**, in order: introspection-driven queries; a
+  rebuild-and-retry that drops exactly the fields a validation error blamed;
+  and, if introspection itself is unavailable, a conservative documented query
+  set that asks only for fields that are scalars in every version of the docs
+  (so a sync still runs, with the object-typed extras null).
+- Buffer serialization is still not pinned by contract:
+  `dueAt`/`sentAt`/`metricsUpdatedAt` may be ISO strings or Unix seconds, so
+  `normalize.ts` passes both through unchanged and `buffer-sync.ts`'s
+  `toDate()` parses either. `weeklyPostingLimit` is stored twice — the
+  flattened cap in `social_channels.weekly_posting_limit` and the object it
+  came from in `weekly_posting_limit_detail` — so an inner-field rename costs
+  the number, not the data.
+- A Buffer *account* can own several Buffer *organizations*, and `channels`
+  is scoped to one: `listChannels()` resolves the account's organizations and
+  merges, de-duplicated by channel id, recording the owning organization in
+  `social_channels.buffer_organization_id`. `verifyConnection()` reports the
+  organization count at connect time, because "connected, zero organizations"
+  is the shape of a key that will mirror nothing.
+- Everything above is unit-tested against a hand-built introspection fixture
+  (`packages/buffer-client/src/schema.fixture.ts`, 48 tests) rather than a
+  live account, since CI has no Buffer key — the fixture is deliberately
+  shaped around the `weeklyPostingLimit` mismatch that broke the first cut.
 
 ### Not yet built
 

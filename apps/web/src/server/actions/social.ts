@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
 import { AUDIT_ACTIONS, audit, db, schema } from "@falorb/db";
-import { BufferApiError } from "@falorb/buffer-client";
+import { BufferApiError, type CreatePostMode } from "@falorb/buffer-client";
 import { requireSession } from "@/server/session";
 import { getBufferClient } from "@/server/integrations";
 import type { ActionResult } from "./project";
@@ -21,12 +21,37 @@ import { deny } from "./guard";
  *
  * Nothing here runs on a schedule or without a click — same posture as
  * `crm.ts`'s manual Linki actions.
+ *
+ * `mode` is Falorb's intent — queue it, draft it, send it now, or schedule it
+ * for `dueAt` — not Buffer's wire value: the client maps it onto whatever
+ * `schedulingType`/`mode` members the live schema actually defines
+ * (`packages/buffer-client/src/schema.ts`), so a Buffer enum rename doesn't
+ * reach this file or the form.
  */
 
 export interface ComposeResult extends ActionResult {
   succeededChannelIds?: string[];
   failedChannelIds?: string[];
 }
+
+const COMPOSE_MODES = ["queue", "draft", "now", "schedule"] as const;
+
+function parseMode(raw: unknown, dueAt: string): CreatePostMode {
+  const value = String(raw ?? "");
+  if ((COMPOSE_MODES as readonly string[]).includes(value)) {
+    // A time in the form always wins over a stale "queue" selection:
+    // scheduling is what the user typed a date for.
+    return value === "queue" && dueAt ? "schedule" : (value as CreatePostMode);
+  }
+  return dueAt ? "schedule" : "queue";
+}
+
+const DONE_MESSAGE: Record<CreatePostMode, string> = {
+  queue: "Added to Buffer's queue.",
+  draft: "Saved as a draft in Buffer.",
+  now: "Published through Buffer.",
+  schedule: "Post scheduled.",
+};
 
 function toDate(value: string | number | null | undefined): Date | null {
   if (value === null || value === undefined) return null;
@@ -48,6 +73,10 @@ export async function composeSocialPost(formData: FormData): Promise<ComposeResu
   if (!channelIds.length) return { ok: false, message: "Choose at least one channel." };
 
   const dueAt = String(formData.get("dueAt") ?? "").trim();
+  const mode = parseMode(formData.get("mode"), dueAt);
+  if (mode === "schedule" && !dueAt) {
+    return { ok: false, message: "Pick a time to schedule for, or add the post to the queue instead." };
+  }
 
   const client = await getBufferClient(orgId);
   if (!client) {
@@ -63,7 +92,7 @@ export async function composeSocialPost(formData: FormData): Promise<ComposeResu
       const post = await client.createPost({
         channelId,
         text,
-        mode: dueAt ? undefined : "addToQueue",
+        mode,
         dueAt: dueAt || undefined,
       });
 
@@ -88,6 +117,7 @@ export async function composeSocialPost(formData: FormData): Promise<ComposeResu
           schedulingType: post.schedulingType,
           dueAt: toDate(post.dueAt),
           sentAt: toDate(post.sentAt),
+          errorMessage: post.errorMessage ?? null,
         })
         .onConflictDoUpdate({
           target: [schema.socialPosts.organizationId, schema.socialPosts.bufferId],
@@ -108,7 +138,7 @@ export async function composeSocialPost(formData: FormData): Promise<ComposeResu
       action: AUDIT_ACTIONS.socialPostCreated,
       targetType: "social_post",
       targetId: succeeded[0],
-      metadata: { channelIds: succeeded, failedChannelIds: failed, scheduled: Boolean(dueAt) },
+      metadata: { channelIds: succeeded, failedChannelIds: failed, mode, scheduled: mode === "schedule" },
     });
   }
 
@@ -125,5 +155,5 @@ export async function composeSocialPost(formData: FormData): Promise<ComposeResu
       failedChannelIds: failed,
     };
   }
-  return { ok: true, message: dueAt ? "Post scheduled." : "Added to Buffer's queue." };
+  return { ok: true, message: DONE_MESSAGE[mode] };
 }

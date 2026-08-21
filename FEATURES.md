@@ -148,7 +148,7 @@ Verified end to end: one person, two devices, two products, both stores agreeing
 
 ## 7. Workers — `apps/worker`
 
-13 of the 16 below verified running via `pnpm --filter @falorb/worker verify:jobs`; `digest` typechecks and doesn't touch its siblings, but isn't in that runner yet since exercising it live sends real email and makes a real OpenRouter call. `linki-sync` and `bund-ai-sync` are in the runner (no-op cleanly with zero connected orgs) but have never processed a real org, since none has connected credentials yet — see §13.
+13 of the 17 below verified running via `pnpm --filter @falorb/worker verify:jobs`; `digest` typechecks and doesn't touch its siblings, but isn't in that runner yet since exercising it live sends real email and makes a real OpenRouter call. `linki-sync`, `bund-ai-sync`, and `buffer-sync` are in the runner (no-op cleanly with zero connected orgs) but have never processed a real org, since none has connected credentials yet — see §13.
 
 | | Job | Every | Notes |
 |---|---|---|---|
@@ -166,6 +166,7 @@ Verified end to end: one person, two devices, two products, both stores agreeing
 | ✅ | `digest` | 7d, `skipOnBoot` | Regenerates all four AI signals per project and emails one summary per org to its owners/admins; opt-out per org (`organizations.weeklyDigestEnabled`, on by default) |
 | 🟡 | `linki-sync` | 15m | Full paginated poll of a connected Linki workspace into `crm.*` (contacts, lists, workflows, runs, run profiles/tracks, pipeline stages, opportunities, signal rules, suppressions, sent messages), upserted on `(organizationId, linkiId)`. Typechecks, in `verify:jobs`; never run against a real Linki workspace — see §13 |
 | 🟡 | `bund-ai-sync` | 15m | Same shape, into `support.*` (conversations, escalations, leads, tickets) from a connected Bund AI business. Poll-only — the inbound-webhook push half is not built; see §13 |
+| 🟡 | `buffer-sync` | 15m | Full poll (cursor-paginated, not `limit`/`offset`) of a connected Buffer account into `social.*` (channels, posts + metrics), upserted on `(organizationId, bufferId)`. Typechecks, in `verify:jobs`; never run against a real Buffer account — see §13b |
 | ✅ | Scheduler | — | Redis distributed locks, watermarks, overlap guard |
 | ✅ | `webhooks` | 1m | Fires on goal conversion; HMAC over `timestamp.body`, auto-disables after 20 failures |
 | ✅ | `webhook-revive` | 6h | Re-enables hooks disabled by a transient outage |
@@ -269,7 +270,7 @@ own AI reading it over MCP.
 | ⬜ | OAuth providers | `account` table ready; none configured |
 | ⬜ | Billing / plan limits | |
 
-## 13. Integrations — Linki + Bund AI + Clay built; generic multi-service design superseded
+## 13. Integrations — Linki + Bund AI + Buffer + Clay built; generic multi-service design superseded
 
 The generic "any service, inbound or outbound, via `integrations` /
 `integration_syncs` / `integration_mappings`" design that used to live here
@@ -277,52 +278,109 @@ was never built. What got built instead is more specific: deep, two-way
 integration with two of the operator's own products — **Linki** (sales
 outreach/CRM) and **Bund AI** (AI customer support) — each running as its own
 independently-deployed service that Falorb calls into and mirrors, rather
-than a generic connector framework, plus a third, simpler provider — **Clay**
-(contact enrichment for prospects discovered off-site, §17) — that reuses the
-exact same `integrationConnections` table rather than needing its own. The
-full phased plan for Linki/Bund AI (with named risk gates for the parts that
-touch live external systems) lives outside this repo at
-`~/.claude/plans/modular-gathering-cocoa.md`; this section tracks what of it
-actually exists in code.
+than a generic connector framework, plus two simpler, hosted-SaaS providers
+that reuse the exact same `integrationConnections` table rather than needing
+their own: **Buffer** (social post scheduling) and **Clay** (contact
+enrichment for prospects discovered off-site, §17). The full phased plan for
+Linki/Bund AI (with named risk gates for the parts that touch live external
+systems) lives outside this repo at
+`~/.claude/plans/modular-gathering-cocoa.md`; Buffer's plan is
+`~/.claude/plans/composed-drifting-crystal.md`. This section tracks what of
+it actually exists in code.
 
 ### Shape (what was actually built)
 
-Falorb never becomes Linki's or Bund AI's database. Each stays the owner of
-its own execution — real LinkedIn/email sending in Linki, real customer chat
-in Bund AI — and Falorb is a client + a read mirror:
+Falorb never becomes Linki's, Bund AI's, or Buffer's database. Linki and Bund
+AI stay the owner of their own execution — real LinkedIn/email sending in
+Linki, real customer chat in Bund AI; Buffer is a hosted third-party SaaS with
+no execution of Falorb's to own. In all three cases Falorb is a client + a
+read mirror:
 
 - **Credential storage** — `schema.integrationConnections`
   (`packages/db/src/schema/integrations.ts`), one `provider`-discriminated
-  table (`linki` | `bund_ai` | `clay` | `elevenlabs`) rather than one table
-  per service. API keys are AES-256-GCM encrypted (`packages/db/src/crypto.ts`,
-  `INTEGRATION_CREDENTIAL_ENC_KEY`) — envelope encryption with a key outside
-  the database, exactly as the old design constraints called for, since these
-  must be decryptable to use, unlike `api_keys.keyHash`.
+  table (`linki` | `bund_ai` | `buffer` | `clay` | `elevenlabs`) rather than
+  one table per service. API keys are AES-256-GCM encrypted
+  (`packages/db/src/crypto.ts`, `INTEGRATION_CREDENTIAL_ENC_KEY`) — envelope
+  encryption with a key outside the database, since these must be
+  decryptable to use, unlike `api_keys.keyHash`.
 - **Typed clients** — `packages/linki-client`, `packages/bund-ai-client`,
-  `packages/clay-client`, `packages/elevenlabs-client`, thin wrappers
-  confirmed against each product's real API contract (not guessed). Clay and
-  ElevenLabs are the proof the one-table design scales past the original two
-  providers: neither needed a schema change to add, just a new `provider`
-  enum value and a new client with the same `verifyConnection()` shape the
-  generic connect/test/revoke actions already call — ElevenLabs' UGC video
-  pipeline (§18) is a second consumer of that same machinery, not a special
-  case bolted on beside it.
-- **Mirror** — `packages/db/src/schema/crm.ts` (13 tables) and
-  `packages/db/src/schema/support.ts` (5 tables), pulled by
-  `apps/worker/src/jobs/{linki-sync,bund-ai-sync}.ts` — see §7. Sync health is
-  `integrationConnections.lastSyncedAt`, not a separate `integration_syncs`
-  table.
+  `packages/buffer-client`, `packages/clay-client`,
+  `packages/elevenlabs-client`, thin wrappers confirmed against each
+  product's real API contract (not guessed) — except `buffer-client`, built
+  against Buffer's public GraphQL docs instead of a live account; see §13b
+  for why and the resulting caveats. Buffer, Clay, and ElevenLabs are all
+  proof the one-table design scales past the original two providers: none
+  needed a schema change to add, just a new `provider` enum value and a new
+  client with the same `verifyConnection()` shape the generic
+  connect/test/revoke actions already call — ElevenLabs' UGC video pipeline
+  (§18) is a second consumer of that same machinery, not a special case
+  bolted on beside it.
+- **Mirror** — `packages/db/src/schema/crm.ts` (13 tables),
+  `packages/db/src/schema/support.ts` (5 tables), and
+  `packages/db/src/schema/social.ts` (2 tables: channels, posts), pulled by
+  `apps/worker/src/jobs/{linki-sync,bund-ai-sync,buffer-sync}.ts` — see §7.
+  Sync health is `integrationConnections.lastSyncedAt`, not a separate
+  `integration_syncs` table. Clay and ElevenLabs have no table here — Clay's
+  enrichment writes to `prospects` (§17) instead, and ElevenLabs' output is
+  generated content Falorb creates via the API, not a mirror of pre-existing
+  external data — see §18.
 - **Identity resolution** — a set-based SQL backfill after each sync links a
   mirrored contact/lead/conversation to a Falorb `person` by email match (or,
   for Bund AI conversations, `identifiedId` == the widget's `externalUserRef`,
   best-effort). This is the `person_aliases`-adjacent resolution the old
   design called out as "the hard part" — implemented directly rather than via
   a new alias kind, since a CRM contact isn't a device/session identity the
-  way `person_aliases` models.
-- **Manual actions** — `apps/web/src/server/actions/{crm,support}.ts`: push a
-  signal to Linki, create/update a Linki contact, resolve a Bund AI
-  escalation. Deliberately per-record and human-clicked (`can.actOnIntegrations`,
-  member tier), not the bulk/automated flow described below.
+  way `person_aliases` models. Buffer's mirror has no equivalent: a scheduled
+  or sent post isn't naturally scoped to one analytics person, so
+  `social.ts` carries no `personId` column.
+- **Manual actions** — `apps/web/src/server/actions/{crm,support,social}.ts`:
+  push a signal to Linki, create/update a Linki contact, resolve a Bund AI
+  escalation, compose and publish a Buffer post. Deliberately per-record and
+  human-clicked (`can.actOnIntegrations`, member tier), not a bulk/automated
+  flow.
+
+### 13b. Buffer specifics
+
+Buffer's third-party API access has a messy history that shaped this
+integration's auth model:
+
+- Buffer closed third-party OAuth app registration in 2019, revoking existing
+  integrations. A new GraphQL API (`api.buffer.com`) relaunched in beta in
+  early 2026, but — per Buffer's own docs plus independent developer
+  write-ups — it issues **personal API keys scoped to one Buffer account**,
+  with no "connect someone else's account" OAuth flow for third parties. The
+  legacy REST API, which did support real OAuth, accepts no new app
+  registrations and is being retired February 1, 2027.
+- Given that, this integration deliberately uses the personal-key model —
+  the same shape as Linki/Bund AI's connect form — rather than building
+  speculative OAuth/token-refresh infrastructure against an approval process
+  of unknown availability. The real limitation this carries: **each Falorb
+  organization can only connect one Buffer account it personally controls**,
+  not an arbitrary customer's, unlike a true third-party OAuth integration
+  would allow. This is a Buffer platform restriction, not a Falorb gap —
+  documented here rather than silently designed around.
+- Buffer's endpoint is fixed (`https://api.buffer.com`, exported as
+  `BUFFER_API_ENDPOINT`), unlike Linki/Bund AI which are self-hosted — same
+  shape as Clay's and ElevenLabs' fixed roots. `IntegrationsPanel.tsx`'s
+  shared `HAS_BASE_URL` map skips the base-URL field in the connect dialog
+  for all three, and the server-side `FIXED_BASE_URL` map (in
+  `apps/api/src/routes/integrations.ts` and
+  `apps/web/src/server/actions/integrations.ts`) fills the value in rather
+  than trusting the client to send it, so
+  `integration_connections.base_url` still has a value for every provider
+  without a schema exception.
+- Buffer's GraphQL API is Relay-cursor-paginated (`after`/`first` →
+  `edges`/`pageInfo`), unlike Linki/Bund AI's `limit`/`offset` REST
+  pagination — `BufferClient.listPosts` cursor-walks internally rather than
+  `buffer-sync.ts` driving pages itself, so there's no `paginateAll` helper
+  reused there.
+- **Caveat, stated rather than hidden**: `packages/buffer-client` was written
+  against Buffer's documented schema, not a live account — no personal API
+  key was available while building this. Field names, the exact auth header
+  format, and whether `dueAt`/`sentAt`/`metricsUpdatedAt` serialize as ISO
+  strings or Unix seconds are unconfirmed until a real key is connected and
+  `buffer-sync` runs against it. `buffer-sync.ts`'s `toDate()` handles both
+  serializations defensively for that reason.
 
 ### Not yet built
 
@@ -344,6 +402,13 @@ in Bund AI — and Falorb is a client + a read mirror:
   covers Bund AI conversations/leads/tickets. Bund AI escalations remain the
   only Bund AI surface with a detail view — its conversations/leads/tickets
   are list-only.
+- **Buffer post editing/deletion/queue reordering.** Only `createPost` is
+  wired to a manual action (`/social`); `BufferClient.deletePost` exists but
+  nothing in the UI calls it yet, and `movePostInQueue`/`editPost` aren't in
+  the client at all.
+- **Buffer aggregated analytics.** Per-post metrics mirror into
+  `socialPosts.metrics`, but Buffer's `aggregatedPostMetrics` query (rollups
+  across a filtered post set) isn't pulled — no dashboard view needs it yet.
 - **MCP exposure** — no `list_crm_contacts`/`get_sync_status`-style tools yet,
   matching the old design's intent that connect/disconnect and any write stay
   out of MCP's reach regardless.
@@ -370,9 +435,12 @@ Anything that ships personal data to an ad network for cross-site retargeting.
 That would reintroduce, through a side door, exactly the tracking this platform
 deliberately does not do. Generic, arbitrary-service integrations (Stripe,
 HubSpot, Slack, Shopify, Search Console) remain unbuilt and are no longer the
-near-term direction — Linki and Bund AI cover sales/support, and a queued
-third integration (Postiz, for social posting) follows the same
-provider-specific pattern rather than a generic connector framework.
+near-term direction — Linki and Bund AI cover sales/support, and Buffer now
+covers social posting. Postiz (the open-source, self-hosted social scheduler
+originally queued for this slot) was not built — Buffer was chosen instead
+once this specific integration was requested; Postiz remains a separate,
+undecided possibility if a self-hosted alternative is wanted later, not
+something this work replaced.
 
 ## 14. Dashboard — `apps/web`
 
@@ -568,17 +636,18 @@ pre-launch to attach it to.
 
 ## 14k. Web research — Exa + Firecrawl
 
-Two platform-level API keys, the same shape as `OPENROUTER_API_KEY` — a
-secret Falorb itself holds to call a third-party research API, not a
-per-organization connection like Linki or Bund AI (§13). Grounds two
+Two per-organization connections through Settings → Integrations (§13), the
+same shape as Linki/Bund AI/Clay — connected from `IntegrationsPanel.tsx`,
+stored in `integrationConnections`, no platform-wide key. Grounds two
 existing AI features in real web content instead of the LLM's own guesses.
 
 | | Feature | Notes |
 |---|---|---|
-| ✅ | `packages/research` | Exa (search) and Firecrawl (scrape) clients, same fetch/timeout/error-shape convention as `@falorb/ai`'s `complete()`. Exa and Firecrawl are fallbacks for each other, never called together for one request: `search()` tries Exa first and only reaches for Firecrawl's own search if Exa is unconfigured or errors; `fetchPage()` tries Firecrawl's scrape first and only reaches for Exa's `/contents` if Firecrawl is unconfigured or errors. `apps/web/src/server/research.ts` re-exports behind the app's server-only boundary |
-| ✅ | Content drafts research | `draftContentPage` (§14h) now calls `researchTopic` first: a web search for the topic sees what already ranks, folded into the OpenRouter prompt so the draft is differentiated rather than a generic overview. Falls back to the interest-data-only prompt if neither provider is configured or working — never blocks the draft |
-| ✅ | Company research | New "Research this company" action on the person profile's Company card (`CompanyResearchCard.tsx`, `enrichCompany` action) — fills `companies.industry`/`employeeRange`/`linkedinUrl`, fields the automatic ASN-based enrichment job (§4, `apps/worker/src/jobs/enrichment.ts`) never populates since it only ever learns a network operator's registered name. A scrape of the company's own homepage feeds one short OpenRouter call that extracts only what the content actually states — told explicitly to leave a field `unknown` rather than infer it. Gated by `writeAnalysis` (member+), same manual-and-explicit shape as every other AI-backed write. Skipped entirely for an ASN-only placeholder company (`as12345`, no real domain to research) |
-| ✅ | Graceful degradation | Both providers unconfigured or failing surfaces a clean `ResearchUnavailableError`/toast rather than blocking the caller — verified live, including both fallback directions and the both-unavailable path |
+| ✅ | `packages/research` | `ExaClient`/`FirecrawlClient`, same shape as `@falorb/linki-client`/`@falorb/clay-client` so they plug into the generic connect/test/revoke actions unchanged — `EXA_DEFAULT_BASE_URL`/`FIRECRAWL_DEFAULT_BASE_URL` are supplied server-side like Clay's, so their connect dialogs ask only for an API key, no base URL. `ExaClient.verifyConnection()` is a minimal 1-result `/search` (no dedicated health endpoint); `FirecrawlClient.verifyConnection()` is the free `GET /v1/team/credit-usage` (no credits spent, unlike scrape/search) — both verified live against real accounts, including the 401 path for a bad key |
+| ✅ | Exa and Firecrawl are fallbacks for each other | Never called together for one request: `search()` (`orchestrate.ts`) tries a connected Exa client first and only reaches for Firecrawl's own search if the org has no Exa connection or Exa errors; `fetchPage()` tries a connected Firecrawl client first and only reaches for Exa's `/contents` if the org has no Firecrawl connection or it errors. `apps/web/src/server/integrations.ts`'s `getResearchClients(organizationId)` builds the `{exa, firecrawl}` client bag each caller passes in — a `null` entry just means that provider isn't connected |
+| ✅ | Content drafts research | `draftContentPage` (§14h) now calls `researchTopic` first: a web search for the topic sees what already ranks, folded into the OpenRouter prompt so the draft is differentiated rather than a generic overview. Falls back to the interest-data-only prompt if the organization has connected neither provider or both error — never blocks the draft |
+| ✅ | Company research | "Research this company" action on the person profile's Company card (`CompanyResearchCard.tsx`, `enrichCompany` action) — fills `companies.industry`/`employeeRange`/`linkedinUrl`, fields the automatic ASN-based enrichment job (§4, `apps/worker/src/jobs/enrichment.ts`) never populates since it only ever learns a network operator's registered name. A scrape of the company's own homepage feeds one short OpenRouter call that extracts only what the content actually states — told explicitly to leave a field `unknown` rather than infer it. Verified live: a Firecrawl scrape of a real homepage (anthropic.com) correctly extracted "AI research and products" as industry and left size/LinkedIn blank rather than inventing them. Gated by `writeAnalysis` (member+); connecting/revoking Exa or Firecrawl itself is gated by `manageIntegrations` (admin+), same split as every other integration. Skipped entirely for an ASN-only placeholder company (`as12345`, no real domain to research) |
+| ✅ | Graceful degradation | An organization that has connected neither provider (or whose connected one errors) gets a clean `ResearchUnavailableError`/toast rather than a blocked action — the underlying fallback logic is unit-independent of *how* a client was obtained, so this carries over unchanged from when it was verified against the both-unconfigured env-var case |
 
 ## 15. SDKs
 
@@ -673,8 +742,6 @@ the most.
 | Backend | State | What is missing in the UI |
 |---|---|---|
 | `segments` | table + `segment-counts` worker | People can be filtered but not *saved* as a segment; the worker caches sizes for segments that cannot be created. No condition-tree filter builder exists anywhere in the app yet — the People page's filter bar is a flat search+checkbox, not the `Filter[]` AST `compileFilters`/`refreshSegmentCounts` already expect |
-| `funnels` | table | The funnel builder is URL-only. Nothing saves a funnel, so one cannot be shared by name or reused in an alert. `listFunnels`/`SavedFunnels.tsx` (read path) already exist — only a save/delete action is missing |
-| `insights` | table | Same for the cross-project builder — the query lives in the URL and nowhere else |
 | `dashboardWidgets` | table | The design system's custom-view builder (widget grid) is not built; `/insights` is a single fixed layout |
 
 `dataRequests`, `webhooks`, `consentRecords`, `auditLog` and `personMerges` are
@@ -684,6 +751,15 @@ sessions into Postgres totals against raw `events`) with different
 correctness requirements than the UI's own `sessionList` (which reads
 `events_v` live, so identity merges are reflected) — not a missing frontend
 feature, just a different consumer.
+
+`funnels` and `insights` are now built: the funnel builder has a "Save"
+button (`apps/web/src/server/actions/funnels.ts`) alongside the existing
+read path (`listFunnels`/`SavedFunnels.tsx`), and the cross-project builder
+gained the same for the pragmatic scope it actually has today — metric,
+dimension, chart, property selection (`apps/web/src/server/actions/insights.ts`,
+`SavedInsights.tsx`) — not the fuller `kind`/query vocabulary the `insights`
+schema leaves room for later. Verified live: saved and deleted both, in both
+places.
 
 Auth internals (`account`, `session`, `verification`) are managed by better-auth
 and correctly have no UI.

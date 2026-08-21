@@ -2,7 +2,9 @@
 
 import { useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Button, Card, Icon, IconButton, Input, Select } from "@falorb/ui";
+import { Button, Card, Dialog, Icon, IconButton, Input, Select } from "@falorb/ui";
+import { useAction } from "@/lib/use-action";
+import { saveFunnel } from "@/server/actions/funnels";
 import {
   MODE_LABELS,
   serializeSteps,
@@ -24,11 +26,20 @@ interface DraftStep {
   path: string;
 }
 
-export function FunnelBuilder({ spec }: { spec: FunnelSpec }) {
+export function FunnelBuilder({
+  slug,
+  spec,
+  canSave,
+}: {
+  slug: string;
+  spec: FunnelSpec;
+  canSave: boolean;
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
   const [pending, startTransition] = useTransition();
+  const { run: runSave, pending: saving } = useAction();
 
   const [steps, setSteps] = useState<DraftStep[]>(() =>
     spec.steps.map((step) => ({
@@ -38,6 +49,8 @@ export function FunnelBuilder({ spec }: { spec: FunnelSpec }) {
   );
   const [mode, setMode] = useState<FunnelMode>(spec.mode);
   const [windowHours, setWindowHours] = useState(String(spec.windowHours));
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [name, setName] = useState("");
 
   function update(index: number, patch: Partial<DraftStep>) {
     setSteps((current) =>
@@ -45,27 +58,38 @@ export function FunnelBuilder({ spec }: { spec: FunnelSpec }) {
     );
   }
 
+  function usableSteps() {
+    return steps
+      .filter((step) => step.event.trim())
+      .map((step) => ({
+        label: step.event,
+        event: step.event.trim(),
+        ...(step.path.trim()
+          ? { filters: [{ field: "path", op: "eq" as const, value: step.path.trim() }] }
+          : {}),
+      }));
+  }
+
   function run() {
-    const usable = steps.filter((step) => step.event.trim());
+    const usable = usableSteps();
     if (usable.length < 2) return;
 
     const next = new URLSearchParams(params.toString());
-    next.set(
-      "steps",
-      serializeSteps(
-        usable.map((step) => ({
-          label: step.event,
-          event: step.event.trim(),
-          ...(step.path.trim()
-            ? { filters: [{ field: "path", op: "eq" as const, value: step.path.trim() }] }
-            : {}),
-        })),
-      ),
-    );
+    next.set("steps", serializeSteps(usable));
     next.set("mode", mode);
     next.set("window", windowHours);
 
     startTransition(() => router.push(`${pathname}?${next.toString()}`, { scroll: false }));
+  }
+
+  async function save() {
+    const result = await runSave(() =>
+      saveFunnel(slug, name, usableSteps(), Number(windowHours) || 168),
+    );
+    if (result?.ok) {
+      setSaveOpen(false);
+      setName("");
+    }
   }
 
   const tooFew = steps.filter((step) => step.event.trim()).length < 2;
@@ -154,13 +178,25 @@ export function FunnelBuilder({ spec }: { spec: FunnelSpec }) {
             style={{ width: 110 }}
           />
 
+          {canSave && (
+            <Button
+              size="sm"
+              disabled={tooFew}
+              iconLeft={<Icon name="save" size={13} />}
+              style={{ marginLeft: "auto" }}
+              onClick={() => setSaveOpen(true)}
+            >
+              Save
+            </Button>
+          )}
+
           <Button
             size="sm"
             variant="primary"
             onClick={run}
             disabled={pending || tooFew}
             iconLeft={<Icon name="play" size={13} />}
-            style={{ marginLeft: "auto" }}
+            style={canSave ? undefined : { marginLeft: "auto" }}
           >
             {pending ? "Running" : "Run funnel"}
           </Button>
@@ -172,6 +208,29 @@ export function FunnelBuilder({ spec }: { spec: FunnelSpec }) {
           </span>
         )}
       </div>
+
+      <Dialog
+        open={saveOpen}
+        onClose={() => setSaveOpen(false)}
+        title="Save this funnel"
+        subtitle="Named funnels show up as links above, for this property"
+        width={440}
+        footer={
+          <>
+            <Button onClick={() => setSaveOpen(false)}>Cancel</Button>
+            <Button variant="primary" onClick={save} disabled={saving || !name.trim()}>
+              {saving ? "Saving…" : "Save"}
+            </Button>
+          </>
+        }
+      >
+        <Input
+          label="Name"
+          value={name}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)}
+          placeholder="Trial to subscription"
+        />
+      </Dialog>
     </Card>
   );
 }

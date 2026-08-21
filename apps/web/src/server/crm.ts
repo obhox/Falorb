@@ -560,6 +560,91 @@ export async function listSuppressions(organizationId: string): Promise<CrmSuppr
   return rows.map((r) => ({ ...r, syncedAt: r.syncedAt.toISOString() }));
 }
 
+/**
+ * Linki's synced emails and campaign enrollment for one person — the mirror
+ * (`crmSentMessages`, `crmRunProfiles`/`crmRuns`) has existed since Phase L3
+ * but nothing rendered it. Joined through `crmContacts.personId`, which is
+ * the same email-match backfill (`linkContactsToPersons` in
+ * `linki-sync.ts`) that links a manually-added contact (`createCrmContact`
+ * in `actions/crm.ts`) to Linki's data, not just an auto-synced one — the
+ * join here doesn't care which path attached the person.
+ */
+export interface LinkiEmailView {
+  id: string;
+  recipient: string | null;
+  subject: string | null;
+  status: string | null;
+  acceptedAt: string | null;
+  deliveredAt: string | null;
+  bouncedAt: string | null;
+}
+
+export async function listSentMessagesForPerson(
+  organizationId: string,
+  personId: string,
+): Promise<LinkiEmailView[]> {
+  const rows = await db()
+    .select({
+      id: schema.crmSentMessages.id,
+      recipient: schema.crmSentMessages.recipient,
+      subject: schema.crmSentMessages.subject,
+      status: schema.crmSentMessages.status,
+      acceptedAt: schema.crmSentMessages.acceptedAt,
+      deliveredAt: schema.crmSentMessages.deliveredAt,
+      bouncedAt: schema.crmSentMessages.bouncedAt,
+    })
+    .from(schema.crmSentMessages)
+    .innerJoin(schema.crmContacts, eq(schema.crmSentMessages.contactId, schema.crmContacts.id))
+    .where(and(eq(schema.crmContacts.organizationId, organizationId), eq(schema.crmContacts.personId, personId)))
+    .orderBy(desc(schema.crmSentMessages.acceptedAt))
+    .limit(50);
+
+  return rows.map((r) => ({
+    id: r.id,
+    recipient: r.recipient,
+    subject: r.subject,
+    status: r.status,
+    acceptedAt: r.acceptedAt?.toISOString() ?? null,
+    deliveredAt: r.deliveredAt?.toISOString() ?? null,
+    bouncedAt: r.bouncedAt?.toISOString() ?? null,
+  }));
+}
+
+export interface LinkiCampaignRunView {
+  runId: string;
+  workflowName: string | null;
+  status: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+}
+
+export async function listCampaignRunsForPerson(
+  organizationId: string,
+  personId: string,
+): Promise<LinkiCampaignRunView[]> {
+  const rows = await db()
+    .select({
+      runId: schema.crmRuns.id,
+      workflowName: schema.crmWorkflows.name,
+      status: schema.crmRuns.status,
+      startedAt: schema.crmRuns.startedAt,
+      completedAt: schema.crmRuns.completedAt,
+    })
+    .from(schema.crmRunProfiles)
+    .innerJoin(schema.crmContacts, eq(schema.crmRunProfiles.contactId, schema.crmContacts.id))
+    .innerJoin(schema.crmRuns, eq(schema.crmRunProfiles.runId, schema.crmRuns.id))
+    .leftJoin(schema.crmWorkflows, eq(schema.crmRuns.workflowId, schema.crmWorkflows.id))
+    .where(and(eq(schema.crmContacts.organizationId, organizationId), eq(schema.crmContacts.personId, personId)))
+    .orderBy(desc(schema.crmRuns.startedAt))
+    .limit(25);
+
+  return rows.map((r) => ({
+    ...r,
+    startedAt: r.startedAt?.toISOString() ?? null,
+    completedAt: r.completedAt?.toISOString() ?? null,
+  }));
+}
+
 export async function listDealsForPerson(organizationId: string, personId: string): Promise<CrmDealView[]> {
   const rows = await db()
     .select({

@@ -22,7 +22,7 @@ whole backend; see [FEATURES.md](FEATURES.md) for the gaps.
 - **Growth signals** — page-performance and interest-graph insights per property, plus on-demand AI recommendations (via OpenRouter) for content, product gaps, channels, and who to contact.
 - **Privacy-first** — no raw IP stored anywhere, GDPR export/erasure, per-project retention.
 - **AI-native** — an MCP server (25 tools) so an assistant can query the platform directly, and a dashboard panel tracking what AI crawlers read on your sites.
-- **Integrations** — deep, two-way connections to Linki (sales outreach/CRM) and [Bund AI](https://usebund.com) (customer support): their data mirrors into Falorb, joinable with product analytics, and a few manual actions (push a signal, create/update a contact, resolve an escalation) run from here without switching tabs. See [FEATURES.md §13](FEATURES.md#13-integrations--linki--bund-ai-built-generic-multi-service-design-superseded).
+- **Integrations** — deep, two-way connections to Linki (sales outreach/CRM), [Bund AI](https://usebund.com) (customer support), and Buffer (social post scheduling): their data mirrors into Falorb, joinable with product analytics, and a few manual actions (push a signal, create/update a contact, resolve an escalation, publish a post) run from here without switching tabs. See [FEATURES.md §13](FEATURES.md#13-integrations--linki--bund-ai--buffer--clay-built-generic-multi-service-design-superseded).
 - **UGC AI video** — generate a script, voiceover, and a lip-synced talking video from a presenter photo, built in-house on top of ElevenLabs, then queue it for posting. See [FEATURES.md §18](FEATURES.md#18-ugc-ai-video-generation--script-voice-and-a-talking-avatar-video).
 
 ### Scope boundary
@@ -71,6 +71,7 @@ dashboard and the query layer — and share one `better-auth` config from
 | `packages/mailer` | Transactional email (verification, reset, invites, alerts) — Resend or SMTP |
 | `packages/linki-client` | Typed client for Linki's `/api/v1/*` — sales outreach/CRM |
 | `packages/bund-ai-client` | Typed client for Bund AI's `/api/v1/*` — customer support |
+| `packages/buffer-client` | Typed client for Buffer's GraphQL API (`api.buffer.com`) — social post scheduling |
 | `packages/ui` | Design system — 32 components, light/dark tokens |
 | `packages/sdk-node` | Server-side SDK — non-blocking, never throws, batches by identity |
 | `packages/sdk-react` | `<FalorbProvider>`, `useFalorb`, `usePageview`, `useIdentify` |
@@ -242,6 +243,7 @@ duplicating sweeps.
 | `data-requests` | 2m | GDPR export and erasure |
 | `linki-sync` | 15m | Mirrors a connected Linki workspace's CRM/outreach data into Postgres |
 | `bund-ai-sync` | 15m | Mirrors a connected Bund AI business's support data into Postgres |
+| `buffer-sync` | 15m | Mirrors a connected Buffer account's channels and posts into Postgres |
 | `retention` | 12h | Per-project retention, orphan pruning |
 | `optimize` | 6h | Forces aggregate merges |
 
@@ -261,12 +263,13 @@ pnpm --filter @falorb/worker backfill --days 90
 
 ## Integrations
 
-Falorb connects to two of the operator's own products as deep, two-way
+Falorb connects to the operator's own products, plus Buffer, as deep, two-way
 integrations — not a generic connector framework, and not a code merge.
-Each keeps running as its own independently-deployed service, owning its own
-database and execution (real LinkedIn/email sending in Linki, real customer
-chat in Bund AI); Falorb is a client that drives it and a mirror that reads
-it. See [FEATURES.md §13](FEATURES.md#13-integrations--linki--bund-ai-built-generic-multi-service-design-superseded)
+Linki and Bund AI each keep running as their own independently-deployed
+service, owning their own database and execution (real LinkedIn/email sending
+in Linki, real customer chat in Bund AI); Falorb is a client that drives it
+and a mirror that reads it. Buffer is a hosted third-party SaaS Falorb only
+calls out to. See [FEATURES.md §13](FEATURES.md#13-integrations--linki--bund-ai--buffer-built-generic-multi-service-design-superseded)
 for exactly what's built versus still planned.
 
 - **Linki** — sales outreach/CRM. Mirrored: contacts, lists, workflows, runs
@@ -274,14 +277,21 @@ for exactly what's built versus still planned.
   signal rules, suppressions, sent messages.
 - **Bund AI** — AI customer support. Mirrored: conversations, escalations,
   leads, tickets.
+- **Buffer** — social post scheduling. Mirrored: connected channels,
+  scheduled/sent posts and their metrics. Auth is a personal API key scoped
+  to one Buffer account, not OAuth — Buffer closed third-party app
+  registration in 2019 and its 2026 GraphQL API relaunch still has no
+  "connect someone else's account" flow, so each Falorb org connects its own
+  Buffer account rather than an arbitrary customer's.
 - **Credentials** are stored per-organization, AES-256-GCM encrypted
   (`INTEGRATION_CREDENTIAL_ENC_KEY` in `.env`), never returned by any API
   response. Connect one at `/settings/integrations` after generating a scoped
-  key in Linki's or Bund AI's own settings UI.
+  key in Linki's, Bund AI's, or Buffer's own settings UI.
 - **Manual actions** run from Falorb: push a signal to Linki, create or
   update a Linki contact (from a person's profile), resolve a Bund AI
-  escalation (from `/support`). Each is one human clicking one button for one
-  record on screen — there is no automated/bulk action yet.
+  escalation (from `/support`), compose and publish a Buffer post (from
+  `/social`). Each is one human clicking one button for one record on
+  screen — there is no automated/bulk action yet.
 
 ## Privacy
 

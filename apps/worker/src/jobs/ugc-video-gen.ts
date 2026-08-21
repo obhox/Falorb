@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { decryptCredential, schema } from "@falorb/db";
 import { complete, AiSignalError } from "@falorb/ai";
 import { ElevenLabsClient, ElevenLabsApiError, LIPSYNC_MODEL_ID } from "@falorb/elevenlabs-client";
@@ -42,11 +42,14 @@ const IN_FLIGHT_STATUSES = ["pending", "script_ready", "voice_ready", "video_pro
 type UgcVideoRow = typeof schema.ugcVideos.$inferSelect;
 
 export async function generateUgcVideos(context: WorkerContext): Promise<number> {
+  // Org-level connections only — same reasoning as `linki-sync.ts`: a
+  // property's own override is used on demand, not swept by this job.
   const connections = await context.db
     .select()
     .from(schema.integrationConnections)
     .where(
       and(
+        isNull(schema.integrationConnections.projectId),
         eq(schema.integrationConnections.provider, "elevenlabs"),
         eq(schema.integrationConnections.status, "active"),
       ),

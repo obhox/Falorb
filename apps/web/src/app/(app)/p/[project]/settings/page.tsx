@@ -3,6 +3,7 @@ import { Card } from "@falorb/ui";
 import { can, db, schema } from "@falorb/db";
 import { requireProject } from "@/server/session";
 import { getShare } from "@/server/sharing";
+import { listProjectConnections } from "@/server/integrations";
 import {
   getCollectorHealth,
   getConnectionStatus,
@@ -16,6 +17,7 @@ import { BadgeEmbedControl } from "./BadgeEmbedControl";
 import { ConnectionPanel } from "./ConnectionPanel";
 import { ProjectCreatedTracker } from "./ProjectCreatedTracker";
 import { ProspectKeywordsCard } from "./ProspectKeywordsCard";
+import { IntegrationsPanel } from "./IntegrationsPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +34,7 @@ export default async function ProjectSettingsPage({
 }) {
   const { session, project } = await requireProject((await params).project);
 
-  const [share, connection, collector, domainStatuses, keywords] = await Promise.all([
+  const [share, connection, collector, domainStatuses, keywords, integrationConnections] = await Promise.all([
     getShare(session.workspace.organizationId, project.id),
     getConnectionStatus(project.id),
     getCollectorHealth(),
@@ -46,6 +48,7 @@ export default async function ProjectSettingsPage({
       .from(schema.prospectKeywords)
       .where(eq(schema.prospectKeywords.projectId, project.id))
       .orderBy(schema.prospectKeywords.keyword),
+    listProjectConnections(session.workspace.organizationId, project.id),
   ]);
   const origin = process.env.FALORB_APP_URL ?? "http://localhost:3000";
 
@@ -105,6 +108,13 @@ export default async function ProjectSettingsPage({
         slug={project.slug}
         keywords={keywords}
         canEdit={can.writeAnalysis(session.workspace.role)}
+      />
+
+      <IntegrationsPanel
+        slug={project.slug}
+        connections={integrationConnections}
+        canManage={can.manageIntegrations(session.workspace.role)}
+        now={Date.now()}
       />
 
       <SettingsForm

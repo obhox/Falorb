@@ -21,11 +21,14 @@ const FAILED_RECHECK_MS = 7 * 86_400_000;
 const MAX_PER_ORG_PER_RUN = 25;
 
 export async function enrichProspectsViaClay(context: WorkerContext): Promise<number> {
+  // Org-level connections only — same reasoning as `linki-sync.ts`: a
+  // property's own override is used on demand, not swept by this job.
   const connections = await context.db
     .select()
     .from(schema.integrationConnections)
     .where(
       and(
+        isNull(schema.integrationConnections.projectId),
         eq(schema.integrationConnections.provider, "clay"),
         eq(schema.integrationConnections.status, "active"),
       ),

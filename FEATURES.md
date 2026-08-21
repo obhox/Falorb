@@ -298,11 +298,36 @@ read mirror:
 
 - **Credential storage** — `schema.integrationConnections`
   (`packages/db/src/schema/integrations.ts`), one `provider`-discriminated
-  table (`linki` | `bund_ai` | `buffer` | `clay` | `elevenlabs`) rather than
-  one table per service. API keys are AES-256-GCM encrypted
-  (`packages/db/src/crypto.ts`, `INTEGRATION_CREDENTIAL_ENC_KEY`) — envelope
-  encryption with a key outside the database, since these must be
+  table (`linki` | `bund_ai` | `buffer` | `clay` | `exa` | `firecrawl` |
+  `elevenlabs`) rather than one table per service. API keys are AES-256-GCM
+  encrypted (`packages/db/src/crypto.ts`, `INTEGRATION_CREDENTIAL_ENC_KEY`) —
+  envelope encryption with a key outside the database, since these must be
   decryptable to use, unlike `api_keys.keyHash`.
+- **Property-level overrides** — a row is either org-level (`projectId`
+  null) or one property's own override (`projectId` set), same table, same
+  shape, distinguished by two partial unique indexes rather than a second
+  table: `(organizationId, provider)` where `projectId is null`, and
+  `(organizationId, projectId, provider)` where `projectId is not null`. Read
+  side is `activeConnection` in `apps/web/src/server/integrations.ts`: it
+  prefers the calling property's own row and falls back to the
+  organization's when the property has none for that provider. Write side is
+  each property's Settings → Integrations panel
+  (`apps/web/src/app/(app)/p/[project]/settings/IntegrationsPanel.tsx`),
+  calling `connectProjectIntegration`/`testProjectIntegrationConnection`/
+  `revokeProjectIntegrationConnection`
+  (`apps/web/src/server/actions/integrations.ts`) — same
+  connect/verify/revoke shape as the organization's panel, just scoped to
+  one property's row instead. Wired into the read path today for Exa/
+  Firecrawl (`content-draft.ts`'s `researchTopic`, which already has a
+  property in scope) and exposed on every getter (`getBufferClient`,
+  `getResearchClients`, etc. all take an optional `projectId`) for callers
+  that gain property scope later. The periodic mirror/enrichment jobs
+  (`linki-sync`, `bund-ai-sync`, `buffer-sync`, `clay-enrichment`,
+  `ugc-video-gen`) deliberately stay org-level only — they pull one
+  provider's full account into org-scoped mirror tables
+  (`crm.*`/`support.*`/`social.*`) with no property dimension to mirror a
+  property's override into, so a property override is read on demand, never
+  swept by a background job.
 - **Typed clients** — `packages/linki-client`, `packages/bund-ai-client`,
   `packages/buffer-client`, `packages/clay-client`,
   `packages/elevenlabs-client`, thin wrappers confirmed against each

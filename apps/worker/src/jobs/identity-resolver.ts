@@ -1,5 +1,5 @@
 import type { ClickHouseClient } from "@clickhouse/client";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
 import { chDateTime, type Database, schema } from "../context";
 import type { Watermarks } from "../scheduler";
 
@@ -411,6 +411,16 @@ async function mergePersons(
     .from(schema.personAliases)
     .where(eq(schema.personAliases.personId, mergedId));
 
+  // A plain JS array/Date interpolated straight into a `sql` template is not
+  // reliably bound as `integer[]`/`timestamptz` by this project's postgres.js
+  // driver — build the array as an explicit SQL literal and cast the date,
+  // the same way every other `unnest(...)` call in this function does
+  // (lines ~279, ~380).
+  const mergedProjectIds: SQL = sql.join(
+    merged.projectIds.map((id) => sql`${id}`),
+    sql.raw(", "),
+  );
+
   await db.transaction(async (tx) => {
     await tx
       .update(schema.personAliases)
@@ -422,7 +432,7 @@ async function mergePersons(
     await tx
       .update(schema.persons)
       .set({
-        firstSeenAt: sql`least(${schema.persons.firstSeenAt}, ${merged.firstSeenAt})`,
+        firstSeenAt: sql`least(${schema.persons.firstSeenAt}, ${merged.firstSeenAt.toISOString()}::timestamptz)`,
         totalSessions: sql`${schema.persons.totalSessions} + ${merged.totalSessions}`,
         totalEvents: sql`${schema.persons.totalEvents} + ${merged.totalEvents}`,
         totalPageviews: sql`${schema.persons.totalPageviews} + ${merged.totalPageviews}`,
@@ -434,7 +444,7 @@ async function mergePersons(
         firstLandingPath: sql`coalesce(${schema.persons.firstLandingPath}, ${merged.firstLandingPath})`,
         firstReferralCode: sql`coalesce(${schema.persons.firstReferralCode}, ${merged.firstReferralCode})`,
         companyId: sql`coalesce(${schema.persons.companyId}, ${merged.companyId})`,
-        projectIds: sql`(SELECT array_agg(DISTINCT x) FROM unnest(${schema.persons.projectIds} || ${merged.projectIds}) AS x)`,
+        projectIds: sql`(SELECT array_agg(DISTINCT x) FROM unnest(${schema.persons.projectIds} || ARRAY[${mergedProjectIds}]::integer[]) AS x)`,
         updatedAt: new Date(),
       })
       .where(eq(schema.persons.id, survivorId));

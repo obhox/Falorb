@@ -21,6 +21,7 @@ const LABELS: Record<Provider, string> = {
   linki: "Linki",
   bund_ai: "Bund AI",
   buffer: "Buffer",
+  postiz: "Postiz",
   clay: "Clay",
   exa: "Exa",
   firecrawl: "Firecrawl",
@@ -33,6 +34,7 @@ const HAS_BASE_URL: Record<Provider, boolean> = {
   linki: true,
   bund_ai: true,
   buffer: false,
+  postiz: false,
   clay: false,
   exa: false,
   firecrawl: false,
@@ -45,12 +47,15 @@ const KEY_PLACEHOLDERS: Record<Provider, string> = {
   linki: "lnk_…",
   bund_ai: "bund_sk_…",
   buffer: "buf_…",
+  postiz: "pos_…",
   clay: "clay_…",
   exa: "exa_…",
   firecrawl: "fc-…",
   elevenlabs: "Your ElevenLabs API key",
 };
 
+// `postiz` deliberately excluded here too — see the org-level panel's
+// PROVIDERS comment: real Provider value, no connect/verify route yet.
 const PROVIDERS: Provider[] = [
   "openrouter",
   "router",

@@ -142,6 +142,7 @@ export type Provider =
   | "linki"
   | "bund_ai"
   | "buffer"
+  | "postiz"
   | "clay"
   | "exa"
   | "firecrawl"

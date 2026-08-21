@@ -21,6 +21,7 @@ const LABELS: Record<Provider, string> = {
   linki: "Linki",
   bund_ai: "Bund AI",
   buffer: "Buffer",
+  postiz: "Postiz",
   clay: "Clay",
   exa: "Exa",
   firecrawl: "Firecrawl",
@@ -35,6 +36,8 @@ const BLURBS: Record<Provider, string> = {
   bund_ai: "AI customer support. Generate a key in Bund AI at Settings → API access.",
   buffer:
     "Social post scheduling. Generate a personal API key in Buffer at Settings → API. One Buffer account per Falorb org — Buffer doesn't offer third-party OAuth today.",
+  postiz:
+    "Social post scheduling. Not yet available from this panel — support for Postiz is still being built.",
   clay: "Contact enrichment for prospects discovered off-site (see Prospecting). Generate a key in Clay at Settings → API.",
   exa: "Neural web search, grounding content drafts in what already ranks. Generate a key at dashboard.exa.ai/api-keys.",
   firecrawl: "Page scraping, grounding company research in a company's own site. Generate a key at firecrawl.dev/app/api-keys.",
@@ -50,6 +53,7 @@ const HAS_BASE_URL: Record<Provider, boolean> = {
   linki: true,
   bund_ai: true,
   buffer: false,
+  postiz: false,
   clay: false,
   exa: false,
   firecrawl: false,
@@ -62,6 +66,7 @@ const KEY_PLACEHOLDERS: Record<Provider, string> = {
   linki: "lnk_…",
   bund_ai: "bund_sk_…",
   buffer: "buf_…",
+  postiz: "pos_…",
   clay: "clay_…",
   exa: "exa_…",
   firecrawl: "fc-…",
@@ -78,12 +83,18 @@ const NEVER_SYNCED: Record<Provider, string> = {
   linki: "never — the mirror job runs every 15 minutes",
   bund_ai: "never — the mirror job runs every 15 minutes",
   buffer: "never — the mirror job runs every 15 minutes",
+  postiz: "never — Postiz is not yet mirrored",
   clay: "never — enrichment runs every 30 minutes against discovered prospects",
   exa: "not applicable — used on demand when drafting content or researching a company",
   firecrawl: "not applicable — used on demand when drafting content or researching a company",
   elevenlabs: "never — used on demand each time you generate a UGC video, not on a schedule",
 };
 
+// `postiz` deliberately excluded: it's a real Provider value (the DB enum
+// carries it as of migration 0022) but has no connect/verify route yet in
+// apps/api, so it stays out of the rendered list until that lands — same
+// reasoning as every other Record above needing a `postiz` key without the
+// card being visible.
 const PROVIDERS: Provider[] = [
   "openrouter",
   "router",

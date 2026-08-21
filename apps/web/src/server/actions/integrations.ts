@@ -46,6 +46,7 @@ export type Provider =
   | "linki"
   | "bund_ai"
   | "buffer"
+  | "postiz"
   | "clay"
   | "exa"
   | "firecrawl"
@@ -56,6 +57,7 @@ const LABELS: Record<Provider, string> = {
   linki: "Linki",
   bund_ai: "Bund AI",
   buffer: "Buffer",
+  postiz: "Postiz",
   clay: "Clay",
   exa: "Exa",
   firecrawl: "Firecrawl",

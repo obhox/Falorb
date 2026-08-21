@@ -620,16 +620,33 @@ externally-discovered person does not fit.
 
 ---
 
-## 18. UGC AI video generation — script, voice, and a talking avatar video
+## 18. UGC AI video generation — talking avatar or pure text-to-video
 
 Built in-house rather than integrating a single UGC vendor (Arcads, HeyGen,
-Synthesia) — a chain of calls Falorb owns end to end: a script
-(`@falorb/ai`'s `complete()`, same OpenRouter path §14e's AI signals use), a
-voiceover, then a lip-synced talking video animating a user-supplied
-presenter photo. The voice and video stages both go through ElevenLabs —
-their Flows video API added an image+audio-to-video lipsync model
-(`creatify-aurora`) in 2026, so one vendor now covers both stages rather than
-a separate TTS vendor and a separate avatar vendor.
+Synthesia) — a chain of calls Falorb owns end to end, in one of two shapes.
+**A UGC video does not require a face** — most of ElevenLabs' Flows video
+models are plain text-to-video, not avatar/lipsync — so the generation form
+offers a `mode` choice rather than assuming every video is a talking head:
+
+- **Avatar** (a presenter photo supplied): a script (`@falorb/ai`'s
+  `complete()`, same OpenRouter path §14e's AI signals use) → a voiceover
+  (ElevenLabs TTS, picked from the connected account's own voice library, or
+  "Auto") → a lip-synced talking video (`creatify-aurora`, image + audio in).
+- **Text-to-video** (no photo, or an optional non-face reference image): the
+  script goes straight to `veo-3.1-fast-generate-001` as a prompt with
+  `generate_audio: true` — Veo generates its own narration and scene, no
+  separate TTS call exists for this model. The Fast variant is ElevenLabs'
+  own stated recommendation for "fast-paced social media content creation"
+  over the slower full Veo 3.1 (confirmed against current docs, not guessed).
+
+Both pipelines go through ElevenLabs' Flows video API under one vendor
+rather than a separate TTS vendor and a separate video vendor — confirmed
+twice against ElevenLabs' current API reference (the full seven-model
+Flows catalog: Seedance v2/v2-fast/v2-mini/v2.5, `creatify-aurora`,
+`veo-3.1-generate-001`, `veo-3.1-fast-generate-001`) before committing to
+this shape, not assumed from the broader ElevenLabs marketing pages (which
+list a much larger aggregate model catalog — Sora, Kling, Runway, LTX — not
+all of which are confirmed reachable through this specific REST endpoint).
 
 ElevenLabs is connected exactly like Linki/Bund AI/Clay (§13): each org
 brings its own ElevenLabs account via `integrationConnections`
@@ -644,19 +661,19 @@ it's for, not an ownership scope.
 
 | | Feature | Notes |
 |---|---|---|
-| ✅ | `ugc_videos` schema | Org-scoped, optional `projectId` tag. `status` is both the lifecycle and the resume point (`pending → script_ready → voice_ready → video_processing → ready`, or `failed`) — plain `text()`, UI-driven vocabulary, same convention as `prospects.status`. Presenter photo and generated voiceover stored as base64 `text` (Falorb has no object storage yet; both are small — see the table's own docblock for why introducing a blob store solely for this one feature would be premature). The final video itself is **not** re-hosted — `videoUrl` points at ElevenLabs' own output URL |
+| ✅ | `ugc_videos` schema | Org-scoped, optional `projectId` tag. `mode` (`"avatar"` \| `"text_to_video"`) forks the pipeline after `script_ready`; `status` is both the lifecycle and the resume point (`pending → script_ready → [voice_ready →] video_processing → ready`, or `failed` — `voice_ready` only exists for avatar mode) — plain `text()`, UI-driven vocabulary, same convention as `prospects.status`. `presenterImageBase64`/`voiceId` are nullable: required in avatar mode, optional (image) or unused (voice) in text_to_video mode. Presenter/reference photo and generated voiceover stored as base64 `text` (Falorb has no object storage yet; both are small — see the table's own docblock for why introducing a blob store solely for this one feature would be premature). The final video itself is **not** re-hosted — `videoUrl` points at ElevenLabs' own output URL |
 | ✅ | `ugc_video_post_queue` schema | A human-curated "post this" to-do list, not automated posting — Postiz (queued, §13) doesn't exist yet. Nothing transitions an entry out of `queued` except a person clicking "mark posted" on the review page |
 | ✅ | `elevenlabs` on `integration_provider` | Fourth value on the enum `packages/db/src/schema/integrations.ts` already had (`linki`/`bund_ai`/`clay`) — no new table, same encrypted-credential row shape as the other three |
-| ✅ | `@falorb/elevenlabs-client` | Thin client for `POST /v1/text-to-speech/{voice_id}` (confirmed against ElevenLabs' stable docs) and the Flows video API `POST /v1/flows/video` + `GET /v1/flows/video/{id}` (2026, still beta on ElevenLabs' side — the request schema for `creatify-aurora` is confirmed, the completed-generation response shape is not, so `getVideoGeneration` checks several plausible field names rather than asserting one; same "verify before production traffic" caveat `@falorb/clay-client` carries for its own contract). `verifyConnection()` pings `GET /v1/user` — cheapest authenticated call that doesn't spend generation credits, same "who am I" reasoning `ClayClient`'s equivalent method gives |
+| ✅ | `@falorb/elevenlabs-client` | `textToSpeech`/`listVoices` (`GET /v2/voices`, for the form's voice picker) — ElevenLabs' stable core API, confirmed against current docs. `createLipsyncVideo`/`createTextToVideo`/`getVideoGeneration` — the Flows video API (`POST /v1/flows/video`, `GET /v1/flows/video/{id}`), 2026, still beta on ElevenLabs' side; both models' *request* schemas are confirmed (fetched twice, consistently), the completed-generation *response* shape is not, so `getVideoGeneration` checks several plausible field names rather than asserting one — same "verify before production traffic" caveat `@falorb/clay-client` carries for its own contract. `verifyConnection()` pings `GET /v1/user` — cheapest authenticated call that doesn't spend generation credits, same "who am I" reasoning `ClayClient`'s equivalent method gives |
 | ✅ | ElevenLabs on `/settings/integrations` | A fourth `ProviderCard`, not a bespoke panel — reuses the generic connect/test/revoke actions unchanged. Its connect dialog has no Base URL field (ElevenLabs has one fixed API root, set server-side, `ELEVENLABS_DEFAULT_BASE_URL`), gated `manageIntegrations` (admin+), same tier every other integration credential uses |
-| ✅ | `ugc-video-gen` worker job | 1m interval — short, deliberately, since this is user-facing and someone is on the review page waiting. Per-organization loop over connected `elevenlabs` `integrationConnections`, same shape as `clay-enrichment.ts`: each org's own decrypted key, each org's own try/catch so one bad/revoked key can't stop the sweep for other orgs, connection health (`lastSyncedAt`/`status`/`lastError`) reflects the run. Within one org's batch, advances **one stage per row per tick** rather than running the whole chain in one call, so a crash mid-chain resumes from the last persisted stage instead of re-running (and re-billing) earlier stages; a `video_processing` row stuck past 10 minutes is treated as failed rather than left stranded forever. No-ops with zero DB writes when no org has connected ElevenLabs. Deliberately **excluded** from `verify:jobs`, same reasoning as `clay-enrichment` — a live run spends a connected org's own paid ElevenLabs credits |
-| ✅ | `/ugc-videos` | Brief + optional property tag + required voice ID + a required presenter photo upload in, a `status: "pending"` row out — generation is entirely the worker job's responsibility, never awaited inside the request/response cycle. Refuses to insert the row (with a link to Settings → Integrations) if the org has no active ElevenLabs connection, rather than accepting a brief that can never advance past `pending`. List shows every video with a status badge and an inline player once `ready` |
+| ✅ | `ugc-video-gen` worker job | 1m interval — short, deliberately, since this is user-facing and someone is on the review page waiting. Per-organization loop over connected `elevenlabs` `integrationConnections`, same shape as `clay-enrichment.ts`: each org's own decrypted key, each org's own try/catch so one bad/revoked key can't stop the sweep for other orgs, connection health (`lastSyncedAt`/`status`/`lastError`) reflects the run. Within one org's batch, advances **one stage per row per tick** rather than running the whole chain in one call, so a crash mid-chain resumes from the last persisted stage instead of re-running (and re-billing) earlier stages; a `video_processing` row stuck past 10 minutes is treated as failed rather than left stranded forever. A null `voiceId` ("Auto") is resolved here — the connected account's first available voice, at generation time rather than insert time, so it always reflects the account's current voices. No-ops with zero DB writes when no org has connected ElevenLabs. Deliberately **excluded** from `verify:jobs`, same reasoning as `clay-enrichment` — a live run spends a connected org's own paid ElevenLabs credits |
+| ✅ | `/ugc-videos` | A `Style` picker (Talking presenter / AI text-to-video) up front, not an inferred choice — two very different results (a lip-synced face vs. a generated scene) shouldn't hinge on whether someone happened to attach a photo. Avatar mode: brief + a voice picked from the connected account's own voices (or "Auto") + a required presenter photo. Text-to-video mode: brief + an optional non-face reference image (e.g. a product photo), no voice picker (Veo generates its own narration). Either way, a `status: "pending"` row out — generation is entirely the worker job's responsibility, never awaited inside the request/response cycle. Refuses to insert the row (with a link to Settings → Integrations) if the org has no active ElevenLabs connection, rather than accepting a brief that can never advance past `pending`. List shows every video with a status badge, its mode, and an inline player once `ready` |
 | ✅ | `/ugc-videos/[id]` | Script, video player, and the queue-for-posting form (platform, caption, optional target date) once `ready`; existing queue entries with mark-posted/cancel actions |
 | ✅ | Capability | New `can.manageUgcVideos` (member tier) — same trust tier as `manageCrm`/`writeAnalysis` for *using* an already-connected account; connecting/revoking the ElevenLabs credential itself is `manageIntegrations` (admin+), the same split every other provider draws between "connect it" and "use it" |
 | ⬜ | MCP tools | Not exposed — generation spends real money per call, same reasoning integrations' write actions stay out of MCP's reach (§13) |
 | ⬜ | Automated posting | Deliberately out of scope until Postiz (§13's queued third integration) lands. The post queue exists so a finished video isn't lost track of while that's built, not so it can fire anywhere today |
 | ⬜ | Durable video storage | `videoUrl` is ElevenLabs' own hosted URL; its retention window isn't confirmed. Mirroring finished videos into an object store is a natural follow-up once Falorb has one for any feature, not something to stand up solely for this |
-| 🟡 | Verified | Typechecks and builds; never exercised against a live ElevenLabs connection — no live account was available to confirm the Flows video API's actual completed-generation response shape (see the client's caveat above) or the `creatify-aurora` request contract end to end |
+| 🟡 | Verified | Typechecks and builds; never exercised against a live ElevenLabs connection — no live account was available to confirm the Flows video API's actual completed-generation response shape (see the client's caveat above), or either model's request contract, end to end |
 
 ---
 

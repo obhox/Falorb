@@ -1,11 +1,27 @@
 /**
  * Typed client for the ElevenLabs endpoints the UGC video pipeline chains
- * together (`apps/worker/src/jobs/ugc-video-gen.ts`, FEATURES.md §18):
- * text-to-speech for the voiceover, then the Flows video API's
- * `creatify-aurora` model — image + audio in, a lip-synced talking video out
- * — for the on-camera half. One vendor for both stages rather than a
- * separate TTS vendor and a separate avatar/lipsync vendor, now that
- * ElevenLabs ships both under one API key.
+ * together (`apps/worker/src/jobs/ugc-video-gen.ts`, FEATURES.md §18). A UGC
+ * video does not require a face — most of the Flows video API's models are
+ * plain text-to-video — so this supports two distinct pipelines rather than
+ * assuming every video is a talking avatar:
+ *
+ *   - **Avatar** (a presenter photo was supplied): text-to-speech for the
+ *     voiceover, then `creatify-aurora` — a required character image +
+ *     required audio in, a lip-synced talking video out.
+ *   - **Text-to-video** (no photo): the script goes straight to
+ *     `veo-3.1-fast-generate-001` as a prompt, with `generate_audio: true` —
+ *     Veo generates its own spoken narration and sound, no separate TTS call
+ *     or `audio` field exists for this model. The Fast variant is
+ *     ElevenLabs' own stated recommendation for "fast-paced social media
+ *     content creation" over the full Veo 3.1 (better suited to longer,
+ *     higher-fidelity cinematic output) — confirmed against ElevenLabs'
+ *     current docs, not guessed.
+ *
+ * Both pipelines go through the same vendor under one API key rather than a
+ * separate TTS vendor and a separate video vendor, and both are exposed by
+ * the same `POST /v1/flows/video` endpoint — only the request body's
+ * `model_id` and shape differ, handled by `createLipsyncVideo` and
+ * `createTextToVideo` respectively.
  *
  * Connected per-organization through `integrationConnections`
  * (`provider: "elevenlabs"`), the same shape as Linki/Bund AI/Clay — each
@@ -17,16 +33,18 @@
  * has no Base URL field — `ELEVENLABS_DEFAULT_BASE_URL` is what the connect
  * action supplies.
  *
- * The TTS endpoint (`POST /v1/text-to-speech/{voice_id}`) is ElevenLabs'
- * long-stable core API and is confirmed against current docs. The Flows
- * video API (`POST /v1/flows/video`, `GET /v1/flows/video/{id}`) is new
- * (2026) and still in beta on ElevenLabs' side — the request schema for the
- * `creatify-aurora` model below is written against ElevenLabs' published
- * API reference, but the *response* shape of a completed generation
- * (exactly which field carries the output URL) was not confirmed against a
- * live call. `getVideoGeneration` below deliberately checks several
- * plausible field names rather than asserting one; verify against a real
- * response before pointing this at production traffic, same caveat
+ * The TTS endpoint (`POST /v1/text-to-speech/{voice_id}`) and the voice
+ * list (`GET /v2/voices`) are ElevenLabs' long-stable core API and are
+ * confirmed against current docs. The Flows video API (`POST
+ * /v1/flows/video`, `GET /v1/flows/video/{id}`) is new (2026) and still in
+ * beta on ElevenLabs' side — the request schema for both `creatify-aurora`
+ * and `veo-3.1-fast-generate-001` below is written against ElevenLabs'
+ * published API reference (fetched twice, consistently, so treated as
+ * reliable), but the *response* shape of a completed generation (exactly
+ * which field carries the output URL) was not confirmed against a live
+ * call. `getVideoGeneration` below deliberately checks several plausible
+ * field names rather than asserting one; verify against a real response
+ * before pointing this at production traffic, same caveat
  * `@falorb/clay-client` carries for its own unconfirmed contract.
  */
 
@@ -35,14 +53,19 @@
  * convention as `CLAY_DEFAULT_BASE_URL`. */
 export const ELEVENLABS_DEFAULT_BASE_URL = "https://api.elevenlabs.io";
 
-/** The Flows video model used for the avatar/lipsync stage — image + audio
- * in, a lip-synced talking video out. Fixed rather than configurable: the
- * other five models Flows exposes (Veo, Seedance, ...) take a text prompt
- * instead of an image+audio pair and are not interchangeable with this one
- * without a different request shape. */
+/** The Flows video model for the avatar/lipsync stage — a required
+ * character image + required audio in, a lip-synced talking video out. Only
+ * used when a presenter photo was supplied. */
 export const LIPSYNC_MODEL_ID = "creatify-aurora";
 
+/** The Flows video model for pure text-to-video (no presenter photo) —
+ * prompt in, video with its own generated narration/audio out. Fast variant:
+ * ElevenLabs' own guidance names it for social/UGC-paced content over the
+ * slower full Veo 3.1, which suits longer cinematic output better. */
+export const TEXT_TO_VIDEO_MODEL_ID = "veo-3.1-fast-generate-001";
+
 export type LipsyncResolution = "480p" | "720p";
+export type TextToVideoResolution = "720p" | "1080p" | "4K";
 
 export class ElevenLabsApiError extends Error {
   constructor(
@@ -62,6 +85,17 @@ export interface ElevenLabsClientOptions {
 export interface SpeechResult {
   audioBase64: string;
   mimeType: string;
+}
+
+export interface Voice {
+  voiceId: string;
+  name: string;
+  /** "premade" | "cloned" | "generated" | "professional" | ... — whatever
+   * ElevenLabs returns, passed through rather than narrowed to a union, so
+   * an account with a category this client hasn't seen yet doesn't lose the
+   * voice from the list. */
+  category: string;
+  previewUrl: string | null;
 }
 
 export interface VideoGenerationSubmission {
@@ -168,6 +202,64 @@ export class ElevenLabsClient {
       resolution: input.resolution ?? "720p",
     });
     return { id: body.id, status: body.status };
+  }
+
+  /**
+   * Submits a pure text-to-video generation — no face, no audio input.
+   * `generate_audio: true` (the model's own default) makes Veo generate its
+   * own spoken narration and ambient sound from the prompt; there is no
+   * `audio` field on this model to feed a separate voiceover into, unlike
+   * `createLipsyncVideo`. `referenceImage` is optional and Veo-specific
+   * (`role: "subject"` — e.g. a product photo the video should feature),
+   * not a face to animate.
+   */
+  async createTextToVideo(input: {
+    prompt: string;
+    referenceImage?: { base64: string; mimeType: string };
+    durationSecs?: 4 | 6 | 8;
+    resolution?: TextToVideoResolution;
+    aspectRatio?: "16:9" | "9:16";
+  }): Promise<VideoGenerationSubmission> {
+    const body = await this.requestJson<{ id: string; status: string }>("POST", "/v1/flows/video", {
+      model_id: TEXT_TO_VIDEO_MODEL_ID,
+      prompt: input.prompt,
+      generate_audio: true,
+      duration_secs: input.durationSecs ?? 8,
+      resolution: input.resolution ?? "720p",
+      aspect_ratio: input.aspectRatio ?? "9:16",
+      ...(input.referenceImage
+        ? {
+            images: [
+              {
+                role: "subject",
+                type: "inline_base64",
+                content_base64: input.referenceImage.base64,
+                mime_type: input.referenceImage.mimeType,
+              },
+            ],
+          }
+        : {}),
+    });
+    return { id: body.id, status: body.status };
+  }
+
+  /**
+   * The org's available voices (premade + any cloned/generated ones),
+   * newest/most relevant first as ElevenLabs orders them — for the
+   * generation form's voice picker. `page_size: 100` rather than paging
+   * fully through a huge voice library; a form dropdown with more than a
+   * hundred entries has bigger problems than truncation.
+   */
+  async listVoices(): Promise<Voice[]> {
+    const body = await this.requestJson<{
+      voices: Array<{ voice_id: string; name: string; category?: string; preview_url?: string | null }>;
+    }>("GET", "/v2/voices?page_size=100");
+    return body.voices.map((v) => ({
+      voiceId: v.voice_id,
+      name: v.name,
+      category: v.category ?? "unknown",
+      previewUrl: v.preview_url ?? null,
+    }));
   }
 
   /**

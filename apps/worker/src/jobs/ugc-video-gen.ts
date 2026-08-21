@@ -1,16 +1,30 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { decryptCredential, schema } from "@falorb/db";
 import { complete, AiSignalError } from "@falorb/ai";
-import { ElevenLabsClient, ElevenLabsApiError, LIPSYNC_MODEL_ID } from "@falorb/elevenlabs-client";
+import {
+  ElevenLabsClient,
+  ElevenLabsApiError,
+  LIPSYNC_MODEL_ID,
+  TEXT_TO_VIDEO_MODEL_ID,
+} from "@falorb/elevenlabs-client";
 import type { WorkerContext } from "../context";
 
 /**
- * Advances UGC videos (FEATURES.md §18) one stage per tick: script -> voice
- * -> submit for lipsync video -> poll for completion. One stage per row per
- * run, not the whole chain in one call, so a crash mid-chain resumes from
- * the last persisted stage instead of re-running (and re-billing) earlier
- * stages — same reasoning `apps/worker/src/jobs/clay-enrichment.ts` gives
- * for caching both hits and misses.
+ * Advances UGC videos (FEATURES.md §18) one stage per tick. One stage per
+ * row per run, not the whole chain in one call, so a crash mid-chain
+ * resumes from the last persisted stage instead of re-running (and
+ * re-billing) earlier stages — same reasoning
+ * `apps/worker/src/jobs/clay-enrichment.ts` gives for caching both hits and
+ * misses.
+ *
+ * The chain forks after `script_ready` depending on `row.mode` — see the
+ * `ugcVideos` table's docblock (`packages/db/src/schema/ugc.ts`) for the
+ * full state diagram:
+ *
+ *   "avatar"          script -> voice (`textToSpeech`) -> submit for a
+ *                      lip-synced video (`createLipsyncVideo`) -> poll
+ *   "text_to_video"    script -> submit directly as a video prompt
+ *                      (`createTextToVideo`, its own generated narration) -> poll
  *
  * Per-organization, like `clay-enrichment.ts`: each org connects its own
  * ElevenLabs account via `integrationConnections` (`provider: "elevenlabs"`)
@@ -38,6 +52,32 @@ const SCRIPT_SYSTEM_PROMPT =
   "voiceover.";
 
 const IN_FLIGHT_STATUSES = ["pending", "script_ready", "voice_ready", "video_processing"] as const;
+
+/**
+ * Turns a spoken script into a Veo prompt for text_to_video mode. Veo wants
+ * a scene description, not literally "words to read aloud" the way TTS
+ * does — this wraps the script into a directive so `generate_audio: true`
+ * produces natural spoken narration matching it, rather than treating the
+ * script text as on-screen captions or ignoring it.
+ *
+ * Deliberately says "voiceover narration", not "a person speaking to
+ * camera" — text_to_video mode exists specifically for UGC content with no
+ * face (product b-roll, unboxing-style footage, a hands-only demo), and a
+ * prompt that presupposes an on-camera presenter would defeat that. Veo
+ * decides the visual scene; `hasReferenceImage` only says whether it has a
+ * specific product/subject to feature rather than inventing one from the
+ * script alone.
+ */
+function buildVideoPrompt(script: string, hasReferenceImage: boolean): string {
+  const subject = hasReferenceImage
+    ? "featuring the product shown in the reference image"
+    : "for the product or offer described below";
+  return (
+    `UGC-style social video ad ${subject}: authentic handheld smartphone ` +
+    "aesthetic, well-lit, natural — not a polished commercial. Voiceover " +
+    `narration, naturally paced: "${script}"`
+  );
+}
 
 type UgcVideoRow = typeof schema.ugcVideos.$inferSelect;
 
@@ -152,12 +192,58 @@ async function advanceOne(
 
     case "script_ready": {
       if (!row.script) {
-        await fail(context, row.id, "No script to voice — this row should not have reached this stage.");
+        await fail(context, row.id, "No script — this row should not have reached this stage.");
         return true;
       }
+
+      if (row.mode === "text_to_video") {
+        let submission: Awaited<ReturnType<ElevenLabsClient["createTextToVideo"]>>;
+        try {
+          submission = await client.createTextToVideo({
+            prompt: buildVideoPrompt(row.script, !!row.presenterImageBase64),
+            referenceImage:
+              row.presenterImageBase64 && row.presenterImageMimeType
+                ? { base64: row.presenterImageBase64, mimeType: row.presenterImageMimeType }
+                : undefined,
+          });
+        } catch (error) {
+          await fail(context, row.id, describeElevenLabsError(error));
+          return true;
+        }
+        await context.db
+          .update(schema.ugcVideos)
+          .set({
+            elevenlabsGenerationId: submission.id,
+            videoModel: TEXT_TO_VIDEO_MODEL_ID,
+            status: "video_processing",
+            processingStartedAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.ugcVideos.id, row.id));
+        return true;
+      }
+
+      // Avatar mode: null `voiceId` means "auto" — resolved here, against
+      // the connected account's current voices, rather than at insert time.
+      let voiceId = row.voiceId;
+      if (!voiceId) {
+        let voices: Awaited<ReturnType<ElevenLabsClient["listVoices"]>>;
+        try {
+          voices = await client.listVoices();
+        } catch (error) {
+          await fail(context, row.id, describeElevenLabsError(error));
+          return true;
+        }
+        if (!voices.length) {
+          await fail(context, row.id, "No voices available on the connected ElevenLabs account.");
+          return true;
+        }
+        voiceId = voices[0]!.voiceId;
+      }
+
       let speech: Awaited<ReturnType<ElevenLabsClient["textToSpeech"]>>;
       try {
-        speech = await client.textToSpeech(row.script, row.voiceId);
+        speech = await client.textToSpeech(row.script, voiceId);
       } catch (error) {
         await fail(context, row.id, describeElevenLabsError(error));
         return true;
@@ -165,6 +251,7 @@ async function advanceOne(
       await context.db
         .update(schema.ugcVideos)
         .set({
+          voiceId,
           audioBase64: speech.audioBase64,
           audioMimeType: speech.mimeType,
           status: "voice_ready",
@@ -177,6 +264,10 @@ async function advanceOne(
     case "voice_ready": {
       if (!row.audioBase64 || !row.audioMimeType) {
         await fail(context, row.id, "No voiceover to animate — this row should not have reached this stage.");
+        return true;
+      }
+      if (!row.presenterImageBase64 || !row.presenterImageMimeType) {
+        await fail(context, row.id, "No presenter photo to animate — this row should not have reached this stage.");
         return true;
       }
       let submission: Awaited<ReturnType<ElevenLabsClient["createLipsyncVideo"]>>;

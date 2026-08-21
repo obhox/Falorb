@@ -1,6 +1,7 @@
 import "server-only";
 import { and, desc, eq } from "drizzle-orm";
-import { db, schema } from "@falorb/db";
+import { db, decryptCredential, schema } from "@falorb/db";
+import { ElevenLabsClient, type Voice } from "@falorb/elevenlabs-client";
 
 /**
  * Read helpers for the org-wide `/ugc-videos` pages (FEATURES.md §18).
@@ -15,6 +16,7 @@ import { db, schema } from "@falorb/db";
 export interface UgcVideoRow {
   id: string;
   projectId: number | null;
+  mode: string;
   brief: string;
   script: string | null;
   status: string;
@@ -28,6 +30,7 @@ export interface UgcVideoRow {
 const listColumns = {
   id: schema.ugcVideos.id,
   projectId: schema.ugcVideos.projectId,
+  mode: schema.ugcVideos.mode,
   brief: schema.ugcVideos.brief,
   script: schema.ugcVideos.script,
   status: schema.ugcVideos.status,
@@ -67,4 +70,40 @@ export async function listPostQueue(videoId: string, organizationId: string) {
       ),
     )
     .orderBy(desc(schema.ugcVideoPostQueue.createdAt));
+}
+
+/**
+ * The org's available ElevenLabs voices, for the generation form's voice
+ * picker — so avatar mode is "pick from your account's voices" rather than
+ * pasting a raw voice ID by hand. Returns `[]` on no connection or any
+ * failure (an expired key, a network blip) rather than throwing: the
+ * generation form already refuses to submit without a connection (see
+ * `createUgcVideo`), so a picker with no options here just falls back to
+ * "Auto" — it never blocks page render.
+ */
+export async function listAvailableVoices(organizationId: string): Promise<Voice[]> {
+  const [connection] = await db()
+    .select()
+    .from(schema.integrationConnections)
+    .where(
+      and(
+        eq(schema.integrationConnections.organizationId, organizationId),
+        eq(schema.integrationConnections.provider, "elevenlabs"),
+        eq(schema.integrationConnections.status, "active"),
+      ),
+    )
+    .limit(1);
+  if (!connection) return [];
+
+  try {
+    const apiKey = decryptCredential({
+      ciphertext: connection.encryptedApiKey,
+      iv: connection.iv,
+      authTag: connection.authTag,
+    });
+    const client = new ElevenLabsClient({ baseUrl: connection.baseUrl, apiKey });
+    return await client.listVoices();
+  } catch {
+    return [];
+  }
 }

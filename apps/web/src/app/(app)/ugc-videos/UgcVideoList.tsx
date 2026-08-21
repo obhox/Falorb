@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import Link from "next/link";
-import { Badge, Button, Card, Icon, Input, Select } from "@falorb/ui";
+import { Badge, Button, Card, Icon, Select } from "@falorb/ui";
 import { Empty } from "@/components/Empty";
 import { createUgcVideo } from "@/server/actions/ugc-videos";
 import { useAction } from "@/lib/use-action";
@@ -15,6 +15,7 @@ export interface UgcVideoListItem {
   id: string;
   projectId: number | null;
   projectName: string | null;
+  mode: string;
   brief: string;
   status: string;
   lastError: string | null;
@@ -23,7 +24,19 @@ export interface UgcVideoListItem {
   createdAt: string;
 }
 
+export interface VoiceOption {
+  voiceId: string;
+  name: string;
+  category: string;
+}
+
 const NO_PROJECT = "No property";
+const AUTO_VOICE = "Auto — let Falorb pick";
+
+const MODE_LABEL: Record<string, string> = {
+  avatar: "Talking presenter",
+  text_to_video: "AI text-to-video",
+};
 
 const STATUS_TONE: Record<string, "neutral" | "accent" | "up" | "down" | "warn"> = {
   pending: "neutral",
@@ -50,15 +63,17 @@ const STATUS_LABEL: Record<string, string> = {
 export function UgcVideoList({
   videos,
   projects,
+  voices,
   elevenlabsConnected,
 }: {
   videos: UgcVideoListItem[];
   projects: { id: number; name: string }[];
+  voices: VoiceOption[];
   elevenlabsConnected: boolean;
 }) {
   return (
     <>
-      <CreateForm projects={projects} elevenlabsConnected={elevenlabsConnected} />
+      <CreateForm projects={projects} voices={voices} elevenlabsConnected={elevenlabsConnected} />
 
       {videos.length === 0 ? (
         <Empty
@@ -77,43 +92,56 @@ export function UgcVideoList({
   );
 }
 
+const MODES = ["avatar", "text_to_video"] as const;
+type Mode = (typeof MODES)[number];
+
 function CreateForm({
   projects,
+  voices,
   elevenlabsConnected,
 }: {
   projects: { id: number; name: string }[];
+  voices: VoiceOption[];
   elevenlabsConnected: boolean;
 }) {
   const [brief, setBrief] = useState("");
   const [projectName, setProjectName] = useState(NO_PROJECT);
-  const [voiceId, setVoiceId] = useState("");
+  const [mode, setMode] = useState<Mode>("avatar");
+  const [voiceName, setVoiceName] = useState(AUTO_VOICE);
+  const [hasFile, setHasFile] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const { run, pending } = useAction();
 
   const projectByName = new Map(projects.map((p) => [p.name, p.id]));
+  const voiceByName = new Map(voices.map((v) => [v.name, v.voiceId]));
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     const file = fileRef.current?.files?.[0];
-    if (!file) return;
+    if (mode === "avatar" && !file) return;
 
     const data = new FormData();
     data.set("brief", brief);
-    data.set("voiceId", voiceId);
+    data.set("mode", mode);
+    const voiceId = voiceByName.get(voiceName);
+    if (mode === "avatar" && voiceId) data.set("voiceId", voiceId);
     const projectId = projectByName.get(projectName);
     if (projectId) data.set("projectId", String(projectId));
-    data.set("presenterImage", file);
+    if (file) data.set("presenterImage", file);
 
     const result = await run(() => createUgcVideo(data), { quiet: true });
     if (result?.ok) {
       setBrief("");
-      setVoiceId("");
+      setVoiceName(AUTO_VOICE);
+      setHasFile(false);
       if (fileRef.current) fileRef.current.value = "";
     }
   }
 
+  const canSubmit = brief.trim() && elevenlabsConnected && (mode === "text_to_video" || hasFile);
+
   return (
-    <Card title="Generate a UGC video" subtitle="Script, voiceover, and a lip-synced talking video">
+    <Card title="Generate a UGC video" subtitle="A UGC video doesn't need a face — pick a talking presenter or pure AI text-to-video">
       {!elevenlabsConnected && (
         <p
           style={{
@@ -129,6 +157,31 @@ function CreateForm({
         </p>
       )}
       <form onSubmit={submit} style={{ display: "grid", gap: "var(--space-5)" }}>
+        <label style={{ display: "grid", gap: 6 }}>
+          <span
+            style={{
+              fontSize: "var(--size-label)",
+              color: "var(--text-secondary)",
+              fontWeight: "var(--wt-medium)",
+            }}
+          >
+            Style
+          </span>
+          <Select
+            value={MODE_LABEL[mode]!}
+            options={MODES.map((m) => MODE_LABEL[m]!)}
+            onChange={(label: string) => {
+              const next = (Object.keys(MODE_LABEL) as Mode[]).find((m) => MODE_LABEL[m] === label);
+              if (next) setMode(next);
+            }}
+          />
+          <span style={{ fontSize: "var(--size-micro)", color: "var(--text-muted)" }}>
+            {mode === "avatar"
+              ? "A presenter photo animated to lip-sync a generated voiceover."
+              : "No photo needed — the AI model generates its own scene and narration from the brief."}
+          </span>
+        </label>
+
         <label style={{ display: "grid", gap: 6 }}>
           <span
             style={{
@@ -167,12 +220,13 @@ function CreateForm({
               onChange={setProjectName}
             />
           )}
-          <Input
-            value={voiceId}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setVoiceId(e.target.value)}
-            placeholder="Voice ID — from your ElevenLabs voice library"
-            mono
-          />
+          {mode === "avatar" && (
+            <Select
+              value={voiceName}
+              options={[AUTO_VOICE, ...voices.map((v) => v.name)]}
+              onChange={setVoiceName}
+            />
+          )}
         </div>
 
         <label style={{ display: "grid", gap: 6 }}>
@@ -183,11 +237,19 @@ function CreateForm({
               fontWeight: "var(--wt-medium)",
             }}
           >
-            Presenter photo
+            {mode === "avatar" ? "Presenter photo" : "Reference image (optional)"}
           </span>
-          <input ref={fileRef} type="file" accept="image/*" required />
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            required={mode === "avatar"}
+            onChange={() => setHasFile(!!fileRef.current?.files?.length)}
+          />
           <span style={{ fontSize: "var(--size-micro)", color: "var(--text-muted)" }}>
-            A clear, front-facing photo of the person who should deliver the script.
+            {mode === "avatar"
+              ? "A clear, front-facing photo of the person who should deliver the script."
+              : "Optional — a product or subject photo for the model to feature. Leave empty to let it invent the scene."}
           </span>
         </label>
 
@@ -195,7 +257,7 @@ function CreateForm({
           <Button
             type="submit"
             variant="primary"
-            disabled={pending || !brief.trim() || !voiceId.trim() || !elevenlabsConnected}
+            disabled={pending || !canSubmit}
             iconLeft={<Icon name="sparkles" size={14} />}
           >
             {pending ? "Starting" : "Generate video"}
@@ -215,7 +277,8 @@ function VideoCard({ video }: { video: UgcVideoListItem }) {
             <p style={{ fontSize: "var(--size-body-sm)", color: "var(--text-primary)" }}>{video.brief}</p>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <span style={{ fontSize: "var(--size-micro)", color: "var(--text-muted)" }}>
-                {video.projectName ?? "No property"} · {relative(video.createdAt)}
+                {MODE_LABEL[video.mode] ?? video.mode} · {video.projectName ?? "No property"} ·{" "}
+                {relative(video.createdAt)}
                 {video.durationSeconds ? ` · ${duration(video.durationSeconds)}` : ""}
               </span>
             </div>

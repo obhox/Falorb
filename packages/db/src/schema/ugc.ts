@@ -5,10 +5,18 @@ import { user } from "./auth";
 /**
  * AI-generated UGC-style video for social posting (FEATURES.md §18).
  * Built in-house rather than integrating a single UGC vendor (Arcads,
- * HeyGen, ...) — a chain of three ElevenLabs calls owned end to end by
- * Falorb: a script (`@falorb/ai`'s `complete()`), a voiceover
- * (`ElevenLabsClient.textToSpeech`), then a lip-synced talking video from a
- * user-supplied presenter photo (`ElevenLabsClient.createLipsyncVideo`).
+ * HeyGen, ...) — a chain of ElevenLabs calls owned end to end by Falorb, in
+ * one of two shapes depending on `mode`:
+ *
+ *   "avatar"         a script (`@falorb/ai`'s `complete()`), a voiceover
+ *                     (`ElevenLabsClient.textToSpeech`), then a lip-synced
+ *                     talking video from a user-supplied presenter photo
+ *                     (`ElevenLabsClient.createLipsyncVideo`).
+ *   "text_to_video"   a script, straight to a text-to-video generation
+ *                     (`ElevenLabsClient.createTextToVideo`) with its own
+ *                     generated narration — no face required. A UGC video
+ *                     is not necessarily a talking head; most of ElevenLabs'
+ *                     Flows models are plain text-to-video.
  *
  * Org-wide rather than project-scoped, same reasoning as `prospects`: a
  * social video is marketing content for the business, not analysis of one
@@ -19,11 +27,16 @@ import { user } from "./auth";
  * (`apps/worker/src/jobs/ugc-video-gen.ts`), one stage advanced per tick, so
  * a crash mid-chain resumes from the last completed stage rather than
  * restarting a (billed) generation from scratch. `status` is therefore both
- * the lifecycle and the resume point:
+ * the lifecycle and the resume point — the path forks after `script_ready`
+ * depending on `mode`:
  *
  *   pending          just created, script not yet generated
- *   script_ready     script written, voiceover not yet requested
- *   voice_ready      voiceover generated, video not yet submitted
+ *   script_ready     script written; next is `voice_ready` (avatar mode) or
+ *                    straight to `video_processing` (text_to_video mode,
+ *                    which has no separate voice stage — Veo generates its
+ *                    own narration as part of the video)
+ *   voice_ready      voiceover generated, video not yet submitted (avatar
+ *                    mode only)
  *   video_processing submitted to ElevenLabs, awaiting completion
  *   ready            video generated, `videoUrl` set
  *   failed           any stage errored; see `lastError`
@@ -31,16 +44,17 @@ import { user } from "./auth";
  * Plain `text()`, not `pgEnum` — UI-driven vocabulary, same convention as
  * `prospects.status`.
  *
- * The presenter photo and generated voiceover are stored as base64 `text`
- * rather than in dedicated object storage: Falorb has no blob store today,
- * and these are small (a single portrait image, a voiceover clip a few tens
- * of seconds long) — well within a Postgres `text` column's TOAST-compressed
- * capacity. The final video itself is NOT re-hosted here; `videoUrl` is
- * ElevenLabs' own output URL. That URL's retention window on ElevenLabs'
- * side is not confirmed — see the client's module comment — so a video a
- * user cares about keeping should be downloaded promptly. Mirroring it into
- * durable storage is a natural follow-up once Falorb has an object store for
- * any feature, not something to invent solely for this one.
+ * The presenter/reference photo and generated voiceover are stored as
+ * base64 `text` rather than in dedicated object storage: Falorb has no blob
+ * store today, and these are small (a single portrait image, a voiceover
+ * clip a few tens of seconds long) — well within a Postgres `text`
+ * column's TOAST-compressed capacity. The final video itself is NOT
+ * re-hosted here; `videoUrl` is ElevenLabs' own output URL. That URL's
+ * retention window on ElevenLabs' side is not confirmed — see the client's
+ * module comment — so a video a user cares about keeping should be
+ * downloaded promptly. Mirroring it into durable storage is a natural
+ * follow-up once Falorb has an object store for any feature, not something
+ * to invent solely for this one.
  */
 export const ugcVideos = pgTable(
   "ugc_videos",
@@ -51,21 +65,32 @@ export const ugcVideos = pgTable(
       .references(() => organizations.id, { onDelete: "cascade" }),
     projectId: integer("project_id").references(() => projects.id, { onDelete: "set null" }),
 
+    /** "avatar" | "text_to_video" — see the table docblock for the two
+     * pipeline shapes this forks into after `script_ready`. */
+    mode: text("mode").notNull().default("avatar"),
+
     /** What the user typed: the product/offer/angle the video should sell. */
     brief: text("brief").notNull(),
     script: text("script"),
 
-    voiceId: text("voice_id").notNull(),
+    /** Avatar mode only. Null means "let the worker job pick one" — resolved
+     * at generation time (the org's first available voice), not at insert
+     * time, so it always reflects the connected account's current voices. */
+    voiceId: text("voice_id"),
     audioBase64: text("audio_base64"),
     audioMimeType: text("audio_mime_type"),
 
-    presenterImageBase64: text("presenter_image_base64").notNull(),
-    presenterImageMimeType: text("presenter_image_mime_type").notNull(),
+    /** Required in avatar mode (the face to animate); optional in
+     * text_to_video mode (an optional product/style reference image, not a
+     * face). Null in text_to_video mode when no reference image was given. */
+    presenterImageBase64: text("presenter_image_base64"),
+    presenterImageMimeType: text("presenter_image_mime_type"),
 
-    /** The ElevenLabs Flows model used — see `LIPSYNC_MODEL_ID` in
-     * `@falorb/elevenlabs-client`. Stored per-row, not just read from the
-     * client's constant, so a future model change doesn't retroactively
-     * mislabel videos generated under the old one. */
+    /** The ElevenLabs Flows model used — `LIPSYNC_MODEL_ID` for avatar mode,
+     * `TEXT_TO_VIDEO_MODEL_ID` for text_to_video, both in
+     * `@falorb/elevenlabs-client`. Stored per-row, not just derived from
+     * `mode`, so a future model change doesn't retroactively mislabel videos
+     * generated under the old one. */
     videoModel: text("video_model").notNull(),
     /** ElevenLabs' generation id, for polling `GET /v1/flows/video/{id}`. */
     elevenlabsGenerationId: text("elevenlabs_generation_id"),

@@ -23,7 +23,7 @@ whole backend; see [FEATURES.md](FEATURES.md) for the gaps.
 - **Privacy-first** — no raw IP stored anywhere, GDPR export/erasure, per-project retention.
 - **AI-native** — an MCP server (25 tools) so an assistant can query the platform directly, and a dashboard panel tracking what AI crawlers read on your sites.
 - **Integrations** — deep, two-way connections to Linki (sales outreach/CRM) and [Bund AI](https://usebund.com) (customer support): their data mirrors into Falorb, joinable with product analytics, and a few manual actions (push a signal, create/update a contact, resolve an escalation) run from here without switching tabs. See [FEATURES.md §13](FEATURES.md#13-integrations--linki--bund-ai-built-generic-multi-service-design-superseded).
-- **UGC AI video** — generate a script, voiceover, and a lip-synced talking video from a presenter photo, built in-house on top of ElevenLabs, then queue it for posting. See [FEATURES.md §18](FEATURES.md#18-ugc-ai-video-generation--script-voice-and-a-talking-avatar-video).
+- **UGC AI video** — generate a script and video for social posting, built in-house on top of ElevenLabs: a lip-synced talking avatar from a presenter photo, or pure AI text-to-video with no face at all. Then queue it for posting. See [FEATURES.md §18](FEATURES.md#18-ugc-ai-video-generation--talking-avatar-or-pure-text-to-video).
 
 ### Scope boundary
 

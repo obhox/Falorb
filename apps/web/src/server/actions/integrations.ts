@@ -93,6 +93,18 @@ function isProvider(value: string): value is Provider {
  * match: a plain `target` without it doesn't identify either partial index to
  * Postgres and the insert fails with "no unique or exclusion constraint
  * matching the ON CONFLICT specification".
+ *
+ * `verifyConnection()` and `encryptCredential()` are deliberately not
+ * guarded here: every client's own `verifyConnection()` already catches its
+ * network errors and returns `{ ok: false }`, so a throw reaching this point
+ * means something more fundamental — almost always `encryptCredential()`
+ * rejecting a missing or malformed `INTEGRATION_CREDENTIAL_ENC_KEY`. Left
+ * unguarded here, Next.js would redact it to an opaque digest-only error in
+ * production; both callers below (`connectIntegration`,
+ * `connectProjectIntegration`) catch it instead and surface the real
+ * message as an `ActionResult`, the same way `content-draft.ts` and every
+ * other AI/integration-backed action in this directory turn an unexpected
+ * throw into a toast rather than an unhandled exception.
  */
 async function upsertConnection(
   scope: { organizationId: string; projectId: number | null },
@@ -191,8 +203,16 @@ async function testConnection(
   if (!row) return { ok: false, message: `No ${LABELS[provider]} connection yet.` };
   if (row.status === "revoked") return { ok: false, message: "This connection has been revoked." };
 
-  const apiKey = decryptCredential({ ciphertext: row.encryptedApiKey, iv: row.iv, authTag: row.authTag });
-  const check = await clientFor(provider, row.baseUrl, apiKey).verifyConnection();
+  let check: Awaited<ReturnType<ReturnType<typeof clientFor>["verifyConnection"]>>;
+  try {
+    const apiKey = decryptCredential({ ciphertext: row.encryptedApiKey, iv: row.iv, authTag: row.authTag });
+    check = await clientFor(provider, row.baseUrl, apiKey).verifyConnection();
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : `Could not test the ${LABELS[provider]} connection.`,
+    };
+  }
 
   await db()
     .update(schema.integrationConnections)
@@ -254,13 +274,18 @@ export async function connectIntegration(provider: string, formData: FormData): 
   }
   if (!apiKey) return { ok: false, message: "Enter the API key." };
 
-  const result = await upsertConnection(
-    { organizationId: session.workspace.organizationId, projectId: null },
-    provider,
-    baseUrl,
-    apiKey,
-    session.user.id,
-  );
+  let result: Awaited<ReturnType<typeof upsertConnection>>;
+  try {
+    result = await upsertConnection(
+      { organizationId: session.workspace.organizationId, projectId: null },
+      provider,
+      baseUrl,
+      apiKey,
+      session.user.id,
+    );
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : `Could not connect ${LABELS[provider]}.` };
+  }
 
   revalidatePath("/settings/integrations");
   if (!result.verified) return { ok: false, message: `Saved, but ${LABELS[provider]} rejected it: ${result.detail}` };
@@ -292,13 +317,18 @@ export async function connectProjectIntegration(
   }
   if (!apiKey) return { ok: false, message: "Enter the API key." };
 
-  const result = await upsertConnection(
-    { organizationId: session.workspace.organizationId, projectId: project.id },
-    provider,
-    baseUrl,
-    apiKey,
-    session.user.id,
-  );
+  let result: Awaited<ReturnType<typeof upsertConnection>>;
+  try {
+    result = await upsertConnection(
+      { organizationId: session.workspace.organizationId, projectId: project.id },
+      provider,
+      baseUrl,
+      apiKey,
+      session.user.id,
+    );
+  } catch (error) {
+    return { ok: false, message: error instanceof Error ? error.message : `Could not connect ${LABELS[provider]}.` };
+  }
 
   revalidatePath(`/p/${slug}/settings`);
   if (!result.verified) return { ok: false, message: `Saved, but ${LABELS[provider]} rejected it: ${result.detail}` };

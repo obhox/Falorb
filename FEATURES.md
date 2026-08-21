@@ -13,7 +13,7 @@ Living record of what exists, what is half-built, and what has not been started.
 
 **Where things stand:** the collection pipeline, storage layer, identity graph,
 query layer, background workers, MCP server and self-serve account system are
-complete and verified. The dashboard is built — 36 routes on the Falorb design
+complete and verified. The dashboard is built — 40 routes on the Falorb design
 system, light and dark, role-enforced. Most routes are driven end to end by
 Playwright; the eight newest — sales lead actions, the weekly digest, the
 product signal's drop-off data, the public benchmark report, the referral
@@ -396,9 +396,13 @@ integration's auth model:
   is poll-only, which the design always treated as an acceptable fallback,
   not a broken half-measure.
 - **Full read-only dashboard.** Only a person's linked Linki contact (on
-  `/people/[personId]`) and Bund AI escalations (`/support`) are visible.
-  Contacts/lists/workflows/runs/opportunities list views, and Bund AI
-  conversations/leads/tickets views, are not built.
+  `/people/[personId]`) is visible; Contacts/lists/workflows/runs/
+  opportunities list views are not built. `/support` now has detail pages
+  for all four entities (`/support/{conversations,escalations,leads,
+  tickets}/[id]`) showing the fields the list tables omit — a ticket's
+  `description`, a lead's `phone`/`notes`, and each entity's originating
+  conversation via `conversationId`; a conversation's detail page shows what
+  it turned into (which escalations/leads/tickets trace back to it).
 - **Buffer post editing/deletion/queue reordering.** Only `createPost` is
   wired to a manual action (`/social`); `BufferClient.deletePost` exists but
   nothing in the UI calls it yet, and `movePostInQueue`/`editPost` aren't in

@@ -96,8 +96,23 @@ export async function connectIntegration(provider: string, formData: FormData): 
   }
   if (!apiKey) return { ok: false, message: "Enter the API key." };
 
-  const check = await clientFor(provider, baseUrl, apiKey).verifyConnection();
-  const encrypted = encryptCredential(apiKey);
+  let check: Awaited<ReturnType<ReturnType<typeof clientFor>["verifyConnection"]>>;
+  let encrypted: ReturnType<typeof encryptCredential>;
+  try {
+    check = await clientFor(provider, baseUrl, apiKey).verifyConnection();
+    encrypted = encryptCredential(apiKey);
+  } catch (error) {
+    // Every client's own verifyConnection() already catches its network
+    // errors and returns { ok: false }, so a throw here means something more
+    // fundamental — almost always encryptCredential() rejecting a missing or
+    // malformed INTEGRATION_CREDENTIAL_ENC_KEY. Left unguarded, Next.js
+    // redacts this to an opaque digest-only error in production; the actual
+    // cause belongs in a toast, not a support ticket.
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : `Could not connect ${LABELS[provider]}.`,
+    };
+  }
   const orgId = session.workspace.organizationId;
 
   const [row] = await db()
@@ -165,8 +180,16 @@ export async function testIntegrationConnection(provider: string): Promise<Actio
   if (!row) return { ok: false, message: `No ${LABELS[provider]} connection yet.` };
   if (row.status === "revoked") return { ok: false, message: "This connection has been revoked." };
 
-  const apiKey = decryptCredential({ ciphertext: row.encryptedApiKey, iv: row.iv, authTag: row.authTag });
-  const check = await clientFor(provider, row.baseUrl, apiKey).verifyConnection();
+  let check: Awaited<ReturnType<ReturnType<typeof clientFor>["verifyConnection"]>>;
+  try {
+    const apiKey = decryptCredential({ ciphertext: row.encryptedApiKey, iv: row.iv, authTag: row.authTag });
+    check = await clientFor(provider, row.baseUrl, apiKey).verifyConnection();
+  } catch (error) {
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : `Could not test the ${LABELS[provider]} connection.`,
+    };
+  }
 
   await db()
     .update(schema.integrationConnections)

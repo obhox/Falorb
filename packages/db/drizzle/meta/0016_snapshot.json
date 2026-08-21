@@ -1,6 +1,6 @@
 {
-  "id": "31c574c8-968d-49f8-847d-772b075a77c8",
-  "prevId": "d6de0aca-be8e-4fae-976d-9956b3e7cec0",
+  "id": "56cd6ba4-2d78-46fe-b312-677cb79bedf3",
+  "prevId": "31c574c8-968d-49f8-847d-772b075a77c8",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -8417,6 +8417,8 @@
         "bund_ai",
         "buffer",
         "clay",
+        "exa",
+        "firecrawl",
         "elevenlabs"
       ]
     },

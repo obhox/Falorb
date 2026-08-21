@@ -15,6 +15,7 @@ import type { ConnectionView } from "@/server/integrations";
 const LABELS: Record<Provider, string> = {
   linki: "Linki",
   bund_ai: "Bund AI",
+  buffer: "Buffer",
   clay: "Clay",
   exa: "Exa",
   firecrawl: "Firecrawl",
@@ -23,18 +24,21 @@ const LABELS: Record<Provider, string> = {
 const BLURBS: Record<Provider, string> = {
   linki: "Sales outreach & CRM. Generate a scoped key in Linki at Platform → Workspace & API.",
   bund_ai: "AI customer support. Generate a key in Bund AI at Settings → API access.",
+  buffer:
+    "Social post scheduling. Generate a personal API key in Buffer at Settings → API. One Buffer account per Falorb org — Buffer doesn't offer third-party OAuth today.",
   clay: "Contact enrichment for prospects discovered off-site (see Prospecting). Generate a key in Clay at Settings → API.",
   exa: "Neural web search, grounding content drafts in what already ranks. Generate a key at dashboard.exa.ai/api-keys.",
   firecrawl: "Page scraping, grounding company research in a company's own site. Generate a key at firecrawl.dev/app/api-keys.",
   elevenlabs: "Script, voice, and talking-video generation for UGC videos (see UGC videos). Generate a key in ElevenLabs at Settings → API Keys.",
 };
 
-/** Clay, Exa, Firecrawl, and ElevenLabs each have one fixed API root —
- * unlike Linki/Bund AI's self-hosted deployments, their connect dialogs
- * have no Base URL field to fill in. */
+/** Buffer, Clay, Exa, Firecrawl, and ElevenLabs each have one fixed API
+ * root — unlike Linki/Bund AI's self-hosted deployments, their connect
+ * dialogs have no Base URL field to fill in. */
 const HAS_BASE_URL: Record<Provider, boolean> = {
   linki: true,
   bund_ai: true,
+  buffer: false,
   clay: false,
   exa: false,
   firecrawl: false,
@@ -44,19 +48,21 @@ const HAS_BASE_URL: Record<Provider, boolean> = {
 const KEY_PLACEHOLDERS: Record<Provider, string> = {
   linki: "lnk_…",
   bund_ai: "bund_sk_…",
+  buffer: "buf_…",
   clay: "clay_…",
   exa: "exa_…",
   firecrawl: "fc-…",
   elevenlabs: "Your ElevenLabs API key",
 };
 
-/** Shown when `lastSyncedAt` is null — Linki/Bund AI/Clay are mirrored by a
- * recurring job; Exa/Firecrawl/ElevenLabs have none, they're only ever
- * called synchronously (a content draft, a company research click, or a UGC
- * video generation). */
+/** Shown when `lastSyncedAt` is null — Linki/Bund AI/Buffer/Clay are
+ * mirrored by a recurring job; Exa/Firecrawl/ElevenLabs have none, they're
+ * only ever called synchronously (a content draft, a company research
+ * click, or a UGC video generation). */
 const NEVER_SYNCED: Record<Provider, string> = {
   linki: "never — the mirror job runs every 15 minutes",
   bund_ai: "never — the mirror job runs every 15 minutes",
+  buffer: "never — the mirror job runs every 15 minutes",
   clay: "never — enrichment runs every 30 minutes against discovered prospects",
   exa: "not applicable — used on demand when drafting content or researching a company",
   firecrawl: "not applicable — used on demand when drafting content or researching a company",
@@ -76,7 +82,7 @@ export function IntegrationsPanel({
 
   return (
     <div style={{ display: "grid", gap: "var(--space-6)" }}>
-      {(["linki", "bund_ai", "clay", "exa", "firecrawl", "elevenlabs"] as Provider[]).map((provider) => (
+      {(["linki", "bund_ai", "buffer", "clay", "exa", "firecrawl", "elevenlabs"] as Provider[]).map((provider) => (
         <ProviderCard
           key={provider}
           provider={provider}

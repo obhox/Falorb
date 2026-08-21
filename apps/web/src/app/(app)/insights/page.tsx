@@ -1,14 +1,17 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Card } from "@falorb/ui";
+import { can } from "@falorb/db";
 import { requireSession } from "@/server/session";
 import { breakdown, crossProjectPeople, totals, trend } from "@/server/analytics";
 import { peopleIdentities } from "@/server/people";
+import { listInsights } from "@/server/insights";
 import { PageBody, PageHeader } from "@/components/shell/PageHeader";
 import { RangePicker } from "@/components/shell/RangePicker";
 import { StatStrip } from "@/components/StatStrip";
 import { TrendPanel } from "@/components/TrendPanel";
 import { InsightControls } from "@/components/InsightControls";
+import { SavedInsights } from "./SavedInsights";
 import { asKey, CHARTS, DIMENSIONS, METRICS } from "@/lib/insight-options";
 import { InsightResult, type InsightRow } from "@/components/InsightResult";
 import { Empty } from "@/components/Empty";
@@ -77,7 +80,7 @@ export default async function InsightsPage({
     : session.projects;
   const projectIds = scoped.map((p) => p.id);
 
-  const [current, previous, rows, overTime, crossing] = await Promise.all([
+  const [current, previous, rows, overTime, crossing, savedInsights] = await Promise.all([
     totals({ projectIds, range: resolved.range }),
     totals({ projectIds, range: resolved.previous }),
     breakdown({ projectIds, range: resolved.range, field: dimension, limit: 20 }),
@@ -88,7 +91,9 @@ export default async function InsightsPage({
       minProjects: 2,
       limit: 25,
     }),
+    listInsights(session.workspace.organizationId),
   ]);
+  const canManage = can.writeAnalysis(session.workspace.role);
 
   const buckets = bucketGrid(resolved.range, resolved.interval);
   const series = seriesFromTrend(overTime, buckets.keys, resolved.interval);
@@ -151,6 +156,12 @@ export default async function InsightsPage({
           ]}
         />
 
+        <SavedInsights
+          insights={savedInsights}
+          active={{ metric, dimension, chart, projectSlugs: scoped.map((p) => p.slug) }}
+          canManage={canManage}
+        />
+
         <Card tone="panel">
           <InsightControls
             metric={metric}
@@ -158,6 +169,7 @@ export default async function InsightsPage({
             chart={chart}
             projects={session.projects}
             selected={selected}
+            canSave={canManage}
           />
         </Card>
 

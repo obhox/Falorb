@@ -11,6 +11,7 @@ import {
 } from "@falorb/db";
 import { LinkiClient } from "@falorb/linki-client";
 import { BundAiClient } from "@falorb/bund-ai-client";
+import { BufferClient, BUFFER_API_ENDPOINT } from "@falorb/buffer-client";
 import { ClayClient, CLAY_DEFAULT_BASE_URL } from "@falorb/clay-client";
 import { ExaClient, EXA_DEFAULT_BASE_URL, FirecrawlClient, FIRECRAWL_DEFAULT_BASE_URL } from "@falorb/research";
 import { ElevenLabsClient, ELEVENLABS_DEFAULT_BASE_URL } from "@falorb/elevenlabs-client";
@@ -20,8 +21,8 @@ import { requireHumanSession } from "../guards";
 
 /**
  * Connection management for the external products Falorb drives on the
- * organization's behalf (Linki, Bund AI, Clay, Exa, Firecrawl, ElevenLabs,
- * more over time).
+ * organization's behalf (Linki, Bund AI, Buffer, Clay, Exa, Firecrawl,
+ * ElevenLabs, more over time).
  *
  * Deliberately human-session-only end to end, not scope-gated for API keys —
  * same reasoning as `POST /api/keys` in `index.ts`: storing, testing, or
@@ -30,10 +31,11 @@ import { requireHumanSession } from "../guards";
  * revoking the leaked key would not undo what it already connected.
  *
  * `verifyConnection` delegates to each product's real typed client
- * (`packages/linki-client`, `packages/bund-ai-client`, `packages/clay-client`,
- * `packages/research`) rather than a generic raw `fetch` — one
- * implementation of "how do I reach this API" per product, shared with the
- * mirror/enrichment jobs (`linki-sync.ts`, `bund-ai-sync.ts`,
+ * (`packages/linki-client`, `packages/bund-ai-client`, `packages/buffer-client`,
+ * `packages/clay-client`, `packages/research`, `packages/elevenlabs-client`)
+ * rather than a generic raw `fetch` — one implementation of "how do I reach
+ * this API" per product, shared with the mirror/enrichment jobs
+ * (`linki-sync.ts`, `bund-ai-sync.ts`, `buffer-sync.ts`,
  * `clay-enrichment.ts`) instead of a second one living only here.
  */
 
@@ -52,6 +54,7 @@ type Vars = {
 const PROVIDERS = {
   linki: { label: "Linki", fixedBaseUrl: null },
   bund_ai: { label: "Bund AI", fixedBaseUrl: null },
+  buffer: { label: "Buffer", fixedBaseUrl: BUFFER_API_ENDPOINT },
   clay: { label: "Clay", fixedBaseUrl: CLAY_DEFAULT_BASE_URL },
   exa: { label: "Exa", fixedBaseUrl: EXA_DEFAULT_BASE_URL },
   firecrawl: { label: "Firecrawl", fixedBaseUrl: FIRECRAWL_DEFAULT_BASE_URL },
@@ -70,19 +73,13 @@ async function pingProvider(
   baseUrl: string,
   apiKey: string,
 ): Promise<{ ok: boolean; detail: string }> {
-  const client =
-    provider === "linki"
-      ? new LinkiClient({ baseUrl, apiKey })
-      : provider === "bund_ai"
-        ? new BundAiClient({ baseUrl, apiKey })
-        : provider === "clay"
-          ? new ClayClient({ baseUrl, apiKey })
-          : provider === "exa"
-            ? new ExaClient({ baseUrl, apiKey })
-            : provider === "firecrawl"
-              ? new FirecrawlClient({ baseUrl, apiKey })
-              : new ElevenLabsClient({ baseUrl, apiKey });
-  return client.verifyConnection();
+  if (provider === "linki") return new LinkiClient({ baseUrl, apiKey }).verifyConnection();
+  if (provider === "bund_ai") return new BundAiClient({ baseUrl, apiKey }).verifyConnection();
+  if (provider === "buffer") return new BufferClient({ baseUrl, apiKey }).verifyConnection();
+  if (provider === "clay") return new ClayClient({ baseUrl, apiKey }).verifyConnection();
+  if (provider === "exa") return new ExaClient({ baseUrl, apiKey }).verifyConnection();
+  if (provider === "firecrawl") return new FirecrawlClient({ baseUrl, apiKey }).verifyConnection();
+  return new ElevenLabsClient({ baseUrl, apiKey }).verifyConnection();
 }
 
 function publicConnection(row: typeof schema.integrationConnections.$inferSelect) {

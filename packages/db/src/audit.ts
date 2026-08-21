@@ -44,6 +44,7 @@ export const AUDIT_ACTIONS = {
   crmDealCreated: "crm.deal_created",
   crmDealUpdated: "crm.deal_updated",
   supportEscalationResolved: "support.escalation_resolved",
+  socialPostCreated: "social.post_created",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

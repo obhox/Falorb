@@ -5,6 +5,7 @@ import { and, eq } from "drizzle-orm";
 import { AUDIT_ACTIONS, audit, db, decryptCredential, encryptCredential, schema } from "@falorb/db";
 import { LinkiClient } from "@falorb/linki-client";
 import { BundAiClient } from "@falorb/bund-ai-client";
+import { BufferClient, BUFFER_API_ENDPOINT } from "@falorb/buffer-client";
 import { ClayClient, CLAY_DEFAULT_BASE_URL } from "@falorb/clay-client";
 import { ExaClient, EXA_DEFAULT_BASE_URL, FirecrawlClient, FIRECRAWL_DEFAULT_BASE_URL } from "@falorb/research";
 import { ElevenLabsClient, ELEVENLABS_DEFAULT_BASE_URL } from "@falorb/elevenlabs-client";
@@ -13,8 +14,8 @@ import type { ActionResult } from "./project";
 import { deny } from "./guard";
 
 /**
- * Connect, test, or revoke Falorb's connection to Linki, Bund AI, Clay, Exa,
- * Firecrawl, or ElevenLabs.
+ * Connect, test, or revoke Falorb's connection to Linki, Bund AI, Buffer,
+ * Clay, Exa, Firecrawl, or ElevenLabs.
  *
  * Duplicates what `apps/api/src/routes/integrations.ts` exposes over HTTP,
  * deliberately — same reasoning as every other server action in this
@@ -28,11 +29,12 @@ import { deny } from "./guard";
  * between issuing an API key and using one.
  */
 
-export type Provider = "linki" | "bund_ai" | "clay" | "exa" | "firecrawl" | "elevenlabs";
+export type Provider = "linki" | "bund_ai" | "buffer" | "clay" | "exa" | "firecrawl" | "elevenlabs";
 
 const LABELS: Record<Provider, string> = {
   linki: "Linki",
   bund_ai: "Bund AI",
+  buffer: "Buffer",
   clay: "Clay",
   exa: "Exa",
   firecrawl: "Firecrawl",
@@ -40,12 +42,13 @@ const LABELS: Record<Provider, string> = {
 };
 
 /**
- * Clay, Exa, Firecrawl, and ElevenLabs each have one fixed API root, unlike
- * Linki/Bund AI's self-hosted deployments — their connect forms carry no
- * baseUrl field at all, so the fixed root is supplied here rather than
- * asked of the user.
+ * Buffer, Clay, Exa, Firecrawl, and ElevenLabs each have one fixed API
+ * root, unlike Linki/Bund AI's self-hosted deployments — their connect
+ * forms carry no baseUrl field at all, so the fixed root is supplied here
+ * rather than asked of the user.
  */
 const FIXED_BASE_URLS: Partial<Record<Provider, string>> = {
+  buffer: BUFFER_API_ENDPOINT,
   clay: CLAY_DEFAULT_BASE_URL,
   exa: EXA_DEFAULT_BASE_URL,
   firecrawl: FIRECRAWL_DEFAULT_BASE_URL,
@@ -56,9 +59,10 @@ function clientFor(
   provider: Provider,
   baseUrl: string,
   apiKey: string,
-): LinkiClient | BundAiClient | ClayClient | ExaClient | FirecrawlClient | ElevenLabsClient {
+): LinkiClient | BundAiClient | BufferClient | ClayClient | ExaClient | FirecrawlClient | ElevenLabsClient {
   if (provider === "linki") return new LinkiClient({ baseUrl, apiKey });
   if (provider === "bund_ai") return new BundAiClient({ baseUrl, apiKey });
+  if (provider === "buffer") return new BufferClient({ baseUrl, apiKey });
   if (provider === "clay") return new ClayClient({ baseUrl, apiKey });
   if (provider === "exa") return new ExaClient({ baseUrl, apiKey });
   if (provider === "firecrawl") return new FirecrawlClient({ baseUrl, apiKey });
@@ -69,6 +73,7 @@ function isProvider(value: string): value is Provider {
   return (
     value === "linki" ||
     value === "bund_ai" ||
+    value === "buffer" ||
     value === "clay" ||
     value === "exa" ||
     value === "firecrawl" ||

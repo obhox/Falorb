@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, sql, type SQL } from "drizzle-orm";
 import { AUDIT_ACTIONS, audit, createClickHouse, schema, type Database } from "@falorb/db";
 import type { Workspace } from "../onboarding";
 import { HttpError } from "../http";
@@ -70,6 +70,16 @@ export function peopleRoutes(db: Database): Hono<{ Variables: Vars }> {
       .from(schema.personAliases)
       .where(eq(schema.personAliases.personId, mergedId));
 
+    // A plain JS array/Date interpolated straight into a `sql` template is
+    // not reliably bound as `integer[]`/`timestamptz` by this project's
+    // postgres.js driver — build the array as an explicit SQL literal and
+    // cast the date, the same way every other `unnest(...)` call in this
+    // codebase (backfill.ts, sessionizer.ts, identity-resolver.ts) does.
+    const mergedProjectIds: SQL = sql.join(
+      merged.projectIds.map((id) => sql`${id}`),
+      sql.raw(", "),
+    );
+
     await db.transaction(async (tx) => {
       await tx
         .update(schema.personAliases)
@@ -79,7 +89,7 @@ export function peopleRoutes(db: Database): Hono<{ Variables: Vars }> {
       await tx
         .update(schema.persons)
         .set({
-          firstSeenAt: sql`least(${schema.persons.firstSeenAt}, ${merged.firstSeenAt})`,
+          firstSeenAt: sql`least(${schema.persons.firstSeenAt}, ${merged.firstSeenAt.toISOString()}::timestamptz)`,
           totalSessions: sql`${schema.persons.totalSessions} + ${merged.totalSessions}`,
           totalEvents: sql`${schema.persons.totalEvents} + ${merged.totalEvents}`,
           totalPageviews: sql`${schema.persons.totalPageviews} + ${merged.totalPageviews}`,
@@ -88,7 +98,7 @@ export function peopleRoutes(db: Database): Hono<{ Variables: Vars }> {
           name: sql`coalesce(${schema.persons.name}, ${merged.name})`,
           identifiedId: sql`coalesce(${schema.persons.identifiedId}, ${merged.identifiedId})`,
           companyId: sql`coalesce(${schema.persons.companyId}, ${merged.companyId})`,
-          projectIds: sql`(SELECT array_agg(DISTINCT x) FROM unnest(${schema.persons.projectIds} || ${merged.projectIds}) AS x)`,
+          projectIds: sql`(SELECT array_agg(DISTINCT x) FROM unnest(${schema.persons.projectIds} || ARRAY[${mergedProjectIds}]::integer[]) AS x)`,
           updatedAt: new Date(),
         })
         .where(eq(schema.persons.id, survivorId));

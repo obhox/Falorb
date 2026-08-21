@@ -3,22 +3,24 @@ import { and, eq } from "drizzle-orm";
 import { db, decryptCredential, schema } from "@falorb/db";
 import { LinkiClient } from "@falorb/linki-client";
 import { BundAiClient } from "@falorb/bund-ai-client";
+import { BufferClient } from "@falorb/buffer-client";
 import { ExaClient, FirecrawlClient, type ResearchClients } from "@falorb/research";
 
 /**
  * Builds a typed client from a stored `integrationConnections` row, for
- * server actions that take a real action on Linki/Bund AI (not just reading
- * the mirror) or research on Exa/Firecrawl's behalf. Returns null when the
- * org has never connected, or has revoked/errored — callers turn that into
- * "connect it in Settings" rather than a stack trace. Clay and ElevenLabs
- * have no equivalent getter here — nothing in the web app calls either
- * directly; only `apps/worker/src/jobs/clay-enrichment.ts`/`ugc-video-gen.ts`
- * do, and each builds its own client from the connection row.
+ * server actions that take a real action on Linki/Bund AI/Buffer (not just
+ * reading the mirror) or research on Exa/Firecrawl's behalf. Returns null
+ * when the org has never connected, or has revoked/errored — callers turn
+ * that into "connect it in Settings" rather than a stack trace. Clay and
+ * ElevenLabs have no equivalent getter here — nothing in the web app calls
+ * either directly; only `apps/worker/src/jobs/clay-enrichment.ts`/
+ * `ugc-video-gen.ts` do, and each builds its own client from the connection
+ * row.
  */
 
 async function activeConnection(
   organizationId: string,
-  provider: "linki" | "bund_ai" | "exa" | "firecrawl",
+  provider: "linki" | "bund_ai" | "buffer" | "exa" | "firecrawl",
 ) {
   const [row] = await db()
     .select()
@@ -46,6 +48,13 @@ export async function getBundAiClient(organizationId: string): Promise<BundAiCli
   if (!row) return null;
   const apiKey = decryptCredential({ ciphertext: row.encryptedApiKey, iv: row.iv, authTag: row.authTag });
   return new BundAiClient({ baseUrl: row.baseUrl, apiKey });
+}
+
+export async function getBufferClient(organizationId: string): Promise<BufferClient | null> {
+  const row = await activeConnection(organizationId, "buffer");
+  if (!row) return null;
+  const apiKey = decryptCredential({ ciphertext: row.encryptedApiKey, iv: row.iv, authTag: row.authTag });
+  return new BufferClient({ baseUrl: row.baseUrl, apiKey });
 }
 
 /**
@@ -82,7 +91,7 @@ export async function getResearchClients(organizationId: string): Promise<Resear
 }
 
 export interface ConnectionView {
-  provider: "linki" | "bund_ai" | "clay" | "exa" | "firecrawl" | "elevenlabs";
+  provider: "linki" | "bund_ai" | "buffer" | "clay" | "exa" | "firecrawl" | "elevenlabs";
   baseUrl: string;
   status: "active" | "revoked" | "error";
   lastVerifiedAt: string | null;

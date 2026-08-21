@@ -1,5 +1,6 @@
+import { eq } from "drizzle-orm";
 import { Card } from "@falorb/ui";
-import { can } from "@falorb/db";
+import { can, db, schema } from "@falorb/db";
 import { requireProject } from "@/server/session";
 import { getShare } from "@/server/sharing";
 import {
@@ -14,6 +15,7 @@ import { ShareControl } from "./ShareControl";
 import { BadgeEmbedControl } from "./BadgeEmbedControl";
 import { ConnectionPanel } from "./ConnectionPanel";
 import { ProjectCreatedTracker } from "./ProjectCreatedTracker";
+import { ProspectKeywordsCard } from "./ProspectKeywordsCard";
 
 export const dynamic = "force-dynamic";
 
@@ -30,11 +32,20 @@ export default async function ProjectSettingsPage({
 }) {
   const { session, project } = await requireProject((await params).project);
 
-  const [share, connection, collector, domainStatuses] = await Promise.all([
+  const [share, connection, collector, domainStatuses, keywords] = await Promise.all([
     getShare(session.workspace.organizationId, project.id),
     getConnectionStatus(project.id),
     getCollectorHealth(),
     getDomainStatuses([{ id: project.id, domains: project.domains }]),
+    db()
+      .select({
+        id: schema.prospectKeywords.id,
+        keyword: schema.prospectKeywords.keyword,
+        active: schema.prospectKeywords.active,
+      })
+      .from(schema.prospectKeywords)
+      .where(eq(schema.prospectKeywords.projectId, project.id))
+      .orderBy(schema.prospectKeywords.keyword),
   ]);
   const origin = process.env.FALORB_APP_URL ?? "http://localhost:3000";
 
@@ -89,6 +100,12 @@ export default async function ProjectSettingsPage({
       />
       </>
       )}
+
+      <ProspectKeywordsCard
+        slug={project.slug}
+        keywords={keywords}
+        canEdit={can.writeAnalysis(session.workspace.role)}
+      />
 
       <SettingsForm
         project={{

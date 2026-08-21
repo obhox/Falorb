@@ -4,6 +4,7 @@ import { resolveIdentities } from "./jobs/identity-resolver";
 import { sessionize } from "./jobs/sessionizer";
 import { optimizeAggregates, rebuildPathTransitions, refreshSegmentCounts } from "./jobs/rollups";
 import { enrichCompanies } from "./jobs/enrichment";
+import { listenReddit } from "./jobs/reddit-listener";
 import { scoreInterests } from "./jobs/interest-scorer";
 import { evaluateAlerts } from "./jobs/alerts";
 import { dispatchWebhooks, reviveWebhooks } from "./jobs/webhooks";
@@ -55,6 +56,10 @@ await run("path-transitions", () => rebuildPathTransitions(context));
 await run("segment-counts", () => refreshSegmentCounts(context));
 await run("interest-scorer", () => scoreInterests(context, watermarks));
 await run("enrichment", () => enrichCompanies(context, watermarks));
+// clay-enrichment deliberately excluded: it spends a connected org's own
+// paid Clay credits, unlike every other job here which only touches
+// Falorb-controlled resources. See apps/worker/src/jobs/clay-enrichment.ts.
+await run("reddit-listener", () => listenReddit(context, watermarks));
 await run("alerts", () => evaluateAlerts(context));
 await run("webhooks", () => dispatchWebhooks(context, watermarks));
 await run("webhook-revive", () => reviveWebhooks(context));

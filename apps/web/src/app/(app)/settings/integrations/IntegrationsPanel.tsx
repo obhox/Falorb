@@ -12,11 +12,16 @@ import {
 } from "@/server/actions/integrations";
 import type { ConnectionView } from "@/server/integrations";
 
-const LABELS: Record<Provider, string> = { linki: "Linki", bund_ai: "Bund AI" };
+const LABELS: Record<Provider, string> = { linki: "Linki", bund_ai: "Bund AI", clay: "Clay" };
 const BLURBS: Record<Provider, string> = {
   linki: "Sales outreach & CRM. Generate a scoped key in Linki at Platform → Workspace & API.",
   bund_ai: "AI customer support. Generate a key in Bund AI at Settings → API access.",
+  clay: "Contact enrichment for prospects discovered off-site (see Prospecting). Generate a key in Clay at Settings → API.",
 };
+
+/** Clay has one fixed API root — unlike Linki/Bund AI's self-hosted
+ * deployments, its connect dialog has no Base URL field to fill in. */
+const HAS_BASE_URL: Record<Provider, boolean> = { linki: true, bund_ai: true, clay: false };
 
 export function IntegrationsPanel({
   connections,
@@ -31,7 +36,7 @@ export function IntegrationsPanel({
 
   return (
     <div style={{ display: "grid", gap: "var(--space-6)" }}>
-      {(["linki", "bund_ai"] as Provider[]).map((provider) => (
+      {(["linki", "bund_ai", "clay"] as Provider[]).map((provider) => (
         <ProviderCard
           key={provider}
           provider={provider}
@@ -63,9 +68,11 @@ function ProviderCard({
   const connected = connection?.status === "active";
   const errored = connection?.status === "error";
 
+  const needsBaseUrl = HAS_BASE_URL[provider];
+
   async function submit() {
     const data = new FormData();
-    data.set("baseUrl", baseUrl);
+    if (needsBaseUrl) data.set("baseUrl", baseUrl);
     data.set("apiKey", apiKey);
     const result = await run(() => connectIntegration(provider, data));
     if (result?.ok) {
@@ -129,20 +136,26 @@ function ProviderCard({
               <Badge tone={connected ? "up" : connection.status === "revoked" ? "neutral" : "down"}>
                 {connection.status}
               </Badge>
-              <span
-                style={{
-                  fontFamily: "var(--font-mono)",
-                  fontSize: "var(--size-micro)",
-                  color: "var(--text-secondary)",
-                }}
-              >
-                {connection.baseUrl}
-              </span>
+              {needsBaseUrl && (
+                <span
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    fontSize: "var(--size-micro)",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  {connection.baseUrl}
+                </span>
+              )}
             </div>
             <div style={{ fontSize: "var(--size-micro)", color: "var(--text-muted)", lineHeight: 1.7 }}>
               <div>
                 last synced:{" "}
-                {connection.lastSyncedAt ? relative(connection.lastSyncedAt, now) : "never — the mirror job runs every 15 minutes"}
+                {connection.lastSyncedAt
+                  ? relative(connection.lastSyncedAt, now)
+                  : provider === "clay"
+                    ? "never — enrichment runs every 30 minutes against discovered prospects"
+                    : "never — the mirror job runs every 15 minutes"}
               </div>
               <div>
                 last verified:{" "}
@@ -168,7 +181,7 @@ function ProviderCard({
             <Button
               variant="primary"
               onClick={submit}
-              disabled={pending || !baseUrl.trim() || !apiKey.trim()}
+              disabled={pending || (needsBaseUrl && !baseUrl.trim()) || !apiKey.trim()}
             >
               {pending ? "Connecting…" : "Connect"}
             </Button>
@@ -176,19 +189,21 @@ function ProviderCard({
         }
       >
         <div style={{ display: "grid", gap: "var(--space-6)" }}>
-          <Input
-            label="Base URL"
-            value={baseUrl}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBaseUrl(e.target.value)}
-            placeholder="https://your-instance.example.com"
-            hint={`Where your ${LABELS[provider]} deployment is reachable from this server.`}
-          />
+          {needsBaseUrl && (
+            <Input
+              label="Base URL"
+              value={baseUrl}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBaseUrl(e.target.value)}
+              placeholder="https://your-instance.example.com"
+              hint={`Where your ${LABELS[provider]} deployment is reachable from this server.`}
+            />
+          )}
           <Input
             label="API key"
             mono
             value={apiKey}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setApiKey(e.target.value)}
-            placeholder={provider === "linki" ? "lnk_…" : "bund_sk_…"}
+            placeholder={provider === "linki" ? "lnk_…" : provider === "bund_ai" ? "bund_sk_…" : "clay_…"}
             hint="Stored encrypted (AES-256-GCM). Never shown again after this."
           />
         </div>

@@ -16,6 +16,7 @@
     "@clickhouse/client": "^1.23.1",
     "@falorb/ai": "workspace:*",
     "@falorb/bund-ai-client": "workspace:*",
+    "@falorb/clay-client": "workspace:*",
     "@falorb/core": "workspace:*",
     "@falorb/db": "workspace:*",
     "@falorb/linki-client": "workspace:*",

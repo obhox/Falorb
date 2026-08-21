@@ -14,6 +14,13 @@ import type { WorkerContext } from "../context";
  * `BufferClient.listPosts` cursor-walks Buffer's Relay-style pagination
  * internally rather than this job driving `limit`/`offset` pages itself, so
  * there's no local `paginateAll` helper here.
+ *
+ * Two Buffer-specific wrinkles the client hides from this file: a Buffer
+ * account can own several Buffer *organizations* and `channels` is scoped to
+ * one, so `listChannels()` walks them and merges; and every selection set is
+ * built from the live schema, so a field Buffer has renamed or promoted to an
+ * object type (`weeklyPostingLimit` was the one that broke the first version)
+ * degrades to null here instead of failing the sync.
  */
 
 export async function syncBuffer(context: WorkerContext): Promise<void> {
@@ -59,6 +66,7 @@ async function syncOrg(
 
   const channels = await client.listChannels();
   await upsertChannels(context, orgId, channels);
+  await forgetVanishedChannels(context, orgId, channels);
 
   const posts: BufferPost[] = [];
   for (const channel of channels) {
@@ -102,6 +110,11 @@ async function upsertChannels(context: WorkerContext, orgId: string, rows: Buffe
         isDisconnected: Boolean(r.isDisconnected),
         isQueuePaused: Boolean(r.isQueuePaused),
         weeklyPostingLimit: r.weeklyPostingLimit ?? null,
+        weeklyPostingLimitDetail: r.weeklyPostingLimitDetail ?? null,
+        postingSchedule: r.postingSchedule ?? null,
+        postingGoal: r.postingGoal ?? null,
+        allowedActions: r.allowedActions ?? null,
+        bufferOrganizationId: r.organizationId ?? null,
         syncedAt: new Date(),
       })),
     )
@@ -116,6 +129,11 @@ async function upsertChannels(context: WorkerContext, orgId: string, rows: Buffe
         isDisconnected: sql`excluded.is_disconnected`,
         isQueuePaused: sql`excluded.is_queue_paused`,
         weeklyPostingLimit: sql`excluded.weekly_posting_limit`,
+        weeklyPostingLimitDetail: sql`excluded.weekly_posting_limit_detail`,
+        postingSchedule: sql`excluded.posting_schedule`,
+        postingGoal: sql`excluded.posting_goal`,
+        allowedActions: sql`excluded.allowed_actions`,
+        bufferOrganizationId: sql`excluded.buffer_organization_id`,
         syncedAt: sql`excluded.synced_at`,
       },
     });
@@ -139,6 +157,7 @@ async function upsertPosts(context: WorkerContext, orgId: string, rows: BufferPo
         tags: r.tags ?? null,
         metrics: r.metrics ?? null,
         metricsUpdatedAt: toDate(r.metricsUpdatedAt),
+        errorMessage: r.errorMessage ?? null,
         syncedAt: new Date(),
       })),
     )
@@ -154,11 +173,38 @@ async function upsertPosts(context: WorkerContext, orgId: string, rows: BufferPo
         tags: sql`excluded.tags`,
         metrics: sql`excluded.metrics`,
         metricsUpdatedAt: sql`excluded.metrics_updated_at`,
+        errorMessage: sql`excluded.error_message`,
         syncedAt: sql`excluded.synced_at`,
       },
     });
 
   await resolveChannelForPosts(context, orgId);
+}
+
+/**
+ * A channel disconnected inside Buffer stops coming back from `channels`
+ * entirely, so a mirror that only ever upserts keeps offering it in the
+ * compose picker forever. Flag the ones this poll didn't see as disconnected
+ * rather than deleting them — their posts still reference the row.
+ */
+async function forgetVanishedChannels(
+  context: WorkerContext,
+  orgId: string,
+  seen: BufferChannel[],
+): Promise<void> {
+  // An empty poll is ambiguous — a key that lost access looks exactly like an
+  // account with no channels — so leave the mirror alone rather than marking
+  // everything disconnected on one bad answer.
+  if (!seen.length) return;
+  const ids = sql.join(
+    seen.map((channel) => sql`${channel.id}`),
+    sql`, `,
+  );
+  await context.db.execute(sql`
+    UPDATE social_channels
+    SET is_disconnected = true
+    WHERE organization_id = ${orgId} AND is_disconnected = false AND buffer_id NOT IN (${ids})
+  `);
 }
 
 /** Resolves `socialPosts.channelId` now that both sides exist — same reasoning as `linkContactsToPersons` in `linki-sync.ts`. */

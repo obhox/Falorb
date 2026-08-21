@@ -1,6 +1,6 @@
 {
-  "id": "a7e2755b-0f5f-4bb7-875e-65a0b12e6deb",
-  "prevId": "6397518e-fefd-4bdc-a82e-0ddccc5f7774",
+  "id": "078422e5-ada7-409f-af1a-368d44c17895",
+  "prevId": "a7e2755b-0f5f-4bb7-875e-65a0b12e6deb",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -4069,6 +4069,12 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "model": {
+          "name": "model",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "encrypted_api_key": {
           "name": "encrypted_api_key",
@@ -10139,7 +10145,9 @@
         "clay",
         "exa",
         "firecrawl",
-        "elevenlabs"
+        "elevenlabs",
+        "openrouter",
+        "router"
       ]
     },
     "public.integration_status": {

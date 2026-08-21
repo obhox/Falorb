@@ -27,6 +27,8 @@ export const socialChannels = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     organizationId: orgId(),
     bufferId: text("buffer_id").notNull(),
+    /** Buffer organization the channel belongs to — a Buffer account can hold several, and `channels` is scoped to one. */
+    bufferOrganizationId: text("buffer_organization_id"),
     service: text("service"),
     name: text("name"),
     displayName: text("display_name"),
@@ -35,6 +37,18 @@ export const socialChannels = pgTable(
     isDisconnected: boolean("is_disconnected").notNull().default(false),
     isQueuePaused: boolean("is_queue_paused").notNull().default(false),
     weeklyPostingLimit: integer("weekly_posting_limit"),
+    /**
+     * Buffer's `weeklyPostingLimit` is an object (`WeeklyPostingLimit`), not
+     * the `Int` its docs imply — `weekly_posting_limit` above keeps the
+     * flattened cap and this keeps the object it came from, so a rename of an
+     * inner field costs the number, not the data. See `packages/buffer-client/src/normalize.ts`.
+     */
+    weeklyPostingLimitDetail: jsonb("weekly_posting_limit_detail").$type<Record<string, unknown>>(),
+    /** The channel's queue slots (`{ days, times }` per Buffer's docs), stored as returned. */
+    postingSchedule: jsonb("posting_schedule").$type<unknown>(),
+    postingGoal: jsonb("posting_goal").$type<Record<string, unknown>>(),
+    /** What this key may do with the channel in Buffer, e.g. whether it can publish at all. */
+    allowedActions: jsonb("allowed_actions").$type<string[]>(),
     syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("social_channels_org_buffer_uq").on(t.organizationId, t.bufferId)],
@@ -57,6 +71,8 @@ export const socialPosts = pgTable(
     tags: jsonb("tags").$type<string[]>(),
     metrics: jsonb("metrics").$type<Record<string, unknown>[]>(),
     metricsUpdatedAt: timestamp("metrics_updated_at", { withTimezone: true }),
+    /** Buffer's own failure text for a post it couldn't publish — the reason a `failed` row is failed. */
+    errorMessage: text("error_message"),
     syncedAt: timestamp("synced_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

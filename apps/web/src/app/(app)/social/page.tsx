@@ -55,6 +55,8 @@ export default async function SocialPage() {
             service: c.service,
             displayName: c.displayName ?? c.name ?? c.bufferId,
             isDisconnected: c.isDisconnected,
+            isQueuePaused: c.isQueuePaused,
+            weeklyPostingLimit: c.weeklyPostingLimit,
           }))}
           posts={posts.map((p) => ({
             id: p.id,
@@ -64,6 +66,7 @@ export default async function SocialPage() {
             status: p.status,
             dueAt: p.dueAt?.toISOString() ?? null,
             sentAt: p.sentAt?.toISOString() ?? null,
+            errorMessage: p.errorMessage,
             syncedAt: p.syncedAt.toISOString(),
           }))}
           now={Date.now()}

@@ -73,7 +73,7 @@ dashboard and the query layer — and share one `better-auth` config from
 | `packages/mailer` | Transactional email (verification, reset, invites, alerts) — Resend or SMTP |
 | `packages/linki-client` | Typed client for Linki's `/api/v1/*` — sales outreach/CRM |
 | `packages/bund-ai-client` | Typed client for Bund AI's `/api/v1/*` — customer support |
-| `packages/buffer-client` | Typed client for Buffer's GraphQL API (`api.buffer.com`) — social post scheduling |
+| `packages/buffer-client` | Typed, schema-introspecting client for Buffer's GraphQL API (`api.buffer.com`) — social post scheduling |
 | `packages/agents` | AI-employee runtime — tool registry, autonomy policy, the shift loop |
 | `packages/ui` | Design system — 32 components, light/dark tokens |
 | `packages/sdk-node` | Server-side SDK — non-blocking, never throws, batches by identity |
@@ -280,12 +280,16 @@ for exactly what's built versus still planned.
   signal rules, suppressions, sent messages.
 - **Bund AI** — AI customer support. Mirrored: conversations, escalations,
   leads, tickets.
-- **Buffer** — social post scheduling. Mirrored: connected channels,
-  scheduled/sent posts and their metrics. Auth is a personal API key scoped
-  to one Buffer account, not OAuth — Buffer closed third-party app
-  registration in 2019 and its 2026 GraphQL API relaunch still has no
-  "connect someone else's account" flow, so each Falorb org connects its own
-  Buffer account rather than an arbitrary customer's.
+- **Buffer** — social post scheduling. Mirrored: connected channels (with
+  their posting schedule and weekly limits), scheduled/sent posts, their
+  metrics, and Buffer's own failure text for posts it couldn't publish. Auth
+  is a personal API key scoped to one Buffer account, not OAuth — Buffer
+  closed third-party app registration in 2019 and its 2026 GraphQL API
+  relaunch still has no "connect someone else's account" flow, so each Falorb
+  org connects its own Buffer account rather than an arbitrary customer's.
+  The client introspects Buffer's still-moving beta schema and builds its
+  queries from it, rather than hardcoding field selections from the docs —
+  see [FEATURES.md §13b](FEATURES.md#13b-buffer-specifics).
 - **Credentials** are stored per-organization, AES-256-GCM encrypted
   (`INTEGRATION_CREDENTIAL_ENC_KEY` in `.env`), never returned by any API
   response. Connect one at `/settings/integrations` after generating a scoped

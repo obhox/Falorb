@@ -1,4 +1,5 @@
 export * from "./base";
+export * from "./range";
 export * from "./filters";
 export * from "./trends";
 export * from "./funnels";

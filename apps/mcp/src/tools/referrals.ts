@@ -2,10 +2,9 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { and, asc, eq, inArray, isNotNull } from "drizzle-orm";
 import { schema } from "@falorb/db";
-import { referralClicks } from "@falorb/queries";
+import { RANGE_DESCRIPTION, parseRange, referralClicks } from "@falorb/queries";
 import type { McpContext } from "../context";
 import { requireScope, resolveProjects } from "../context";
-import { parseRange, RANGE_DESCRIPTION } from "../range";
 import { failure, num, pct, table, text } from "../format";
 
 const CODE_PATTERN = /^[a-z0-9](?:[a-z0-9-]{1,62}[a-z0-9])?$/;

@@ -3,10 +3,18 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { schema } from "@falorb/db";
 import { AiSignalError, generateSignal, type SignalKind } from "@falorb/ai";
-import { breakdown, contentInterests, entryPages, exitPages, topDropoffs, type DateRange } from "@falorb/queries";
+import {
+  RANGE_DESCRIPTION,
+  breakdown,
+  contentInterests,
+  entryPages,
+  exitPages,
+  parseRange,
+  topDropoffs,
+  type DateRange,
+} from "@falorb/queries";
 import type { McpContext } from "../context";
 import { requireScope, resolveProjects } from "../context";
-import { parseRange, RANGE_DESCRIPTION } from "../range";
 import { ago, failure, text } from "../format";
 import { hotLeads } from "./leads";
 

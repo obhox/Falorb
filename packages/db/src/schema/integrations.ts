@@ -16,11 +16,13 @@ import { organizations, projects } from "./tenancy";
  * Credentials Falorb holds to call another product's API on the
  * organization's behalf — Linki (sales/outreach), Bund AI (customer
  * support), Buffer (social posting), Clay (prospect contact enrichment, see
- * FEATURES.md §17), Exa/Firecrawl (web research, see FEATURES.md §14k), and
- * ElevenLabs (UGC video generation, see FEATURES.md §18) today, more over
- * time. One table, not one per provider, because the shape is identical: a
- * base URL, an encrypted key, and a status a sync job can check before
- * calling out.
+ * FEATURES.md §17), Exa/Firecrawl (web research, see FEATURES.md §14k),
+ * ElevenLabs (UGC video generation, see FEATURES.md §18), and the two AI
+ * gateways — OpenRouter and Ramp Router (router.com) — an organization can
+ * bring its own account and model on (see FEATURES.md §19 and
+ * `@falorb/ai`'s `credentials.ts`) today, more over time. One table, not one
+ * per provider, because the shape is identical: a base URL, an encrypted
+ * key, and a status a sync job can check before calling out.
  *
  * Buffer's, Clay's, Exa/Firecrawl's, and ElevenLabs' `baseUrl` are each a
  * fixed API root rather than user-entered (unlike Linki/Bund AI's
@@ -46,6 +48,8 @@ export const integrationProviderEnum = pgEnum("integration_provider", [
   "exa",
   "firecrawl",
   "elevenlabs",
+  "openrouter",
+  "router",
 ]);
 
 export const integrationStatusEnum = pgEnum("integration_status", [
@@ -71,6 +75,19 @@ export const integrationConnections = pgTable(
     projectId: integer("project_id").references(() => projects.id, { onDelete: "cascade" }),
     provider: integrationProviderEnum("provider").notNull(),
     baseUrl: text("base_url").notNull(),
+    /**
+     * Which model to ask for — only meaningful for the AI-gateway providers
+     * (`openrouter`, `router`), null for every other provider, which has no
+     * such choice to make.
+     *
+     * Nullable rather than defaulted because the two gateways differ on
+     * what null means: on OpenRouter it falls back to `openrouter/auto`,
+     * its own per-request selection, which is the platform's deliberate
+     * default (see `resolveModel`); on Ramp Router there is no auto model,
+     * so its connect form requires one. A comma-separated value is a
+     * fallback chain on OpenRouter; Ramp Router takes only the first.
+     */
+    model: text("model"),
     /** AES-256-GCM ciphertext, hex-encoded. Never returned by any API response. */
     encryptedApiKey: text("encrypted_api_key").notNull(),
     iv: text("iv").notNull(),

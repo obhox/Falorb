@@ -766,6 +766,144 @@ it's for, not an ownership scope.
 
 ---
 
+## 19. AI employees — agents that work alongside people
+
+The premise, and the reason this is not an "AI features" panel bolted onto
+the side: **an agent is a workspace member that happens to be software.** It
+has a name, a job title, a manager-written brief, a role drawn from the same
+four-value vocabulary a human member has, and it works the same task board.
+Every action it takes passes the same `can.*` check in
+`packages/db/src/roles.ts` that a person's click passes, and lands in the
+same `audit_log`. There is deliberately no second permission system for
+machines — a second interpretation of "may this actor do this" is exactly how
+one surface quietly permits what the other forbids.
+
+Work flows both ways. A human assigns a task to an agent by picking it from
+the same dropdown they would pick a colleague from. An agent hands work back
+by opening a task with a stated `handoffReason` — which is what happens
+whenever it hits something it cannot or should not do: a capability its role
+denies, a credential nobody has connected, a judgement call about a customer,
+or something that happens outside software entirely.
+
+**Skillsets, not agent types.** What makes one agent a growth analyst and
+another a support lead is only which *toolkits* it holds. There is no
+`agentType` enum the runtime switches on, because that would make "an SDR who
+also watches support tickets" inexpressible — and that combination is the
+normal shape of a job at a small company. `AGENT_PRESETS` ships six starting
+points (chief of staff, growth analyst, SDR, support lead, content
+strategist, revenue ops); after creation an agent is just an agent, and
+`preset` is provenance only.
+
+### The autonomy dial, and why it is graded on *effect*
+
+Every tool declares an effect — `read`, `internal` (changes Falorb's own
+data, reversible from the same screen), or `external` (reaches another
+product, a customer, or anything a person will see). Autonomy is graded
+against that, not against tool names or toolkits, because "does this reach
+outside the building" is the question a manager is actually answering.
+
+| Autonomy | Reads | Changes inside Falorb | Reaches outside |
+|---|---|---|---|
+| `observer` | yes | **refused** | **refused** |
+| `assisted` (default) | yes | needs approval | needs approval |
+| `autonomous` | yes | immediate | needs approval |
+
+"Autonomous" deliberately does not mean unbounded: it makes an agent fast at
+its own desk, and a named per-tool grant (`autoApproveTools`) is what lets it
+act on someone else's. `["*"]` waives every gate for an operator who wants
+that, but it is never a default, never implied, and settable only by an
+owner. Independently of all of this, the agent's `role` bounds it from above
+— a `viewer` agent set to `autonomous` with a blanket waiver still cannot
+write, because the role check runs first and nothing relaxes it.
+
+### Approvals do not block the shift
+
+When a gated tool is called, the approval row is written, the agent is told
+"this is queued, carry on, do not retry it and do not look for another route"
+(stated in its briefing, not left to inference), and it finishes the rest of
+its objective. A human decides later and the **worker** performs the action
+through the same `tool.execute` the agent would have called — never a second
+copy of the logic in the approver's request. Blocking instead would hold a
+whole shift hostage to one queued email, and a nightly agent would routinely
+resume a day after the numbers it reasoned about stopped being true.
+
+Two checks make the queue a safety feature rather than an escalation route:
+approving requires the reviewer to hold the capability the queued tool
+declares (`canDecideApproval`) — approving is exercising — and the agent's
+role is re-checked at execution time, so an approval sitting in the queue
+while somebody demoted the agent does not still fire.
+
+| | Feature | Notes |
+|---|---|---|
+| ✅ | `agents` schema | Name, job title, avatar, brief, `role` (reuses the existing `member_role` enum — welded to the human one on purpose), `autonomy`, `toolkits[]`, `autoApproveTools[]`, `projectIds[]` scope, shift interval + standing objective, and per-agent budget (`maxStepsPerRun`, `dailyRunLimit`, `dailyTokenLimit`). Vocabulary columns are plain `text()` per the `ugc.ts`/`prospecting.ts` convention; `role` is the one deliberate exception |
+| ✅ | `agent_runs` / `agent_steps` schema | One shift, and its full transcript. **The transcript lives in Postgres, not worker memory** — every model turn and tool result is written as it happens and the next turn's conversation is rebuilt from those rows. Costs a few writes per step; buys a run that survives a worker restart mid-shift, a shift a human can watch progress, and an answer to "what did it actually do" without separate logging |
+| ✅ | `tasks` / `task_comments` schema | One table for human work and agent work, because it is the same work. `assigneeType` is stored rather than derived so "assigned to a person, not yet a specific person" is expressible. `handoffReason` gets its own column rather than a line in the body — it is the single most useful thing on a handoff, and it is what tells a manager their agent is under-permissioned rather than incapable |
+| ✅ | `agent_approvals` schema | The gate. `requiredCapability` is denormalised from the tool so the reviewer's own role can be checked at decision time. `expiresAt` (72h) because a stale approval is dangerous in a way a stale task is not — "send this follow-up" agreed on Monday should not fire on Friday against numbers nobody re-read |
+| ✅ | `agent_memories` schema | What an agent still knows next week — conclusions and corrections, written by the agent itself through a tool. Without it an agent re-derives the same findings every shift and never accumulates judgement, which is the difference between a scheduled script and an employee. Scoped per agent, not per org: two agents holding contradictory beliefs is legible, whereas a shared pool would let one agent's mistake silently steer another's work |
+| ✅ | `auditLog.actorAgentId` | Agent actions land in the same log as human ones. A separate "agent activity" table would mean answering "who changed this deal" required reading two places and merging by timestamp — and the whole point is that both kinds of colleague are accountable the same way |
+| ✅ | `@falorb/agents` | The runtime: `policy.ts` (one `decide()` every gate funnels through — UI, worker, and approval-resume all call it, so they cannot drift apart), `run.ts` (the loop, resume, budget, approval raising, `executeApproval`), `prompt.ts` (briefing assembly), `presets.ts`, and the tool registry. Server-only, same boundary `@falorb/ai`/`@falorb/mailer` draw |
+| ✅ | Seven toolkits, 22 tools | `analytics` (through `@falorb/queries`, the same layer the dashboard and MCP server read — an agent computing its own aggregates would eventually report a figure a human cannot reproduce), `people`, `crm` (reads the mirror, writes to Linki), `support` (reads the mirror, resolves in Bund AI), `tasks`, `memory`, `content`. Suppression-list and duplicate-contact checks are enforced *in the tool*, not left to the prompt — putting do-not-contact in a prompt makes it a suggestion |
+| ✅ | `chat()` in `@falorb/ai` | Tool-calling turn beside the existing `complete()`, separate rather than a flag on it: different shape of interaction, and folding them together would push a `tool_calls` branch into four call sites that will never take it. Agents run on `openrouter/auto` like everything else — no pinned model to go stale, no per-deployment model list to maintain. What makes that safe is `provider.require_parameters`, sent whenever tools are present, so auto only considers models that support function calling; without it an agent silently degrades into one that writes prose *about* the action it would have taken |
+| ✅ | `agents-enqueue` / `agents-run` / `agents-approvals` worker jobs | Enqueue is a cheap indexed lookup on a 1m beat so assigning a task feels immediate; execution costs real model calls, so it runs on its own 2m beat with a small per-sweep cap and `skipOnBoot` (a restart loop must not fire a paid shift on every boot). `nextRunAt` advances at enqueue, not completion, so a wedged run cannot push a daily agent into being a weekly one. Stalled runs are reclaimed by heartbeat and *resume* from `agent_steps` rather than re-running a billed shift |
+| ✅ | `/agents`, `/agents/[id]`, `/agents/approvals` | Roster, then brief / permissions / shifts / memory per agent, then the decision queue. Ordered as a manager reviews someone — what they did first, the settings that shaped it second |
+| ✅ | `/tasks`, `/tasks/[id]` | The shared board, with one assignee dropdown containing people and agents together. That is the smallest UI decision here and the most load-bearing: choosing who does a piece of work should not begin with choosing what *kind of thing* does it |
+| ✅ | Escalation routes closed | `canGrantAgentRole` caps an agent's role at the granter's own (otherwise an admin creates an `owner` agent and drives it); `canDecideApproval` requires the reviewer to hold the tool's capability; blanket auto-approval is owner-only. 12 unit tests in `policy.test.ts` cover each |
+| ✅ | Resume tested without a database | `rebuildMessages` is pure and exported precisely so the post-crash path can be asserted (`run.test.ts`) — see §19a |
+| ⬜ | Agent-to-agent delegation | The schema supports it (`trigger: "delegation"`, `parentTaskId`), and an agent can already create a task — but nothing lets it *assign* one to another agent. Deliberate: a delegation loop between two autonomous agents is the failure mode with no natural bound, and it needs its own depth limit before the tool exists |
+| ⬜ | Event-triggered shifts | `trigger: "alert"` is in the vocabulary and nothing emits it yet. A fired alert waking the relevant agent is the obvious next step — the alerts worker already knows when something broke |
+| ✅ | Task editing and deletion | `updateTaskAction` / `deleteTaskAction`, plus an edit card on the task page. Status and assignee are deliberately excluded from that form — both are one-click controls elsewhere on the same page, and duplicating them into a Save-button form would give one thing two ways to change that disagree about whether the change has landed |
+| ✅ | Verified against a live model | `pnpm --filter @falorb/agents verify` drives a real shift end to end. Confirmed working: the loop (43 steps, 8 turns, $0.005), tool dispatch through the real query layer, transcript persistence, the budget backstop, **the approval gate holding** under `assisted` (a `create_task` was queued, not performed), the approve → worker-execute round trip actually creating the task, and agent attribution in `audit_log`. See §19a for what that run exposed and what is still unproven |
+
+### 19a. What the live run exposed, and what is still unproven
+
+The first real shift worked and found three genuine defects, all since fixed:
+
+1. **Markdown in the report.** The briefing asks for plain prose; the model
+   opened with `## Report` and used `**bold**` regardless. The summary is
+   rendered without a markdown parser, so that showed as literal hashes on
+   screen. Now passed through `@falorb/ai`'s `stripMarkdown` — whose own
+   docblock already says an instruction alone is not reliable here. It was
+   right.
+2. **A tool call written out as text.** When the turn budget runs out the
+   loop asks for a closing report with the tools withheld — but did not
+   *say* they were withheld, so the model emitted its intended
+   `create_task` call as literal markup inside the report. The closing
+   instruction now names the constraint and gives the intent somewhere else
+   to go ("say so and leave it as a recommendation").
+3. **"Steps" meaning two different things.** The budget counts model turns;
+   `stepCount` counts transcript rows, which is several times larger. Both
+   were labelled "steps" in the same UI, so a limit of 8 sat next to a run
+   reporting 61. The budget control now says "turns".
+
+A fourth was found by review rather than by running, and is the one that
+would have hurt most: **resumed runs could not have worked.** `rebuildMessages`
+synthesised tool-call ids on the assistant side while reusing the original
+ids on the result side, so no `tool` message would have matched a preceding
+assistant `tool_calls[].id` and the first request of every resumed run would
+have been rejected outright — the failure landing precisely on the
+post-crash path the persisted transcript exists to protect. Real ids are now
+persisted, and the rebuild is a pure exported function with six tests
+(`run.test.ts`) asserting the pairing invariant directly, since a path that
+only runs after a worker dies is one normal use never exercises.
+
+Still unproven, honestly:
+
+- **The closing-report fix (2) has not been re-run** — the OpenRouter account
+  ran out of credit partway through verification. The credit-exhaustion path
+  itself is confirmed to behave correctly (run marked failed with the
+  provider's message, transcript intact, already-queued approval preserved),
+  but the corrected prompt has not been seen working.
+- **No agent has been driven by the worker's own sweeps.** `executeRun` and
+  `executeApproval` were called directly by the verify script. The scheduling,
+  claiming and heartbeat-reclaim logic in `apps/worker/src/jobs/agents.ts`
+  typechecks and follows the same locking pattern as the other jobs, but has
+  not run in a live worker process.
+- **The `crm` and `support` write tools have never fired.** Neither Linki nor
+  Bund AI is connected in this workspace (Gate A/D, §13), so those tools have
+  only ever returned their "not connected — hand this to a human" refusal.
+
+---
+
 ## Backend surface not yet in the dashboard
 
 Audited by enumerating every schema table and every query-layer export, then

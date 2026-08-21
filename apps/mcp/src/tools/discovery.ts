@@ -1,9 +1,8 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { FILTERABLE_FIELDS } from "@falorb/queries";
+import { FILTERABLE_FIELDS, RANGE_DESCRIPTION, parseRange } from "@falorb/queries";
 import type { McpContext } from "../context";
 import { resolveProjects } from "../context";
-import { parseRange, RANGE_DESCRIPTION } from "../range";
 import { failure, num, table, text } from "../format";
 
 /**

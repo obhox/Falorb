@@ -1,10 +1,12 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import {
+  RANGE_DESCRIPTION,
   breakdown,
   entryPages,
   exitPages,
   frustration,
+  parseRange,
   pathTransitions,
   portfolioOverview,
   retention,
@@ -15,7 +17,6 @@ import {
 } from "@falorb/queries";
 import type { McpContext } from "../context";
 import { projectName, resolveProjects } from "../context";
-import { parseRange, RANGE_DESCRIPTION } from "../range";
 import { delta, duration, failure, money, num, pct, table, text } from "../format";
 
 /** Shared filter argument. Kept loose here; the query layer validates strictly. */

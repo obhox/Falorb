@@ -7,12 +7,17 @@ import { shortDate } from "@/lib/format";
 import {
   connectProjectIntegration,
   revokeProjectIntegrationConnection,
+  setProjectIntegrationModel,
   testProjectIntegrationConnection,
   type Provider,
 } from "@/server/actions/integrations";
 import type { ProjectConnectionView } from "@/server/integrations";
+import { AI_PROVIDER_DEFAULT_MODELS, isAiProvider } from "@falorb/ai";
+import { AiModelPicker } from "@/app/(app)/settings/integrations/AiModelPicker";
 
 const LABELS: Record<Provider, string> = {
+  openrouter: "OpenRouter",
+  router: "Ramp Router",
   linki: "Linki",
   bund_ai: "Bund AI",
   buffer: "Buffer",
@@ -23,6 +28,8 @@ const LABELS: Record<Provider, string> = {
 };
 
 const HAS_BASE_URL: Record<Provider, boolean> = {
+  openrouter: false,
+  router: false,
   linki: true,
   bund_ai: true,
   buffer: false,
@@ -33,6 +40,8 @@ const HAS_BASE_URL: Record<Provider, boolean> = {
 };
 
 const KEY_PLACEHOLDERS: Record<Provider, string> = {
+  openrouter: "sk-or-v1-…",
+  router: "Your Ramp Router API key",
   linki: "lnk_…",
   bund_ai: "bund_sk_…",
   buffer: "buf_…",
@@ -42,7 +51,17 @@ const KEY_PLACEHOLDERS: Record<Provider, string> = {
   elevenlabs: "Your ElevenLabs API key",
 };
 
-const PROVIDERS: Provider[] = ["linki", "bund_ai", "buffer", "clay", "exa", "firecrawl", "elevenlabs"];
+const PROVIDERS: Provider[] = [
+  "openrouter",
+  "router",
+  "linki",
+  "bund_ai",
+  "buffer",
+  "clay",
+  "exa",
+  "firecrawl",
+  "elevenlabs",
+];
 
 /**
  * A property's own overrides for each integration — separate from
@@ -103,21 +122,26 @@ function ProviderRow({
   const [open, setOpen] = useState(false);
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [model, setModel] = useState("");
 
   const { override, inherited } = view;
   const connected = override?.status === "active";
   const errored = override?.status === "error";
   const needsBaseUrl = HAS_BASE_URL[provider];
+  const isAi = isAiProvider(provider);
+  const defaultModel = isAi ? AI_PROVIDER_DEFAULT_MODELS[provider] : null;
 
   async function submit() {
     const data = new FormData();
     if (needsBaseUrl) data.set("baseUrl", baseUrl);
     data.set("apiKey", apiKey);
+    if (isAi) data.set("model", model);
     const result = await run(() => connectProjectIntegration(slug, provider, data));
     if (result?.ok) {
       setOpen(false);
       setBaseUrl("");
       setApiKey("");
+      setModel("");
     }
   }
 
@@ -154,6 +178,7 @@ function ProviderRow({
               {errored && override.lastError && (
                 <div style={{ color: "var(--signal-down)" }}>error: {override.lastError}</div>
               )}
+              {isAi && <div>model: {override.model ?? defaultModel ?? "none chosen"}</div>}
             </div>
           ) : (
             <p style={{ fontSize: "var(--size-micro)", color: "var(--text-muted)", margin: 0 }}>
@@ -169,6 +194,16 @@ function ProviderRow({
           <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
             {override && override.status !== "revoked" ? (
               <>
+                {isAi && (
+                  <AiModelPicker
+                    provider={provider}
+                    label={LABELS[provider]}
+                    current={override.model}
+                    defaultModel={defaultModel}
+                    slug={slug}
+                    onSave={(next) => setProjectIntegrationModel(slug, provider, next)}
+                  />
+                )}
                 <Button
                   size="sm"
                   disabled={pending}
@@ -231,6 +266,20 @@ function ProviderRow({
             placeholder={KEY_PLACEHOLDERS[provider]}
             hint="Stored encrypted (AES-256-GCM). Never shown again after this."
           />
+          {isAi && (
+            <Input
+              label="Model (optional)"
+              mono
+              value={model}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setModel(e.target.value)}
+              placeholder={defaultModel ?? "chosen after connecting"}
+              hint={
+                defaultModel
+                  ? `Leave blank for ${defaultModel}. You can pick from the live model list after connecting.`
+                  : "Leave blank and pick from the live model list after connecting — this provider has no automatic model."
+              }
+            />
+          )}
         </div>
       </Dialog>
     </>

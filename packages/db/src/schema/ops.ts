@@ -9,6 +9,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { user } from "./auth";
+import { agents } from "./agents";
 import { organizations, projects } from "./tenancy";
 
 export const alertChannels = pgTable(
@@ -118,11 +119,25 @@ export const auditLog = pgTable(
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
     actorId: text("actor_id").references(() => user.id, { onDelete: "set null" }),
+    /**
+     * Set when the actor was an AI employee rather than a person.
+     *
+     * Mutually exclusive with `actorId` in practice, and both null still
+     * means "the platform did it" (a worker sweep). A separate column rather
+     * than a polymorphic actor_type/actor_id pair because the two referents
+     * live in different tables with different key types, and because "show
+     * me everything this agent has ever done" should be an indexed lookup
+     * rather than a filtered scan over strings.
+     */
+    actorAgentId: uuid("actor_agent_id").references(() => agents.id, { onDelete: "set null" }),
     action: text("action").notNull(),
     targetType: text("target_type"),
     targetId: text("target_id"),
     metadata: jsonb("metadata").notNull().default({}),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("audit_log_org_created_idx").on(t.organizationId, t.createdAt)],
+  (t) => [
+    index("audit_log_org_created_idx").on(t.organizationId, t.createdAt),
+    index("audit_log_agent_idx").on(t.actorAgentId, t.createdAt),
+  ],
 );

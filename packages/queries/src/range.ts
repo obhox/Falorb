@@ -1,4 +1,4 @@
-import type { DateRange } from "@falorb/queries";
+import type { DateRange } from "./base";
 
 /**
  * Flexible date-range parsing for tool arguments.
@@ -7,6 +7,12 @@ import type { DateRange } from "@falorb/queries";
  * not two ISO timestamps. Accepting shorthand means the model gets the range
  * right on the first call instead of guessing at a timestamp format, being
  * rejected, and retrying — which costs a round-trip and often a wrong answer.
+ *
+ * Lives here rather than in `apps/mcp`, where it was written, because two
+ * separate model-facing surfaces now parse ranges — the MCP server and the
+ * agent runtime's analytics tools. Two parsers would eventually disagree
+ * about what "7d" means, and an agent and an assistant reporting different
+ * numbers for the same phrase is a bug nobody would think to look for here.
  */
 
 export class RangeError extends Error {}

@@ -2,10 +2,15 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { and, asc, eq } from "drizzle-orm";
 import { schema } from "@falorb/db";
-import { attribution, goalConversions, type GoalDefinition } from "@falorb/queries";
+import {
+  RANGE_DESCRIPTION,
+  attribution,
+  goalConversions,
+  parseRange,
+  type GoalDefinition,
+} from "@falorb/queries";
 import type { McpContext } from "../context";
 import { requireScope, resolveProjects } from "../context";
-import { parseRange, RANGE_DESCRIPTION } from "../range";
 import { failure, money, num, pct, table, text } from "../format";
 
 /**

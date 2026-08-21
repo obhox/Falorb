@@ -415,10 +415,42 @@ integration's auth model:
   introspects the schema once per client and builds every selection set,
   argument list, enum value and mutation payload shape from what Buffer
   actually exposes: a scalar is selected bare, an object gets its own
-  subfields expanded, a union payload (`Post | InvalidInputError`) gets
-  `__typename` plus inline fragments, and a field Buffer doesn't have is
+  subfields expanded, a union payload gets `__typename` plus one inline
+  fragment per member (unwrapping a member that wraps the post rather than
+  being one), and a field Buffer doesn't have is
   dropped instead of failing the query. This also means `channels(organizationId:)`
   and `channels(input:)` both work without this package picking a side.
+- **What the live schema actually is**, checked against a real personal key
+  (August 2026) rather than inferred — the docs were wrong on all three
+  counts, and each one had already produced a broken call:
+  - Every root field takes a single `input` object and the scoping value sits
+    *inside* it: `channels(input: { organizationId })`,
+    `posts(input: { organizationId, filter: { channelIds } })`. A required
+    field of a required input object is as fatal as a missing argument, but
+    unlike a missing argument it is still *valid* GraphQL — `channels(input:
+    {})` was accepted and then failed by Buffer — so `planArgs` folds the
+    client's flat values into the object (and into its nested filter objects)
+    by field name and refuses to send one it cannot complete. It is also why
+    `listChannels()`/`listPosts()` look *through* the input type when deciding
+    whether a call must be scoped per Buffer organization.
+  - `posts` filters by `input.filter.channelIds` — a list, one level deeper
+    than the flat `channelId` the docs suggest, which Buffer ignores silently:
+    every channel's sync came back holding the whole organization's posts.
+  - `createPost` requires `assets`, `mode`, `needsApproval` and
+    `schedulingType`. `mode` is `ShareMode`
+    (`addToQueue | customScheduled | shareNext | shareNow`) with **no draft
+    member** — a draft is `saveToDraft: true` on a queued post — and
+    `schedulingType` is `automatic | notification`, i.e. publish-for-me versus
+    remind-me, *not* queue-versus-draft as the client first assumed. Mutations
+    answer with a union whose success member **wraps** the post
+    (`PostActionSuccess { post }`), with flat `{ message }` failure members
+    (`NotFoundError`, `InvalidInputError`, `LimitReachedError`, …).
+
+  `packages/buffer-client/src/schema.fixture.ts` is trimmed from that real
+  introspection, so CI — which has no key — checks the queries against the
+  shapes Buffer actually serves; `FLAT_INTROSPECTION` alongside it keeps the
+  older flat-argument shape covered, since the point of introspecting is that
+  either can turn up.
 - **Three layers of tolerance**, in order: introspection-driven queries; a
   rebuild-and-retry that drops exactly the fields a validation error blamed;
   and, if introspection itself is unavailable, a conservative documented query

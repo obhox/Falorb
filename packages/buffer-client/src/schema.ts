@@ -24,7 +24,13 @@
  *   - a field Buffer doesn't expose at all is dropped instead of failing the
  *     whole query;
  *   - arguments are emitted from the live signature, so `channels(organizationId:)`
- *     and `channels(input:)` both work without this package picking a side.
+ *     and `channels(input: ChannelsInput!)` both work without this package
+ *     picking a side — for the input-object spelling the flat values a call
+ *     site passes are folded into the object, and into its nested filter
+ *     objects, by field name;
+ *   - an input object whose required fields can't all be filled is reported
+ *     rather than sent: `channels(input: {})` is *valid* GraphQL, so Buffer
+ *     accepts the query and then fails it on the missing organization id.
  *
  * Everything here is pure — it takes an introspection result and returns
  * strings — so the query planning is unit-testable without a Buffer account,
@@ -292,15 +298,127 @@ export interface ArgPlan {
   missingRequired: string[];
 }
 
+/** The element type of a list ref, ignoring non-null wrappers: `[ChannelId!]!` → `ChannelId!`. */
+function listItemRef(ref: TypeRef | null | undefined): TypeRef | null {
+  let current = ref ?? null;
+  while (current) {
+    if (current.kind === "LIST") return current.ofType ?? null;
+    if (current.name) return null;
+    current = current.ofType ?? null;
+  }
+  return null;
+}
+
+interface BuiltInput {
+  value: Record<string, unknown>;
+  /** Fields the input type declares as required that nothing could fill. */
+  missingRequired: string[];
+}
+
+/**
+ * Builds a value for one input field: recurses into input objects, wraps or
+ * unwraps lists to match the declared type, and maps a string onto the enum
+ * member Buffer actually defines. `undefined` means "nothing to send" — the
+ * caller decides whether that's fine (optional) or fatal (required).
+ */
+function coerceInputValue(
+  schema: BufferSchema,
+  ref: TypeRef | null | undefined,
+  value: unknown,
+  available: Record<string, unknown>,
+  seen: Set<string>,
+): unknown {
+  const type = schema.typeOfRef(ref);
+
+  if (isListRef(ref)) {
+    if (value === undefined || value === null) return undefined;
+    const items = Array.isArray(value) ? value : [value];
+    const itemRef = listItemRef(ref);
+    const mapped = items
+      .map((item) => coerceInputValue(schema, itemRef, item, available, seen))
+      .filter((item) => item !== undefined);
+    // An explicitly empty list is a value; a list whose every member was
+    // dropped is not one we can honestly send.
+    if (items.length && !mapped.length) return undefined;
+    return mapped;
+  }
+
+  if (type?.kind === "INPUT_OBJECT") {
+    // Note the missing `undefined` guard: an absent nested object is still
+    // worth trying to assemble from the flat values the caller passed, which
+    // is how `channelId` reaches `posts(input: { filter: { channelIds } })`.
+    const built = buildInputObject(schema, type.name, value, available, seen);
+    if (built.missingRequired.length) return undefined;
+    return Object.keys(built.value).length ? built.value : undefined;
+  }
+
+  if (value === undefined || value === null) return undefined;
+
+  if (type?.kind === "ENUM") {
+    if (typeof value !== "string") return undefined;
+    return pickEnumValue(schema.enumValues(type.name), [value]) ?? undefined;
+  }
+
+  return value;
+}
+
+/**
+ * Assembles an input object from what the caller gave for that object plus the
+ * flat values it passed alongside, keeping only fields the live input type
+ * declares. Unknown input types are passed through untouched — better to let
+ * Buffer judge them than to drop everything.
+ */
+function buildInputObject(
+  schema: BufferSchema,
+  typeName: string | null | undefined,
+  provided: unknown,
+  available: Record<string, unknown>,
+  seen: Set<string>,
+): BuiltInput {
+  const given =
+    provided && typeof provided === "object" && !Array.isArray(provided)
+      ? (provided as Record<string, unknown>)
+      : null;
+
+  const declared = typeName ? schema.type(typeName)?.inputFields : null;
+  if (!declared) return { value: given ?? {}, missingRequired: [] };
+  if (typeName && seen.has(typeName)) return { value: {}, missingRequired: [] };
+  const nested = new Set(seen);
+  if (typeName) nested.add(typeName);
+
+  const value: Record<string, unknown> = {};
+  const missingRequired: string[] = [];
+
+  for (const field of declared) {
+    const supplied = given?.[field.name] ?? available[field.name];
+    const coerced = coerceInputValue(schema, field.type, supplied, available, nested);
+    if (coerced !== undefined) {
+      value[field.name] = coerced;
+      continue;
+    }
+    if (isRequired(field.type)) missingRequired.push(field.name);
+  }
+
+  return { value, missingRequired };
+}
+
 /**
  * Emits variables for exactly the arguments the live field declares, taking
  * values from `available` and ignoring keys Buffer doesn't know. This is what
  * lets one call site serve both `channels(organizationId:)` and
- * `channels(input:)`.
+ * `channels(input: ChannelsInput!)`: for the input-object spelling the flat
+ * values are folded into the object — and into its nested filter objects — by
+ * field name, so no call site has to know which shape today's schema uses.
+ *
+ * Pass `schema` whenever it is known. Without it an input object is sent
+ * exactly as given, which cannot check the object's own required fields —
+ * the gap that made `channels(input: {})` leave for Buffer with the
+ * organization id it requires missing.
  */
 export function planArgs(
   field: IntrospectedField | null | undefined,
   available: Record<string, unknown>,
+  schema?: BufferSchema | null,
 ): ArgPlan {
   const definitions: string[] = [];
   const args: string[] = [];
@@ -308,7 +426,20 @@ export function planArgs(
   const missingRequired: string[] = [];
 
   for (const arg of field?.args ?? []) {
-    const value = available[arg.name];
+    let value = available[arg.name];
+
+    if (schema) {
+      const built = coerceInputValue(schema, arg.type, value, available, new Set());
+      if (built === undefined && schema.typeOfRef(arg.type)?.kind === "INPUT_OBJECT") {
+        // Name the required fields, not just the argument: "input" alone
+        // says nothing about what Buffer was actually missing.
+        const detail = buildInputObject(schema, schema.typeOfRef(arg.type)?.name, value, available, new Set());
+        for (const name of detail.missingRequired) missingRequired.push(`${arg.name}.${name}`);
+        if (detail.missingRequired.length) continue;
+      }
+      value = built;
+    }
+
     if (value === undefined || value === null) {
       if (isRequired(arg.type)) missingRequired.push(arg.name);
       continue;
@@ -324,6 +455,47 @@ export function planArgs(
     variables,
     missingRequired,
   };
+}
+
+/**
+ * Whether this field cannot be called without a value whose name matches
+ * `pattern` — as a required argument of its own, or as a required field of a
+ * required input object. `channels(organizationId: OrganizationId!)` and
+ * `channels(input: ChannelsInput!)` both answer true for /organization/i,
+ * which is what tells `listChannels()` to walk the account's organizations
+ * rather than ask for every channel at once.
+ */
+export function requiresArgumentMatching(
+  schema: BufferSchema | null | undefined,
+  field: IntrospectedField | null | undefined,
+  pattern: RegExp,
+): boolean {
+  for (const arg of field?.args ?? []) {
+    if (!isRequired(arg.type)) continue;
+    if (pattern.test(arg.name)) return true;
+    const type = schema?.typeOfRef(arg.type);
+    if (schema && type?.kind === "INPUT_OBJECT" && requiredInputFieldMatches(schema, type, pattern, new Set())) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function requiredInputFieldMatches(
+  schema: BufferSchema,
+  type: IntrospectedType,
+  pattern: RegExp,
+  seen: Set<string>,
+): boolean {
+  if (!type.name || seen.has(type.name)) return false;
+  const nested = new Set(seen).add(type.name);
+  for (const field of type.inputFields ?? []) {
+    if (!isRequired(field.type)) continue;
+    if (pattern.test(field.name)) return true;
+    const inner = schema.typeOfRef(field.type);
+    if (inner?.kind === "INPUT_OBJECT" && requiredInputFieldMatches(schema, inner, pattern, nested)) return true;
+  }
+  return false;
 }
 
 const normalizeName = (value: string): string => value.toLowerCase().replace(/[^a-z0-9]/g, "");

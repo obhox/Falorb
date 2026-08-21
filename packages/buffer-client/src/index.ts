@@ -23,6 +23,23 @@
  * selections, argument names, enum members and mutation payload shapes all
  * come from what Buffer actually exposes today.
  *
+ * What the live schema turned out to be, checked against a real key:
+ *
+ *   - every root field takes one `input` object, and what the query is scoped
+ *     or filtered by lives *inside* it — `channels(input: { organizationId })`,
+ *     `posts(input: { organizationId, filter: { channelIds } })`. A required
+ *     field of a required input object is as fatal as a missing argument, so
+ *     `planArgs` folds this client's flat values into the object the schema
+ *     declares and refuses to send one it can't complete;
+ *   - `createPost` requires `assets`, `mode`, `needsApproval` and
+ *     `schedulingType`, where `mode` is `ShareMode` (`addToQueue` …, with no
+ *     draft member — a draft is `saveToDraft` on a queued post) and
+ *     `schedulingType` is `automatic | notification`, i.e. publish-for-me
+ *     versus remind-me, not queue-versus-draft;
+ *   - mutations answer with a union whose success member wraps the post
+ *     (`PostActionSuccess { post }`) and whose failures are flat
+ *     `{ message }` types.
+ *
  * Three layers of tolerance, in order:
  *   1. introspection-driven queries (the normal path);
  *   2. if a query still fails validation, the blamed fields are dropped and it
@@ -47,6 +64,7 @@ import {
   namedTypeRef,
   planArgs,
   pruneWishes,
+  requiresArgumentMatching,
   resultShape,
   type FieldWish,
   type IntrospectedField,
@@ -72,6 +90,7 @@ export {
   buildSelection,
   planArgs,
   pickEnumValue,
+  requiresArgumentMatching,
   resultShape,
   isValidationError,
   fieldsFromValidationErrors,
@@ -125,7 +144,13 @@ export interface CreatePostInput {
   /** Defaults to `schedule` when `dueAt` is given, `queue` otherwise. */
   mode?: CreatePostMode | "addToQueue" | "addToDraft" | "shareNow";
   dueAt?: string;
+  /** Buffer tag ids, not tag names. */
   tags?: string[];
+  /**
+   * Overrides "let Buffer publish it": `notification` is what channels that
+   * can't be posted to by API (an Instagram personal profile, say) require.
+   */
+  schedulingType?: "automatic" | "notification";
 }
 
 interface GraphQLResponse<T> {
@@ -211,20 +236,28 @@ const FALLBACK_CHANNEL_SELECTION = "id name displayName avatar service isDisconn
 const FALLBACK_POST_SELECTION = "id text status schedulingType dueAt sentAt";
 const FALLBACK_ACCOUNT_SELECTION = "id email name organizations { id name }";
 
-/** Spellings we'd accept for each intent, best-documented first. */
-const SCHEDULING_TYPE_CANDIDATES: Record<CreatePostMode, string[]> = {
-  queue: ["scheduled", "queue", "addToQueue"],
-  draft: ["draft", "drafts", "addToDraft"],
-  now: ["now", "immediate", "shareNow", "publish"],
-  schedule: ["scheduled", "custom", "specific", "schedule"],
+/**
+ * Spellings we'd accept for each intent, the live schema's own first.
+ *
+ * `mode` is Buffer's `ShareMode` — where the post goes — and has no draft
+ * member: a draft is `saveToDraft: true` on top of a share mode, which is why
+ * `draft` below asks for the queue.
+ */
+const MODE_CANDIDATES: Record<CreatePostMode, string[]> = {
+  queue: ["addToQueue", "queue"],
+  draft: ["addToQueue", "queue", "draft"],
+  now: ["shareNow", "now", "publish"],
+  schedule: ["customScheduled", "custom", "scheduled", "schedule"],
 };
 
-const MODE_CANDIDATES: Record<CreatePostMode, string[]> = {
-  queue: ["queue", "addToQueue"],
-  draft: ["draft", "addToDraft"],
-  now: ["share", "now", "shareNow", "publish"],
-  schedule: ["schedule", "custom", "share", "scheduled"],
-};
+/**
+ * `schedulingType` is *not* queue-vs-draft — the live enum is
+ * `automatic | notification`, i.e. whether Buffer publishes the post itself or
+ * pings a phone to publish it by hand. Falorb schedules posts it expects
+ * Buffer to publish, so it asks for automatic and lets the caller override for
+ * a channel that only supports reminders.
+ */
+const SCHEDULING_TYPE_CANDIDATES = ["automatic", "auto", "direct", "scheduled"];
 
 function normalizeMode(mode: CreatePostInput["mode"], dueAt: string | undefined): CreatePostMode {
   switch (mode) {
@@ -407,7 +440,7 @@ export class BufferClient {
     body: string,
   ): Attempt | null {
     if (!field || !body) return null;
-    const plan = planArgs(field, args);
+    const plan = planArgs(field, args, schema);
     if (plan.missingRequired.length) return null;
     return {
       query: `${operation} ${name}${plan.variableDefinitions} { ${rootField}${plan.argumentList} { ${body} } }`,
@@ -467,9 +500,10 @@ export class BufferClient {
 
     if (organizationId) return this.channelsFor(schema, field, organizationId);
 
-    const needsOrg = Boolean(
-      field?.args?.some((arg) => arg.type.kind === "NON_NULL" && /organization/i.test(arg.name)),
-    );
+    // Live schemas take `channels(input: ChannelsInput!)` with the
+    // organization required *inside* that object, so this has to look through
+    // the input type rather than at argument names alone.
+    const needsOrg = requiresArgumentMatching(schema, field, /organization/i);
     if (!needsOrg) {
       try {
         const channels = await this.channelsFor(schema, field, null);
@@ -589,8 +623,7 @@ export class BufferClient {
     const first = params.pageSize ?? DEFAULT_PAGE_SIZE;
 
     const organizationId =
-      params.organizationId ??
-      (field?.args?.some((arg) => arg.type.kind === "NON_NULL" && /organization/i.test(arg.name))
+      params.organizationId ?? (requiresArgumentMatching(schema, field, /organization/i)
         ? (await this.listOrganizations())[0]?.id
         : undefined);
 
@@ -714,12 +747,19 @@ export class BufferClient {
       channelId: input.channelId,
       text: input.text,
       dueAt: mode === "schedule" ? input.dueAt : undefined,
-      tags: input.tags?.length ? input.tags : undefined,
+      tagIds: input.tags?.length ? input.tags : undefined,
+      // Required by the live `CreatePostInput` and never caller-supplied: a
+      // text post carries no assets, and Falorb doesn't route through Buffer's
+      // approval queue. Both are dropped on a schema that doesn't declare them.
+      assets: [],
+      needsApproval: false,
+      // Not a share mode of its own — a draft is a queued post held back.
+      saveToDraft: mode === "draft" ? true : undefined,
       schedulingType: inputValueForCandidates(
         schema,
         inputTypeName,
         "schedulingType",
-        SCHEDULING_TYPE_CANDIDATES[mode],
+        input.schedulingType ? [input.schedulingType] : SCHEDULING_TYPE_CANDIDATES,
       ),
       mode: inputValueForCandidates(schema, inputTypeName, "mode", MODE_CANDIDATES[mode]),
     };
@@ -754,15 +794,15 @@ export class BufferClient {
       build,
       () =>
         documented(
-          `__typename ... on Post { ${FALLBACK_POST_SELECTION} } ... on InvalidInputError { message }`,
+          `__typename ... on PostActionSuccess { post { ${FALLBACK_POST_SELECTION} } } ... on InvalidInputError { message }`,
           payload,
         ),
       () =>
-        documented(`post { ${FALLBACK_POST_SELECTION} }`, {
-          channelId: input.channelId,
-          text: input.text,
-          ...(mode === "schedule" && input.dueAt ? { dueAt: input.dueAt } : {}),
-        }),
+        documented(
+          `__typename ... on Post { ${FALLBACK_POST_SELECTION} } ... on InvalidInputError { message }`,
+          payload,
+        ),
+      () => documented(`post { ${FALLBACK_POST_SELECTION} }`, payload),
     ]);
 
     const post = this.postFromPayload(data?.createPost, input.channelId);
@@ -807,27 +847,33 @@ export class BufferClient {
   private payloadSelection(schema: BufferSchema, field: IntrospectedField, wishes: FieldWish[]): string {
     const type = schema.typeOfRef(field.type);
     if (!type?.name) return "";
-    const combined = [...wishes, ...PAYLOAD_ERROR_WISHES];
 
     if (type.kind === "UNION") {
       const parts = ["__typename"];
       for (const possible of type.possibleTypes ?? []) {
         const member = schema.type(possible?.name);
         if (!member?.name) continue;
-        const selection = buildSelection(schema, member.name, combined);
+        // Members wrap as often as they don't — the live success member is
+        // `PostActionSuccess { post }` while the error members are flat — so
+        // each one is resolved on its own rather than assumed flat.
+        const selection = this.memberSelection(schema, member.name, wishes);
         if (selection) parts.push(`... on ${member.name} { ${selection} }`);
       }
       return parts.length > 1 ? parts.join(" ") : "";
     }
 
-    const wrapper = schema.field(type.name, "post") ?? schema.field(type.name, "node");
+    return this.memberSelection(schema, type.name, wishes);
+  }
+
+  /** One payload type's selection: the wrapped node if it wraps one, plus whatever error fields it carries. */
+  private memberSelection(schema: BufferSchema, typeName: string, wishes: FieldWish[]): string {
+    const wrapper = schema.field(typeName, "post") ?? schema.field(typeName, "node");
     if (wrapper) {
       const wrapped = buildSelection(schema, schema.typeOfRef(wrapper.type)?.name, wishes);
-      const siblings = buildSelection(schema, type.name, PAYLOAD_ERROR_WISHES);
+      const siblings = buildSelection(schema, typeName, PAYLOAD_ERROR_WISHES);
       if (wrapped) return `${wrapper.name} { ${wrapped} }${siblings ? ` ${siblings}` : ""}`;
     }
-
-    return buildSelection(schema, type.name, combined);
+    return buildSelection(schema, typeName, [...wishes, ...PAYLOAD_ERROR_WISHES]);
   }
 
   private throwIfErrorPayload(payload: unknown): void {

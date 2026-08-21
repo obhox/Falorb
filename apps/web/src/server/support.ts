@@ -48,6 +48,80 @@ export async function listTickets(organizationId: string): Promise<SupportTicket
     .limit(200);
 }
 
+export async function getEscalation(organizationId: string, id: string): Promise<SupportEscalationRow | null> {
+  const [row] = await db()
+    .select()
+    .from(schema.supportEscalations)
+    .where(and(eq(schema.supportEscalations.id, id), eq(schema.supportEscalations.organizationId, organizationId)))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function getConversation(organizationId: string, id: string): Promise<SupportConversationRow | null> {
+  const [row] = await db()
+    .select()
+    .from(schema.supportConversations)
+    .where(and(eq(schema.supportConversations.id, id), eq(schema.supportConversations.organizationId, organizationId)))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function getLead(organizationId: string, id: string): Promise<SupportLeadRow | null> {
+  const [row] = await db()
+    .select()
+    .from(schema.supportLeads)
+    .where(and(eq(schema.supportLeads.id, id), eq(schema.supportLeads.organizationId, organizationId)))
+    .limit(1);
+  return row ?? null;
+}
+
+export async function getTicket(organizationId: string, id: string): Promise<SupportTicketRow | null> {
+  const [row] = await db()
+    .select()
+    .from(schema.supportTickets)
+    .where(and(eq(schema.supportTickets.id, id), eq(schema.supportTickets.organizationId, organizationId)))
+    .limit(1);
+  return row ?? null;
+}
+
+export interface ConversationActivity {
+  escalations: { id: string; reason: string | null; status: string | null }[];
+  leads: { id: string; name: string | null; status: string | null }[];
+  tickets: { id: string; subject: string | null; status: string | null }[];
+}
+
+/** What a conversation escalated into — leads/tickets/escalations all carry `conversationId` back to their originating chat. */
+export async function listConversationActivity(
+  organizationId: string,
+  conversationId: string,
+): Promise<ConversationActivity> {
+  const [escalations, leads, tickets] = await Promise.all([
+    db()
+      .select({ id: schema.supportEscalations.id, reason: schema.supportEscalations.reason, status: schema.supportEscalations.status })
+      .from(schema.supportEscalations)
+      .where(
+        and(
+          eq(schema.supportEscalations.organizationId, organizationId),
+          eq(schema.supportEscalations.conversationId, conversationId),
+        ),
+      ),
+    db()
+      .select({ id: schema.supportLeads.id, name: schema.supportLeads.name, status: schema.supportLeads.status })
+      .from(schema.supportLeads)
+      .where(
+        and(eq(schema.supportLeads.organizationId, organizationId), eq(schema.supportLeads.conversationId, conversationId)),
+      ),
+    db()
+      .select({ id: schema.supportTickets.id, subject: schema.supportTickets.subject, status: schema.supportTickets.status })
+      .from(schema.supportTickets)
+      .where(
+        and(eq(schema.supportTickets.organizationId, organizationId), eq(schema.supportTickets.conversationId, conversationId)),
+      ),
+  ]);
+
+  return { escalations, leads, tickets };
+}
+
 /** Org-level connection only — a property-only override doesn't light up this org-wide "Bund AI connected" check; see `packages/db/src/schema/integrations.ts`. */
 export async function isBundAiConnected(organizationId: string): Promise<boolean> {
   const [row] = await db()

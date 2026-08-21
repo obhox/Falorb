@@ -423,10 +423,13 @@ integration's auth model:
 - **Full read-only dashboard.** `/crm` now covers contacts (full paginated
   mirror at `/crm/contacts`, plus the pre-existing unmatched-backlog tab),
   workflows, lists, signal rules, runs (`/crm/runs/[id]` for per-target,
-  per-channel track state), sent messages and suppressions; `/support`
-  covers Bund AI conversations/leads/tickets. Bund AI escalations remain the
-  only Bund AI surface with a detail view — its conversations/leads/tickets
-  are list-only.
+  per-channel track state), sent messages and suppressions. `/support` now
+  has detail pages for all four entities (`/support/{conversations,
+  escalations,leads,tickets}/[id]`) showing the fields the list tables omit
+  — a ticket's `description`, a lead's `phone`/`notes`, and each entity's
+  originating conversation via `conversationId`; a conversation's detail
+  page shows what it turned into (which escalations/leads/tickets trace
+  back to it).
 - **Buffer post editing/deletion/queue reordering.** Only `createPost` is
   wired to a manual action (`/social`); `BufferClient.deletePost` exists but
   nothing in the UI calls it yet, and `movePostInQueue`/`editPost` aren't in

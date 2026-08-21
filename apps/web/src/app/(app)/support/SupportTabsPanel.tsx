@@ -106,7 +106,16 @@ export function SupportTabsPanel({
                 render: (r: EscalationRow) => <Badge tone={STATUS_TONE[r.status ?? ""] ?? "neutral"}>{r.status ?? "—"}</Badge>,
               },
               { key: "reason", header: "Reason", width: "110px", render: (r: EscalationRow) => r.reason ?? "—" },
-              { key: "summary", header: "Summary", width: "minmax(160px, 1.6fr)", render: (r: EscalationRow) => r.summary ?? "—" },
+              {
+                key: "summary",
+                header: "Summary",
+                width: "minmax(160px, 1.6fr)",
+                render: (r: EscalationRow) => (
+                  <Link href={`/support/escalations/${r.id}`} data-plain style={{ color: "var(--text-primary)" }}>
+                    {r.summary ?? "View escalation"}
+                  </Link>
+                ),
+              },
               { key: "customerContact", header: "Contact", width: "minmax(100px, 1fr)", render: (r: EscalationRow) => r.customerContact ?? "—" },
               { key: "person", header: "Person", width: "90px", render: (r: EscalationRow) => <PersonLink personId={r.personId} /> },
               {
@@ -144,7 +153,16 @@ export function SupportTabsPanel({
           <DataTable
             dense
             columns={[
-              { key: "channel", header: "Channel", width: "100px", render: (r: ConversationRow) => r.channel ?? "—" },
+              {
+                key: "channel",
+                header: "Channel",
+                width: "100px",
+                render: (r: ConversationRow) => (
+                  <Link href={`/support/conversations/${r.id}`} data-plain style={{ color: "var(--text-primary)" }}>
+                    {r.channel ?? "conversation"}
+                  </Link>
+                ),
+              },
               { key: "status", header: "Status", width: "100px", render: (r: ConversationRow) => <Badge tone={STATUS_TONE[r.status ?? ""] ?? "neutral"}>{r.status ?? "—"}</Badge> },
               { key: "externalUserRef", header: "Visitor ref", width: "minmax(120px, 1fr)", mono: true, render: (r: ConversationRow) => r.externalUserRef ?? "—" },
               { key: "person", header: "Person", width: "90px", render: (r: ConversationRow) => <PersonLink personId={r.personId} /> },
@@ -168,7 +186,16 @@ export function SupportTabsPanel({
           <DataTable
             dense
             columns={[
-              { key: "name", header: "Name", width: "minmax(120px, 1fr)", render: (r: LeadRow) => r.name ?? "—" },
+              {
+                key: "name",
+                header: "Name",
+                width: "minmax(120px, 1fr)",
+                render: (r: LeadRow) => (
+                  <Link href={`/support/leads/${r.id}`} data-plain style={{ color: "var(--text-primary)" }}>
+                    {r.name ?? r.email ?? "View lead"}
+                  </Link>
+                ),
+              },
               { key: "email", header: "Email", width: "minmax(140px, 1fr)", render: (r: LeadRow) => r.email ?? "—" },
               { key: "intent", header: "Intent", width: "minmax(140px, 1.4fr)", render: (r: LeadRow) => r.intent ?? "—" },
               { key: "status", header: "Status", width: "100px", render: (r: LeadRow) => <Badge tone={STATUS_TONE[r.status ?? ""] ?? "neutral"}>{r.status ?? "—"}</Badge> },
@@ -193,7 +220,16 @@ export function SupportTabsPanel({
           <DataTable
             dense
             columns={[
-              { key: "subject", header: "Subject", width: "minmax(160px, 1.6fr)", render: (r: TicketRow) => r.subject ?? "—" },
+              {
+                key: "subject",
+                header: "Subject",
+                width: "minmax(160px, 1.6fr)",
+                render: (r: TicketRow) => (
+                  <Link href={`/support/tickets/${r.id}`} data-plain style={{ color: "var(--text-primary)" }}>
+                    {r.subject ?? "View ticket"}
+                  </Link>
+                ),
+              },
               { key: "category", header: "Category", width: "100px", render: (r: TicketRow) => r.category ?? "—" },
               {
                 key: "priority",

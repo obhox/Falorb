@@ -77,6 +77,11 @@
   width: min(84vw, 300px);
   display: flex;
   flex-direction: column;
+  /* Same contract as the desktop rail: the drawer is exactly as tall as the
+     viewport and `.falorb-nav-scroll` inside it takes the overflow, so a long
+     property list can't push the account footer off the bottom. */
+  min-height: 0;
+  overflow: hidden;
   padding: 10px;
   background: var(--surface-panel);
   border-right: 1px solid var(--border-subtle);

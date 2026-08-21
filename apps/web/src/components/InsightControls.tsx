@@ -1,8 +1,10 @@
 "use client";
 
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { Select, Tag } from "@falorb/ui";
+import { Button, Dialog, Icon, Input, Select, Tag } from "@falorb/ui";
+import { useAction } from "@/lib/use-action";
+import { saveInsight } from "@/server/actions/insights";
 import { CHARTS, DIMENSIONS, METRICS } from "@/lib/insight-options";
 
 /**
@@ -23,17 +25,22 @@ export function InsightControls({
   chart,
   projects,
   selected,
+  canSave = false,
 }: {
   metric: keyof typeof METRICS;
   dimension: keyof typeof DIMENSIONS;
   chart: keyof typeof CHARTS;
   projects: { slug: string; name: string }[];
   selected: string[];
+  canSave?: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
   const [, startTransition] = useTransition();
+  const { run, pending: saving } = useAction();
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [name, setName] = useState("");
 
   function push(mutate: (next: URLSearchParams) => void) {
     const next = new URLSearchParams(params.toString());
@@ -55,6 +62,16 @@ export function InsightControls({
   }
 
   const active = new Set(selected.length ? selected : projects.map((p) => p.slug));
+
+  async function save() {
+    const result = await run(() =>
+      saveInsight(name, { metric, dimension, projectSlugs: [...active] }, chart),
+    );
+    if (result?.ok) {
+      setSaveOpen(false);
+      setName("");
+    }
+  }
 
   return (
     <div style={{ display: "grid", gap: "var(--space-6)" }}>
@@ -118,7 +135,41 @@ export function InsightControls({
             {project.name}
           </Tag>
         ))}
+
+        {canSave && (
+          <Button
+            size="sm"
+            iconLeft={<Icon name="save" size={13} />}
+            style={{ marginLeft: "auto" }}
+            onClick={() => setSaveOpen(true)}
+          >
+            Save
+          </Button>
+        )}
       </div>
+
+      <Dialog
+        open={saveOpen}
+        onClose={() => setSaveOpen(false)}
+        title="Save this insight"
+        subtitle="Shows up as a link above, for the whole workspace"
+        width={440}
+        footer={
+          <>
+            <Button onClick={() => setSaveOpen(false)}>Cancel</Button>
+            <Button variant="primary" onClick={save} disabled={saving || !name.trim()}>
+              {saving ? "Saving…" : "Save"}
+            </Button>
+          </>
+        }
+      >
+        <Input
+          label="Name"
+          value={name}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)}
+          placeholder="Signups by channel"
+        />
+      </Dialog>
     </div>
   );
 }

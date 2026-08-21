@@ -626,15 +626,22 @@ the most.
 | Backend | State | What is missing in the UI |
 |---|---|---|
 | `dataRequests` | worker processes them | No way to raise a GDPR export or erasure. The `data-requests` job runs every 2m against rows nothing creates |
-| `segments` | table + `segment-counts` worker | People can be filtered but not *saved* as a segment; the worker caches sizes for segments that cannot be created |
-| `funnels` | table | The funnel builder is URL-only. Nothing saves a funnel, so one cannot be shared by name or reused in an alert |
-| `insights` | table | Same for the cross-project builder — the query lives in the URL and nowhere else |
+| `segments` | table + `segment-counts` worker | People can be filtered but not *saved* as a segment; the worker caches sizes for segments that cannot be created. No condition-tree filter builder exists anywhere in the app yet — the People page's filter bar is a flat search+checkbox, not the `Filter[]` AST `compileFilters`/`refreshSegmentCounts` already expect |
 | `dashboardWidgets` | table | The design system's custom-view builder (widget grid) is not built; `/insights` is a single fixed layout |
 | `webhooks` | table + dispatcher job | No UI to register an endpoint or see delivery history |
 | `consentRecords` | ingest writes them | No UI to read the consent log |
 | `auditLog` | API writes it | No UI to read it. Written on project, key, member and person actions and visible only in Postgres |
 | `personMerges` | resolver writes it | Merge/unmerge exists in the API; the person profile cannot trigger or reverse one |
 | `closedSessions` | query exists | Not consumed — the session list uses `sessionList` |
+
+`funnels` and `insights` are now built: the funnel builder has a "Save"
+button (`apps/web/src/server/actions/funnels.ts`) alongside the existing
+read path (`listFunnels`/`SavedFunnels.tsx`), and the cross-project builder
+gained the same for the pragmatic scope it actually has today — metric,
+dimension, chart, property selection (`apps/web/src/server/actions/insights.ts`,
+`SavedInsights.tsx`) — not the fuller `kind`/query vocabulary the `insights`
+schema leaves room for later. Verified live: saved and deleted both, in both
+places.
 
 Auth internals (`account`, `session`, `verification`) are managed by better-auth
 and correctly have no UI.

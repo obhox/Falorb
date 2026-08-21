@@ -13,6 +13,7 @@ import { LinkiClient } from "@falorb/linki-client";
 import { BundAiClient } from "@falorb/bund-ai-client";
 import { BufferClient, BUFFER_API_ENDPOINT } from "@falorb/buffer-client";
 import { ClayClient, CLAY_DEFAULT_BASE_URL } from "@falorb/clay-client";
+import { ExaClient, EXA_DEFAULT_BASE_URL, FirecrawlClient, FIRECRAWL_DEFAULT_BASE_URL } from "@falorb/research";
 import { ElevenLabsClient, ELEVENLABS_DEFAULT_BASE_URL } from "@falorb/elevenlabs-client";
 import type { Workspace } from "../onboarding";
 import { HttpError } from "../http";
@@ -20,7 +21,8 @@ import { requireHumanSession } from "../guards";
 
 /**
  * Connection management for the external products Falorb drives on the
- * organization's behalf (Linki, Bund AI, Buffer, Clay, ElevenLabs, more over time).
+ * organization's behalf (Linki, Bund AI, Buffer, Clay, Exa, Firecrawl,
+ * ElevenLabs, more over time).
  *
  * Deliberately human-session-only end to end, not scope-gated for API keys —
  * same reasoning as `POST /api/keys` in `index.ts`: storing, testing, or
@@ -30,11 +32,11 @@ import { requireHumanSession } from "../guards";
  *
  * `verifyConnection` delegates to each product's real typed client
  * (`packages/linki-client`, `packages/bund-ai-client`, `packages/buffer-client`,
- * `packages/clay-client`) rather than a generic raw `fetch` — one
- * implementation of "how do I reach this API" per product, shared with the
- * mirror/enrichment jobs (`linki-sync.ts`, `bund-ai-sync.ts`,
- * `buffer-sync.ts`, `clay-enrichment.ts`) instead of a second one living
- * only here.
+ * `packages/clay-client`, `packages/research`, `packages/elevenlabs-client`)
+ * rather than a generic raw `fetch` — one implementation of "how do I reach
+ * this API" per product, shared with the mirror/enrichment jobs
+ * (`linki-sync.ts`, `bund-ai-sync.ts`, `buffer-sync.ts`,
+ * `clay-enrichment.ts`) instead of a second one living only here.
  */
 
 type Vars = {
@@ -43,24 +45,23 @@ type Vars = {
   scopes: string[];
 };
 
+/**
+ * `fixedBaseUrl: null` means the provider is a self-hosted deployment (like
+ * Linki/Bund AI) and the caller must supply a `baseUrl`. A non-null value
+ * means the provider has one API root (Clay, Exa, Firecrawl) — callers
+ * don't supply a baseUrl for it; the fixed value here is used instead.
+ */
 const PROVIDERS = {
-  linki: { label: "Linki", hasBaseUrl: true },
-  bund_ai: { label: "Bund AI", hasBaseUrl: true },
-  // Buffer, Clay, and ElevenLabs each have one fixed API root, unlike
-  // Linki/Bund AI's self-hosted deployments — callers don't supply a
-  // baseUrl for any of them.
-  buffer: { label: "Buffer", hasBaseUrl: false },
-  clay: { label: "Clay", hasBaseUrl: false },
-  elevenlabs: { label: "ElevenLabs", hasBaseUrl: false },
-} as const;
+  linki: { label: "Linki", fixedBaseUrl: null },
+  bund_ai: { label: "Bund AI", fixedBaseUrl: null },
+  buffer: { label: "Buffer", fixedBaseUrl: BUFFER_API_ENDPOINT },
+  clay: { label: "Clay", fixedBaseUrl: CLAY_DEFAULT_BASE_URL },
+  exa: { label: "Exa", fixedBaseUrl: EXA_DEFAULT_BASE_URL },
+  firecrawl: { label: "Firecrawl", fixedBaseUrl: FIRECRAWL_DEFAULT_BASE_URL },
+  elevenlabs: { label: "ElevenLabs", fixedBaseUrl: ELEVENLABS_DEFAULT_BASE_URL },
+} as const satisfies Record<string, { label: string; fixedBaseUrl: string | null }>;
 
 type Provider = keyof typeof PROVIDERS;
-
-const FIXED_BASE_URL: Partial<Record<Provider, string>> = {
-  buffer: BUFFER_API_ENDPOINT,
-  clay: CLAY_DEFAULT_BASE_URL,
-  elevenlabs: ELEVENLABS_DEFAULT_BASE_URL,
-};
 
 function parseProvider(raw: string): Provider {
   if (raw in PROVIDERS) return raw as Provider;
@@ -75,8 +76,10 @@ async function pingProvider(
   if (provider === "linki") return new LinkiClient({ baseUrl, apiKey }).verifyConnection();
   if (provider === "bund_ai") return new BundAiClient({ baseUrl, apiKey }).verifyConnection();
   if (provider === "buffer") return new BufferClient({ baseUrl, apiKey }).verifyConnection();
-  if (provider === "elevenlabs") return new ElevenLabsClient({ baseUrl, apiKey }).verifyConnection();
-  return new ClayClient({ baseUrl, apiKey }).verifyConnection();
+  if (provider === "clay") return new ClayClient({ baseUrl, apiKey }).verifyConnection();
+  if (provider === "exa") return new ExaClient({ baseUrl, apiKey }).verifyConnection();
+  if (provider === "firecrawl") return new FirecrawlClient({ baseUrl, apiKey }).verifyConnection();
+  return new ElevenLabsClient({ baseUrl, apiKey }).verifyConnection();
 }
 
 function publicConnection(row: typeof schema.integrationConnections.$inferSelect) {
@@ -117,10 +120,11 @@ export function integrationsRoutes(db: Database): Hono<{ Variables: Vars }> {
 
     const parsed = connectSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) throw new HttpError(422, "apiKey is required.");
-    if (PROVIDERS[provider].hasBaseUrl && !parsed.data.baseUrl) {
+    const fixedBaseUrl = PROVIDERS[provider].fixedBaseUrl;
+    if (!fixedBaseUrl && !parsed.data.baseUrl) {
       throw new HttpError(422, "baseUrl is required.");
     }
-    const baseUrl = PROVIDERS[provider].hasBaseUrl ? parsed.data.baseUrl! : FIXED_BASE_URL[provider]!;
+    const baseUrl = fixedBaseUrl ?? parsed.data.baseUrl!;
 
     const check = await pingProvider(provider, baseUrl, parsed.data.apiKey);
     const encrypted = encryptCredential(parsed.data.apiKey);

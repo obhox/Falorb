@@ -14,9 +14,11 @@ import { user } from "./auth";
 import { persons } from "./persons";
 
 /**
- * The other side of the boundary `persons.ts` draws: a person or account
- * discovered talking about the org's product somewhere the org does not own
- * (Reddit today). Everything here originates on a public, third-party
+ * The other side of the boundary `persons.ts` draws: a person, account, or
+ * job posting discovered talking about (or hiring for) the org's product
+ * somewhere the org does not own — Reddit, Hacker News, and job postings
+ * today (`packages/core/src/prospect-sources.ts` describes each one).
+ * Everything here originates on a public, third-party
  * platform and is speculative until enriched — a prospect is a lead to
  * investigate, not a verified identity the way a `person` with a first-party
  * `identify()` call is.
@@ -38,14 +40,18 @@ export const prospects = pgTable(
      * being deleted. */
     projectId: integer("project_id").references(() => projects.id, { onDelete: "set null" }),
 
-    /** "reddit" today. Open text, not an enum — mirrors `person_aliases.kind`
-     * and `alert_channels.kind` — because another listening source is a new
+    /** "reddit" | "hackernews" | "job_search" today — see
+     * `packages/core/src/prospect-sources.ts` for what each one is. Open
+     * text, not an enum — mirrors `person_aliases.kind` and
+     * `alert_channels.kind` — because another listening source is a new
      * value, not a schema migration. */
     source: text("source").notNull(),
-    /** Natural id from the source (e.g. Reddit's fullname, "t3_xxx"/"t1_xxx"). */
+    /** Natural id from the source where one exists (Reddit's fullname,
+     * HN's `objectID`); for `job_search`, which has no natural post id, a
+     * hash of the result URL (see `job-listener.ts`'s `hashUrl`). */
     sourceId: text("source_id").notNull(),
     sourceUrl: text("source_url").notNull(),
-    /** "post" | "comment" */
+    /** "post" | "comment" | "posting" */
     sourceType: text("source_type").notNull(),
     authorHandle: text("author_handle"),
     title: text("title"),

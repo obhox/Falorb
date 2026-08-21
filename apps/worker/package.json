@@ -24,6 +24,7 @@
     "@falorb/linki-client": "workspace:*",
     "@falorb/mailer": "workspace:*",
     "@falorb/queries": "workspace:*",
+    "@falorb/research": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "ioredis": "^5.4.2"
   },

@@ -57,6 +57,7 @@ export interface ProspectOutreachInput {
 export async function generateProspectOutreachMessage(
   prospect: ProspectOutreachInput,
   projectName: string,
+  propertySummary: string | null = null,
 ): Promise<string> {
   const systemPrompt =
     `You are drafting a first cold-outreach message from ${projectName} to someone who ` +
@@ -66,7 +67,8 @@ export async function generateProspectOutreachMessage(
     "prior relationship or that they have visited the product's site. Write 3-5 short " +
     "sentences. Use their name only if one is given, otherwise address them generically. " +
     "No markdown, no subject line, no greeting placeholder brackets like [Name] — just the " +
-    "message body, ready to send.";
+    "message body, ready to send." +
+    (propertySummary ? ` What ${projectName} actually does, to draw on: ${propertySummary}` : "");
 
   return complete(systemPrompt, {
     handle: prospect.handle,

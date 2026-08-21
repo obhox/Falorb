@@ -19,6 +19,13 @@
  * outbound network calls, so it must never end up in the browser-bundled
  * `@falorb/core`. Import only from server-side code (behind
  * `apps/web/src/server`, or the worker).
+ *
+ * `property-profile.ts` is the one caller-facing feature built directly on
+ * top of `fetchPage` plus `@falorb/ai`'s `complete()` rather than living in
+ * `apps/web/src/server` like `company-research.ts` does — it has to, since
+ * the `property-profiler` worker job needs the same crawl-and-summarize
+ * logic the manual "Re-crawl" dashboard action does, and the worker cannot
+ * import anything under `apps/web/src/server` (Next-specific, "server-only").
  */
 export { ExaClient, ExaApiError, EXA_DEFAULT_BASE_URL, type ExaSearchResult, type ExaContentsResult } from "./exa";
 export {
@@ -35,3 +42,9 @@ export {
   type ResearchClients,
   type ResearchResult,
 } from "./orchestrate";
+export {
+  researchProperty,
+  parsePropertyProfile,
+  PropertyResearchError,
+  type PropertyProfileResult,
+} from "./property-profile";

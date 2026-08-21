@@ -18,6 +18,7 @@ export function Tabs({ tabs = [], value, onChange, size = "md", style }) {
         const on = key === value;
         return (
           <button
+            type="button"
             key={key}
             onClick={() => onChange && onChange(key)}
             style={{

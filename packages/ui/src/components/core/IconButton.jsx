@@ -19,6 +19,7 @@ export function IconButton({
     variant === "solid" ? "var(--control-bg)" : "transparent";
   return (
     <button
+      type="button"
       aria-label={label}
       title={label}
       disabled={disabled}

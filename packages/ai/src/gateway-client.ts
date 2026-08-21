@@ -14,10 +14,11 @@ import { AI_PROVIDER_BASE_URLS, AI_PROVIDER_LABELS, type AiCredentials, type AiP
  *
  * `listModels()` is what makes "bring your own model" usable rather than a
  * text box you have to guess into: OpenRouter's ids are public but there
- * are hundreds, and Ramp Router's are key-specific — its own docs say the
+ * are hundreds, Ramp Router's are key-specific — its own docs say the
  * display names in its model table "are not necessarily valid `model`
- * values" and to read `GET /models` for the callable ids. So the model
- * picker asks the gateway rather than shipping a list that goes stale.
+ * values" and to read `GET /models` for the callable ids — and Gemini's
+ * turn over as generations ship and older ones retire. So the model picker
+ * asks the provider rather than shipping a list that goes stale.
  */
 
 export class AiGatewayError extends Error {}
@@ -93,27 +94,25 @@ export class AiGatewayClient {
    * returns what *this* key may call — so there it is the right check.
    */
   async verifyConnection(): Promise<VerifyResult> {
+    const label = AI_PROVIDER_LABELS[this.provider];
     try {
       if (this.provider === "openrouter") {
         const payload = (await this.get("/key")) as { data?: { label?: string; limit?: number | null } };
-        const label = payload.data?.label;
-        return { ok: true, detail: label ? `OpenRouter key "${label}" is valid.` : "OpenRouter key is valid." };
+        const keyLabel = payload.data?.label;
+        return { ok: true, detail: keyLabel ? `OpenRouter key "${keyLabel}" is valid.` : "OpenRouter key is valid." };
       }
 
       const models = await this.listModels();
       return {
         ok: true,
         detail: models.length
-          ? `Ramp Router key is valid — ${models.length} model${models.length === 1 ? "" : "s"} available.`
-          : "Ramp Router key is valid, but no models are available to it.",
+          ? `${label} key is valid — ${models.length} model${models.length === 1 ? "" : "s"} available.`
+          : `${label} key is valid, but no models are available to it.`,
       };
     } catch (error) {
       return {
         ok: false,
-        detail:
-          error instanceof Error
-            ? error.message
-            : `Could not reach ${AI_PROVIDER_LABELS[this.provider]}.`,
+        detail: error instanceof Error ? error.message : `Could not reach ${label}.`,
       };
     }
   }
@@ -126,7 +125,16 @@ export class AiGatewayClient {
     };
     return (payload.data ?? [])
       .filter((m): m is { id: string; name?: string } => typeof m.id === "string" && m.id.length > 0)
-      .map((m) => ({ id: m.id, name: m.name?.trim() || m.id }))
+      .map((m) => {
+        // Gemini's ids come back namespaced — `models/gemini-2.5-flash` —
+        // because that is the resource name in Google's native API, which
+        // its compatibility layer surfaces unchanged. `/chat/completions`
+        // accepts either form, but the bare id is what Google's own docs
+        // tell you to send, so normalizing here keeps one spelling in the
+        // database instead of two that behave identically.
+        const id = this.provider === "gemini" ? m.id.replace(/^models\//, "") : m.id;
+        return { id, name: m.name?.trim() || id };
+      })
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 }

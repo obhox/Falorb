@@ -51,6 +51,7 @@ export const integrationProviderEnum = pgEnum("integration_provider", [
   "elevenlabs",
   "openrouter",
   "router",
+  "gemini",
 ]);
 
 export const integrationStatusEnum = pgEnum("integration_status", [
@@ -77,16 +78,17 @@ export const integrationConnections = pgTable(
     provider: integrationProviderEnum("provider").notNull(),
     baseUrl: text("base_url").notNull(),
     /**
-     * Which model to ask for — only meaningful for the AI-gateway providers
-     * (`openrouter`, `router`), null for every other provider, which has no
-     * such choice to make.
+     * Which model to ask for — only meaningful for the AI providers
+     * (`openrouter`, `router`, `gemini`), null for every other provider,
+     * which has no such choice to make.
      *
-     * Nullable rather than defaulted because the two gateways differ on
-     * what null means: on OpenRouter it falls back to `openrouter/auto`,
-     * its own per-request selection, which is the platform's deliberate
-     * default (see `resolveModel`); on Ramp Router there is no auto model,
-     * so its connect form requires one. A comma-separated value is a
-     * fallback chain on OpenRouter; Ramp Router takes only the first.
+     * Nullable rather than defaulted because the three differ on what null
+     * means: on OpenRouter it falls back to `openrouter/auto`, its own
+     * per-request selection, which is the platform's deliberate default
+     * (see `resolveModel`); Ramp Router and Gemini have no auto model at
+     * all, so their connect forms ask for one. A comma-separated value is a
+     * fallback chain on OpenRouter and, where every entry is
+     * provider-qualified, on Ramp Router; Gemini takes only the first.
      */
     model: text("model"),
     /** AES-256-GCM ciphertext, hex-encoded. Never returned by any API response. */

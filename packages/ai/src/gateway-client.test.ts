@@ -21,6 +21,7 @@ function mockFetch(body: unknown, status = 200) {
 
 const router = () => new AiGatewayClient({ provider: "router", apiKey: "sk-routgw-test" });
 const openrouter = () => new AiGatewayClient({ provider: "openrouter", apiKey: "sk-or-test" });
+const gemini = () => new AiGatewayClient({ provider: "gemini", apiKey: "AIza-test" });
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -68,6 +69,42 @@ describe("listModels", () => {
     expect(await router().listModels()).toEqual([
       { id: "a-model", name: "a-model" },
       { id: "z-model", name: "Zeta" },
+    ]);
+  });
+});
+
+describe("Google Gemini", () => {
+  it("is verified against its key-scoped model list, like Ramp Router", async () => {
+    const spy = mockFetch({ data: [{ id: "models/gemini-2.5-flash" }] });
+
+    const result = await gemini().verifyConnection();
+
+    // Google's compatibility layer 401s a wrong key here rather than serving
+    // a public catalogue, so unlike OpenRouter's this list is a real check.
+    expect(String(spy.mock.calls[0]![0])).toBe(
+      "https://generativelanguage.googleapis.com/v1beta/openai/models",
+    );
+    expect(result).toEqual({ ok: true, detail: "Google Gemini key is valid — 1 model available." });
+  });
+
+  it("strips the `models/` resource prefix down to the callable id", async () => {
+    mockFetch({ data: [{ id: "models/gemini-2.5-flash" }, { id: "models/gemini-2.5-pro" }] });
+
+    // Whatever comes out of here is stored on the connection and sent as
+    // `model` on every later call, so the bare form Google documents is the
+    // one that should reach the database.
+    expect(await gemini().listModels()).toEqual([
+      { id: "gemini-2.5-flash", name: "gemini-2.5-flash" },
+      { id: "gemini-2.5-pro", name: "gemini-2.5-pro" },
+    ]);
+  });
+
+  it("leaves other providers' slash-bearing ids alone", async () => {
+    mockFetch({ data: [{ id: "anthropic/claude-sonnet-4.5", name: "Claude Sonnet 4.5" }] });
+
+    // OpenRouter ids are `vendor/model` by design — nothing to strip.
+    expect(await openrouter().listModels()).toEqual([
+      { id: "anthropic/claude-sonnet-4.5", name: "Claude Sonnet 4.5" },
     ]);
   });
 });

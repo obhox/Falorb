@@ -1,11 +1,11 @@
-import { and, eq, isNull, or } from "drizzle-orm";
-import { AI_PROVIDER_DEFAULT_MODELS, isAiProvider, envCredentials, type AiCredentials } from "@falorb/ai";
+import { and, eq, inArray } from "drizzle-orm";
+import { AI_PROVIDERS, AI_PROVIDER_DEFAULT_MODELS, isAiProvider, envCredentials, type AiCredentials } from "@falorb/ai";
 import type { Database } from "./index";
 import { decryptCredential } from "./crypto";
 import * as schema from "./schema/index";
 
 /**
- * Which AI gateway an organization's AI features run on, on whose key, and
+ * Which AI provider an organization's AI features run on, on whose key, and
  * with which model — the read side of "bring your own model" (FEATURES.md
  * §19).
  *
@@ -16,8 +16,8 @@ import * as schema from "./schema/index";
  * package's job already (`crypto.ts`), and returns the credential shape
  * `@falorb/ai` takes — the one place those two meet.
  *
- * Returns null only when the organization has connected neither gateway
- * *and* the deployment has no `OPENROUTER_API_KEY`; callers turn that into
+ * Returns null only when the organization has connected no provider *and*
+ * the deployment has no `OPENROUTER_API_KEY`; callers turn that into
  * "AI is not configured" the same way they always have. Passing the result
  * straight into `complete()`/`chat()`/`generateSignal()` is safe either
  * way: they fall back to the environment on a null.
@@ -29,8 +29,8 @@ import * as schema from "./schema/index";
  *   2. otherwise the organization's;
  *   3. otherwise the deployment-wide `OPENROUTER_API_KEY`.
  *
- * Both gateways can be connected at once (an org trying Ramp Router while
- * keeping its OpenRouter key), so within one scope the most recently
+ * More than one provider can be connected at once (an org trying Gemini
+ * while keeping its OpenRouter key), so within one scope the most recently
  * updated active connection wins — connecting or reconnecting one is what
  * switches to it. Settings → Integrations marks which is in use rather than
  * leaving that implicit.
@@ -47,10 +47,12 @@ export async function resolveAiCredentials(
       and(
         eq(schema.integrationConnections.organizationId, organizationId),
         eq(schema.integrationConnections.status, "active"),
-        or(
-          eq(schema.integrationConnections.provider, "openrouter"),
-          eq(schema.integrationConnections.provider, "router"),
-        ),
+        // Driven off `AI_PROVIDERS` rather than a hand-written list of
+        // `eq(...)`s, so adding a provider to `@falorb/ai` cannot leave this
+        // query silently skipping it — the failure mode there is an org
+        // whose connected gateway is ignored in favour of the deployment
+        // key, which reads as a billing mystery rather than a bug.
+        inArray(schema.integrationConnections.provider, AI_PROVIDERS),
       ),
     );
 

@@ -102,7 +102,7 @@ export function AiModelPicker({
             mono
             value={model}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setModel(e.target.value)}
-            placeholder={defaultModel ?? "e.g. gpt-5"}
+            placeholder={defaultModel ?? "e.g. gemini-2.5-flash"}
             hint="Type an id, or pick one below. A comma-separated list is a fallback chain on OpenRouter."
           />
 

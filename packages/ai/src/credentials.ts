@@ -20,19 +20,35 @@
  *     (`POST /responses`, `input`, `function_call` output items). Its docs
  *     document `/v1/responses` and `/v1/models` and nothing else — there is
  *     no `/chat/completions` to fall back to.
+ *   - Google Gemini is reached through its **OpenAI-compatibility layer**
+ *     (`https://generativelanguage.googleapis.com/v1beta/openai`), which
+ *     serves `/chat/completions` and `/models` in OpenAI's shapes with
+ *     bearer auth — so it reuses the chat-completions half of
+ *     `transport.ts` rather than needing a third translation. Google's
+ *     native `generateContent` API is a different shape entirely; going in
+ *     through the compatibility layer is what keeps this a base-URL-and-a-
+ *     key provider like the other two.
+ *
+ * Gemini is the one first-party model vendor here rather than a gateway —
+ * it fronts only Google's own models, where the other two front many
+ * vendors'. An org that only ever wants Gemini should not have to route
+ * through a middleman to reach it, or pay one. Nothing in this package
+ * cares about the distinction; it is a key, a base URL, and a model id
+ * either way.
  *
  * `transport.ts` is where that fork lives; everything above it works in the
  * one `ChatMessage`/`ChatResult` shape and never learns which gateway
  * answered.
  */
 
-export type AiProvider = "openrouter" | "router";
+export type AiProvider = "openrouter" | "router" | "gemini";
 
-export const AI_PROVIDERS: AiProvider[] = ["openrouter", "router"];
+export const AI_PROVIDERS: AiProvider[] = ["openrouter", "router", "gemini"];
 
 export const AI_PROVIDER_LABELS: Record<AiProvider, string> = {
   openrouter: "OpenRouter",
   router: "Ramp Router",
+  gemini: "Google Gemini",
 };
 
 /**
@@ -44,6 +60,10 @@ export const AI_PROVIDER_LABELS: Record<AiProvider, string> = {
 export const AI_PROVIDER_BASE_URLS: Record<AiProvider, string> = {
   openrouter: "https://openrouter.ai/api/v1",
   router: "https://api.router.com/v1",
+  // The `/openai` path under `v1beta`, not the root Google's own SDKs use:
+  // the sibling `v1beta` endpoints speak `generateContent`, which is not an
+  // OpenAI shape at all, so `.../v1beta` alone would 404 every request.
+  gemini: "https://generativelanguage.googleapis.com/v1beta/openai",
 };
 
 /**
@@ -51,18 +71,25 @@ export const AI_PROVIDER_BASE_URLS: Record<AiProvider, string> = {
  *
  * OpenRouter has `openrouter/auto`, its own per-request model selection —
  * the platform's long-standing default, and deliberately not a pinned model
- * (see `resolveModel`). Ramp Router has no equivalent: its callable model
- * ids are whatever `GET /models` returns for that particular key, so a
- * connection to it has to name one. `null` here means "the connect form
- * must ask", and the UI does.
+ * (see `resolveModel`). Neither of the others has an equivalent: Ramp
+ * Router's callable model ids are whatever `GET /models` returns for that
+ * particular key, and Gemini names a specific generation on every request.
+ * `null` here means "the connect form must ask", and the UI does.
+ *
+ * Gemini deliberately gets `null` rather than a plausible default like
+ * `gemini-2.5-flash`. With no auto-select to fall back on, a default here
+ * would be this repository pinning a model — the thing `resolveModel`
+ * exists not to do — and it would go stale on Google's release cadence,
+ * silently, for every organization that never touched the field.
  */
 export const AI_PROVIDER_DEFAULT_MODELS: Record<AiProvider, string | null> = {
   openrouter: "openrouter/auto",
   router: null,
+  gemini: null,
 };
 
 export function isAiProvider(value: string): value is AiProvider {
-  return value === "openrouter" || value === "router";
+  return value === "openrouter" || value === "router" || value === "gemini";
 }
 
 export interface AiCredentials {

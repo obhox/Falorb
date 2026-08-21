@@ -1,9 +1,15 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { funnel, funnelDropoffs, type Filter, type FunnelStep } from "@falorb/queries";
+import {
+  RANGE_DESCRIPTION,
+  funnel,
+  funnelDropoffs,
+  parseRange,
+  type Filter,
+  type FunnelStep,
+} from "@falorb/queries";
 import type { McpContext } from "../context";
 import { resolveProjects } from "../context";
-import { parseRange, RANGE_DESCRIPTION } from "../range";
 import { ago, failure, num, pct, table, text } from "../format";
 
 const stepSchema = z.object({

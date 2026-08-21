@@ -10,6 +10,7 @@ import { registerLeadTools } from "./tools/leads";
 import { registerLiveTools } from "./tools/live";
 import { registerManagementTools } from "./tools/manage";
 import { registerPeopleTools } from "./tools/people";
+import { registerProspectTools } from "./tools/prospects";
 import { registerReferralTools } from "./tools/referrals";
 import { registerSharingTools } from "./tools/sharing";
 import { registerSignalTools } from "./tools/signals";
@@ -51,6 +52,7 @@ verify rather than guess.
 - Do people come back → \`get_retention\`
 - One human's full history → \`search_people\` or \`list_people\`, then \`get_person\`
 - Warmest leads → \`find_cross_project_people\` or \`get_hot_leads\` (add \`scope: "portfolio"\` for cross-project)
+- People discovered off-site (social listening, not yet a tracked visitor) → \`list_prospects\`, then \`get_prospect\`
 - Is it working right now → \`get_live_visitors\`, \`get_platform_health\`, \`get_connection_status\` (one project's install)
 - Acquisition links and referral performance → \`list_referral_links\`, \`get_referral_leaderboard\`
 - Early-access queue → \`list_waitlist\`
@@ -84,6 +86,13 @@ this interface, regardless of scope: deleting or archiving a project, and
 erasing a person's data. Both are irreversible, and person erasure in
 particular is a GDPR obligation that needs a human to confirm the subject's
 identity — both stay dashboard-only actions.
+
+**Prospects are a different kind of data than everything above.** A prospect
+(\`list_prospects\`) is discovered on a public third-party platform, not
+first-party visitor activity — they have not consented to anything and are
+not a \`person\`. Connecting or disconnecting the Clay enrichment integration
+stays a dashboard-only action for the same reason project/person deletion
+does; only read tools and per-prospect status changes are available here.
 `.trim();
 
 export function buildServer(ctx: () => McpContext): McpServer {
@@ -106,6 +115,7 @@ export function buildServer(ctx: () => McpContext): McpServer {
   registerSharingTools(server, ctx);
   registerTeamTools(server, ctx);
   registerLeadTools(server, ctx);
+  registerProspectTools(server, ctx);
 
   registerResources(server, ctx);
   registerPrompts(server);
@@ -164,13 +174,15 @@ function registerResources(server: McpServer, ctx: () => McpContext): void {
             "- Cached AI recommendations: what to write, who to contact, which channel is working, what's broken",
             "- Whether a project's tracker is actually installed and sending events, per domain",
             "- Workspace membership, invitations, and delivery channels for alerts",
+            "- Prospects discovered off-site (Reddit, Hacker News, job postings — see list_prospect_sources) and any contact enrichment found for them",
             "",
             "## Can change (write scope)",
             "- Create a project, a goal, a referral link, an alert (and its delivery channel), a share link",
             "- Pause/resume or delete a goal or an alert; revoke a referral, share, or benchmark link",
-            "- Regenerate an AI signal or draft a content page or outreach message (LLM calls, rate-limited)",
+            "- Regenerate an AI signal or draft a content page, lead outreach, or prospect outreach message (LLM calls, rate-limited)",
             "- Toggle a project's waitlist and the organization's weekly digest email",
             "- Invite, re-role, or remove a team member (never the workspace's only owner)",
+            "- Mark a prospect contacted or dismissed; add or remove a listening keyword",
             "",
             "## Cannot answer, by design",
             "- What a visitor does on websites this organization does not own",

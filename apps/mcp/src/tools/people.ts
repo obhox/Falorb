@@ -3,8 +3,10 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { and, eq, ilike, isNull, or, sql } from "drizzle-orm";
 import { schema } from "@falorb/db";
 import {
+  RANGE_DESCRIPTION,
   acquisitionChain,
   crossProjectPeople,
+  parseRange,
   personInterests,
   personList,
   personProjects,
@@ -14,7 +16,6 @@ import {
 } from "@falorb/queries";
 import type { McpContext } from "../context";
 import { projectName, resolveProjects } from "../context";
-import { parseRange, RANGE_DESCRIPTION } from "../range";
 import { ago, duration, failure, money, num, pct, table, text } from "../format";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

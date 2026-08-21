@@ -1,5 +1,6 @@
 import { requireSession } from "@/server/session";
 import { liveCounts } from "@/server/analytics";
+import { countMyOpenTasks, countPendingApprovals } from "@/server/agents";
 import { type NavSection } from "@/components/shell/NavRail";
 import { ShellNav } from "@/components/shell/ShellNav";
 import { MobileNav } from "@/components/shell/MobileNav";
@@ -37,13 +38,44 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const liveByProject = new Map(live.map((row) => [row.project_id, row.visitors]));
   const liveTotal = live.reduce((sum, row) => sum + row.visitors, 0);
 
+  /**
+   * Two counts in the rail, because both are work that is *stuck on the
+   * reader*. An agent's approval request and a task handed over to a human
+   * both sit there doing nothing until someone acts, and neither is visible
+   * from any other screen — which is exactly the case a nav badge is for.
+   * They are cheap indexed counts, unlike a "how many agents are busy"
+   * figure, which would be noise anyone could get from the roster.
+   */
+  const [pendingApprovals, myTasks] = await Promise.all([
+    countPendingApprovals(session.workspace.organizationId).catch(() => 0),
+    countMyOpenTasks(session.workspace.organizationId, session.user.id).catch(() => 0),
+  ]);
+
   const sections: NavSection[] = [
     {
       items: [
         { href: "/", label: "All properties", icon: "layout-grid" },
         { href: "/insights", label: "Insights", icon: "layout-dashboard" },
-        { href: "/crm", label: "CRM", icon: "briefcase" },
-        { href: "/support", label: "Support", icon: "life-buoy" },
+        { href: "/segments", label: "Segments", icon: "filter" },
+        {
+          href: "/agents",
+          label: "Agents",
+          icon: "users",
+          prefix: true,
+          ...(pendingApprovals ? { meta: num(pendingApprovals) } : {}),
+        },
+        {
+          href: "/tasks",
+          label: "Tasks",
+          icon: "list-checks",
+          prefix: true,
+          ...(myTasks ? { meta: num(myTasks) } : {}),
+        },
+        { href: "/crm", label: "CRM", icon: "briefcase", prefix: true },
+        { href: "/support", label: "Support", icon: "life-buoy", prefix: true },
+        { href: "/social", label: "Social", icon: "share-2" },
+        { href: "/prospecting", label: "Prospecting", icon: "radar" },
+        { href: "/ugc-videos", label: "UGC videos", icon: "clapperboard" },
         { href: "/alerts", label: "Alerts", icon: "bell" },
       ],
     },

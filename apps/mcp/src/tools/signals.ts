@@ -1,12 +1,20 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { and, desc, eq, isNull } from "drizzle-orm";
-import { schema } from "@falorb/db";
+import { schema, resolveAiCredentials } from "@falorb/db";
 import { AiSignalError, generateSignal, type SignalKind } from "@falorb/ai";
-import { breakdown, contentInterests, entryPages, exitPages, topDropoffs, type DateRange } from "@falorb/queries";
+import {
+  RANGE_DESCRIPTION,
+  breakdown,
+  contentInterests,
+  entryPages,
+  exitPages,
+  parseRange,
+  topDropoffs,
+  type DateRange,
+} from "@falorb/queries";
 import type { McpContext } from "../context";
 import { requireScope, resolveProjects } from "../context";
-import { parseRange, RANGE_DESCRIPTION } from "../range";
 import { ago, failure, text } from "../format";
 import { hotLeads } from "./leads";
 
@@ -130,6 +138,10 @@ export function registerSignalTools(server: McpServer, ctx: () => McpContext): v
         const projectRow = projectId != null ? scope.projects.find((p) => p.id === projectId) : undefined;
         let body: string;
 
+        // The organization's own AI gateway and model when it has connected
+        // one (see `resolveAiCredentials`), else the deployment's key.
+        const credentials = await resolveAiCredentials(db, scope.organizationId, projectId ?? null);
+
         try {
           if (kind === "content") {
             const [pages, entries, exits, interests, interestsPrev] = await Promise.all([
@@ -146,7 +158,7 @@ export function registerSignalTools(server: McpServer, ctx: () => McpContext): v
               exitPages: exits,
               interests,
               interestsPreviousPeriod: interestsPrev,
-            });
+            }, credentials);
           } else if (kind === "sales") {
             const projectIds = isPortfolioSales ? scope.projectIds : [projectId!];
             const leads = await hotLeads(
@@ -174,7 +186,7 @@ export function registerSignalTools(server: McpServer, ctx: () => McpContext): v
                 propertiesVisited: lead.projectCount,
                 interests: lead.interestScores,
               })),
-            });
+            }, credentials);
           } else if (kind === "marketing") {
             const [channels, channelsPrev] = await Promise.all([
               breakdown(clickhouse, { projectIds: [projectId!], range: dateRange, field: "channel", limit: 8, orderBy: "revenue" }),
@@ -189,7 +201,7 @@ export function registerSignalTools(server: McpServer, ctx: () => McpContext): v
               channels,
               channelsPreviousPeriod: channelsPrev,
               referralLinks: links.map((l) => ({ label: l.label, code: l.code })),
-            });
+            }, credentials);
           } else {
             const [interests, interestsPrev, dropoffs] = await Promise.all([
               contentInterests(clickhouse, { projectIds: [projectId!], range: dateRange, limit: 15 }),
@@ -201,7 +213,7 @@ export function registerSignalTools(server: McpServer, ctx: () => McpContext): v
               interests,
               interestsPreviousPeriod: interestsPrev,
               dropoffs,
-            });
+            }, credentials);
           }
         } catch (error) {
           return failure(error instanceof AiSignalError ? error.message : "Could not generate a recommendation.");

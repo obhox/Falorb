@@ -1,9 +1,8 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { FILTERABLE_FIELDS } from "@falorb/queries";
+import { FILTERABLE_FIELDS, RANGE_DESCRIPTION, parseRange } from "@falorb/queries";
 import type { McpContext } from "../context";
 import { resolveProjects } from "../context";
-import { parseRange, RANGE_DESCRIPTION } from "../range";
 import { failure, num, table, text } from "../format";
 
 /**
@@ -38,10 +37,13 @@ export function registerDiscoveryTools(server: McpServer, ctx: () => McpContext)
             { header: "Name", get: (p) => p.name },
             { header: "Domains", get: (p) => p.domains.join(", ") },
             { header: "Timezone", get: (p) => p.timezone },
+            { header: "What it does", get: (p) => p.profileSummary ?? "not crawled yet" },
           ],
           "No projects.",
         ) +
-          `\n\nPass a slug as \`project\`, or omit it (or use "all") to query the whole portfolio at once.`,
+          `\n\nPass a slug as \`project\`, or omit it (or use "all") to query the whole portfolio at once. ` +
+          `"What it does" is crawled from each property's own homepage — see list_prospect_sources for how ` +
+          `that feeds prospecting.`,
       );
     },
   );

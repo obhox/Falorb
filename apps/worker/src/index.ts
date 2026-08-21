@@ -8,6 +8,11 @@ import { resolveIdentities } from "./jobs/identity-resolver";
 import { sessionize } from "./jobs/sessionizer";
 import { optimizeAggregates, rebuildPathTransitions, refreshSegmentCounts } from "./jobs/rollups";
 import { enrichCompanies } from "./jobs/enrichment";
+import { listenReddit } from "./jobs/reddit-listener";
+import { listenHackerNews } from "./jobs/hackernews-listener";
+import { listenJobs } from "./jobs/job-listener";
+import { profileProperties } from "./jobs/property-profiler";
+import { enrichProspectsViaClay } from "./jobs/clay-enrichment";
 import { scoreInterests } from "./jobs/interest-scorer";
 import { evaluateAlerts } from "./jobs/alerts";
 import { dispatchWebhooks, reviveWebhooks } from "./jobs/webhooks";
@@ -15,6 +20,14 @@ import { enforceRetention, processDataRequests, pruneOrphanedPersons } from "./j
 import { sendWeeklyDigests } from "./jobs/digest";
 import { syncLinki } from "./jobs/linki-sync";
 import { syncBundAi } from "./jobs/bund-ai-sync";
+import { syncBuffer } from "./jobs/buffer-sync";
+import { generateUgcVideos } from "./jobs/ugc-video-gen";
+import {
+  enqueueAgentTasks,
+  enqueueDueAgents,
+  runQueuedAgentRuns,
+  settleApprovals,
+} from "./jobs/agents";
 
 /**
  * Worker entrypoint.
@@ -111,6 +124,57 @@ scheduler.add({
 });
 
 scheduler.add({
+  name: "reddit-listener",
+  intervalMs: 15 * MINUTE,
+  timeoutMs: 10 * MINUTE,
+  run: async () => {
+    await listenReddit(context, watermarks);
+  },
+});
+
+scheduler.add({
+  name: "hackernews-listener",
+  intervalMs: 15 * MINUTE,
+  timeoutMs: 10 * MINUTE,
+  run: async () => {
+    await listenHackerNews(context, watermarks);
+  },
+});
+
+// Per-org, unlike reddit/hackernews above — spends a connected org's own
+// paid Exa/Firecrawl credits, so this runs less often and caps how many
+// keywords it processes per org per run (see job-listener.ts).
+scheduler.add({
+  name: "job-listener",
+  intervalMs: 30 * MINUTE,
+  timeoutMs: 15 * MINUTE,
+  run: async () => {
+    await listenJobs(context);
+  },
+});
+
+// Rarely: a property's homepage doesn't change day to day, and — like
+// job-listener above — this spends a connected org's own paid Exa/Firecrawl
+// credits per crawl.
+scheduler.add({
+  name: "property-profiler",
+  intervalMs: 6 * 60 * MINUTE,
+  timeoutMs: 15 * MINUTE,
+  run: async () => {
+    await profileProperties(context);
+  },
+});
+
+scheduler.add({
+  name: "clay-enrichment",
+  intervalMs: 30 * MINUTE,
+  timeoutMs: 15 * MINUTE,
+  run: async () => {
+    await enrichProspectsViaClay(context);
+  },
+});
+
+scheduler.add({
   name: "alerts",
   intervalMs: 5 * MINUTE,
   timeoutMs: 5 * MINUTE,
@@ -168,6 +232,27 @@ scheduler.add({
   },
 });
 
+scheduler.add({
+  name: "buffer-sync",
+  intervalMs: 15 * MINUTE,
+  timeoutMs: 20 * MINUTE,
+  run: async () => {
+    await syncBuffer(context);
+  },
+});
+
+// Short interval: this is user-facing, someone is on the review page
+// waiting for their video to finish rendering. No-ops with zero DB writes
+// when no org has connected ElevenLabs (Settings -> Integrations).
+scheduler.add({
+  name: "ugc-video-gen",
+  intervalMs: MINUTE,
+  timeoutMs: 5 * MINUTE,
+  run: async () => {
+    await generateUgcVideos(context);
+  },
+});
+
 // Housekeeping runs rarely and is skipped at boot: a restart loop should not
 // repeatedly kick off deletes and table optimizations.
 scheduler.add({
@@ -202,6 +287,43 @@ scheduler.add({
   },
 });
 
+/**
+ * The AI-employee shift system (FEATURES.md §19).
+ *
+ * Four small sweeps rather than one, because they have genuinely different
+ * cadences and costs. Enqueueing is a cheap indexed lookup and can run often
+ * so that assigning a task to an agent feels immediate. Executing costs real
+ * model calls, so it runs on its own slower beat with a small per-sweep cap
+ * — an agent platform's characteristic failure is spending money faster than
+ * anyone notices, and the cheapest place to bound that is here.
+ *
+ * `skipOnBoot` on the executor for the same reason `digest` has it: a
+ * restart loop must not fire a paid shift on every boot.
+ */
+scheduler.add({
+  name: "agents-enqueue",
+  intervalMs: MINUTE,
+  run: async () => {
+    await enqueueDueAgents(context);
+    await enqueueAgentTasks(context);
+  },
+});
+
+scheduler.add({
+  name: "agents-run",
+  intervalMs: 2 * MINUTE,
+  timeoutMs: 15 * MINUTE,
+  skipOnBoot: true,
+  run: () => runQueuedAgentRuns(context),
+});
+
+scheduler.add({
+  name: "agents-approvals",
+  intervalMs: MINUTE,
+  timeoutMs: 5 * MINUTE,
+  run: () => settleApprovals(context),
+});
+
 // Reclaim stream entries orphaned by a writer that died before acknowledging.
 const reclaimTimer = setInterval(() => {
   void writer.reclaimStale().catch((e) => console.error("[reclaim]", String(e)));
@@ -234,7 +356,7 @@ process.on("SIGTERM", () => void shutdown("SIGTERM"));
 process.on("SIGINT", () => void shutdown("SIGINT"));
 
 console.log(
-  `[worker] ${instanceId} started — ${context.projectIds.length} active projects, ${16} scheduled jobs`,
+  `[worker] ${instanceId} started — ${context.projectIds.length} active projects, ${21} scheduled jobs`,
 );
 
 await writer.start();

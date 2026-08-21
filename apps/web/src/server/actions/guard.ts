@@ -28,6 +28,11 @@ const REQUIREMENT: Record<Capability, string> = {
   actOnIntegrations: "be a member or above",
   manageIntegrations: "be an owner or admin",
   manageCrm: "be a member or above",
+  manageUgcVideos: "be a member or above",
+  manageAgents: "be an owner or admin",
+  runAgents: "be a member or above",
+  manageTasks: "be a member or above",
+  reviewAgentWork: "be a member or above",
 };
 
 /** Returns null when permitted, or the failure to hand straight back. */

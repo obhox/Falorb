@@ -2,8 +2,10 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Badge, Card, Icon, Tag } from "@falorb/ui";
+import { can } from "@falorb/db";
 import { requireSession } from "@/server/session";
 import { getPerson } from "@/server/people";
+import { listDataRequests } from "@/server/data-requests";
 import {
   acquisitionChain,
   personInterests,
@@ -17,8 +19,17 @@ import { PersonTimeline } from "@/components/PersonTimeline";
 import { CrmActionsCard } from "./CrmActionsCard";
 import { CrmProfileCard } from "./CrmProfileCard";
 import { CompanyResearchCard } from "./CompanyResearchCard";
+import { DataRequestsCard } from "./DataRequestsCard";
+import { MergeCard } from "./MergeCard";
+import { listMergeHistory } from "@/server/merges";
 import { getLinkedContact, isLinkiConnected } from "@/server/actions/crm";
-import { ensureDealStages, getCrmProfile, listDealsForPerson } from "@/server/crm";
+import {
+  ensureDealStages,
+  getCrmProfile,
+  listCampaignRunsForPerson,
+  listDealsForPerson,
+  listSentMessagesForPerson,
+} from "@/server/crm";
 import { getTeam } from "@/server/team";
 import {
   countryLabel,
@@ -73,7 +84,7 @@ export default async function PersonPage({
   const projectsById = new Map(session.projects.map((p) => [p.id, p]));
 
   const orgId = session.workspace.organizationId;
-  const [usage, timeline, acquisition, interests, linkiConnected, linkedContact, crmProfile, dealStages, team] =
+  const [usage, timeline, acquisition, interests, linkiConnected, linkedContact, crmProfile, dealStages, team, dataRequests, mergeHistory] =
     await Promise.all([
       personProjects({ personId: person.id, projectIds }),
       personTimeline({ personId: person.id, projectIds, limit: 100 }),
@@ -84,8 +95,12 @@ export default async function PersonPage({
       getCrmProfile(orgId, person.id),
       ensureDealStages(orgId),
       getTeam(orgId),
+      listDataRequests(orgId, person.id),
+      listMergeHistory(orgId, person.id),
     ]);
   const personDeals = crmProfile ? await listDealsForPerson(orgId, person.id) : [];
+  const sentMessages = linkedContact ? await listSentMessagesForPerson(orgId, person.id) : [];
+  const campaignRuns = linkedContact ? await listCampaignRunsForPerson(orgId, person.id) : [];
   const owners = team.members.map((m) => ({ id: m.userId, name: m.name ?? m.email }));
   const ownerName = crmProfile?.ownerId ? (owners.find((o) => o.id === crmProfile.ownerId)?.name ?? null) : null;
 
@@ -385,9 +400,58 @@ export default async function PersonPage({
               }))}
             />
 
-            <CrmActionsCard personId={person.id} connected={linkiConnected} contact={linkedContact} />
+            <CrmActionsCard
+              personId={person.id}
+              connected={linkiConnected}
+              contact={linkedContact}
+              sentMessages={sentMessages.map((m) => ({
+                id: m.id,
+                subject: m.subject,
+                status: m.status,
+                acceptedAt: m.acceptedAt,
+              }))}
+              campaignRuns={campaignRuns.map((r) => ({
+                runId: r.runId,
+                workflowName: r.workflowName,
+                status: r.status,
+                startedAt: r.startedAt,
+              }))}
+            />
 
             <CompanyResearchCard personId={person.id} company={company} />
+
+            <DataRequestsCard
+              personId={person.id}
+              canRequest={can.manageProject(session.workspace.role)}
+              requests={dataRequests.map((r) => ({
+                id: r.id,
+                kind: r.kind,
+                status: r.status,
+                createdAt: r.createdAt.toISOString(),
+                completedAt: r.completedAt?.toISOString() ?? null,
+                error: r.error,
+              }))}
+            />
+
+            <MergeCard
+              personId={person.id}
+              canMerge={can.manageProject(session.workspace.role)}
+              history={mergeHistory.map((m) => {
+                const snapshot = m.mergedSnapshot as Record<string, unknown>;
+                const mergedLabel =
+                  (snapshot?.name as string) ||
+                  (snapshot?.email as string) ||
+                  (snapshot?.identifiedId as string) ||
+                  personLabel(m.mergedId);
+                return {
+                  id: m.id,
+                  mergedLabel,
+                  aliasCount: m.aliasCount,
+                  reverted: m.revertedAt != null,
+                  createdAt: m.createdAt.toISOString(),
+                };
+              })}
+            />
 
             <Card title="Context" subtitle="Most recent observed">
               <div style={{ display: "grid", gap: 10 }}>

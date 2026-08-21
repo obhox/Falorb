@@ -13,7 +13,7 @@ Living record of what exists, what is half-built, and what has not been started.
 
 **Where things stand:** the collection pipeline, storage layer, identity graph,
 query layer, background workers, MCP server and self-serve account system are
-complete and verified. The dashboard is built — 33 routes on the Falorb design
+complete and verified. The dashboard is built — 41 routes on the Falorb design
 system, light and dark, role-enforced. Most routes are driven end to end by
 Playwright; the eight newest — sales lead actions, the weekly digest, the
 product signal's drop-off data, the public benchmark report, the referral
@@ -23,10 +23,12 @@ referral-boosted waitlist (§14e–§14j below) — are verified manually
 not yet in that suite. It does
 not yet cover the whole backend: see *Backend surface not yet in the dashboard*.
 The external-integrations layer (§13 — Linki for sales/outreach, Bund AI for
-support) is built and typechecks clean end to end, but **no organization has
-connected real credentials yet**, so none of it has run against live data —
-see §13 for exactly what "built" means here versus what is still verified.
-Verification commands are in [README.md](README.md).
+support, Clay for prospect contact enrichment) is built and typechecks clean
+end to end. Clay has been connected and exercised live (§17); Linki and Bund
+AI have not — no organization has connected real credentials to either yet,
+so that half has not run against live data. See §13 for exactly what "built"
+means here versus what is still verified. Verification commands are in
+[README.md](README.md).
 
 ---
 
@@ -146,7 +148,7 @@ Verified end to end: one person, two devices, two products, both stores agreeing
 
 ## 7. Workers — `apps/worker`
 
-13 of the 16 below verified running via `pnpm --filter @falorb/worker verify:jobs`; `digest` typechecks and doesn't touch its siblings, but isn't in that runner yet since exercising it live sends real email and makes a real OpenRouter call. `linki-sync` and `bund-ai-sync` are in the runner (no-op cleanly with zero connected orgs) but have never processed a real org, since none has connected credentials yet — see §13.
+13 of the 17 below verified running via `pnpm --filter @falorb/worker verify:jobs`; `digest` typechecks and doesn't touch its siblings, but isn't in that runner yet since exercising it live sends real email and makes a real OpenRouter call. `linki-sync`, `bund-ai-sync`, and `buffer-sync` are in the runner (no-op cleanly with zero connected orgs) but have never processed a real org, since none has connected credentials yet — see §13.
 
 | | Job | Every | Notes |
 |---|---|---|---|
@@ -164,6 +166,7 @@ Verified end to end: one person, two devices, two products, both stores agreeing
 | ✅ | `digest` | 7d, `skipOnBoot` | Regenerates all four AI signals per project and emails one summary per org to its owners/admins; opt-out per org (`organizations.weeklyDigestEnabled`, on by default) |
 | 🟡 | `linki-sync` | 15m | Full paginated poll of a connected Linki workspace into `crm.*` (contacts, lists, workflows, runs, run profiles/tracks, pipeline stages, opportunities, signal rules, suppressions, sent messages), upserted on `(organizationId, linkiId)`. Typechecks, in `verify:jobs`; never run against a real Linki workspace — see §13 |
 | 🟡 | `bund-ai-sync` | 15m | Same shape, into `support.*` (conversations, escalations, leads, tickets) from a connected Bund AI business. Poll-only — the inbound-webhook push half is not built; see §13 |
+| 🟡 | `buffer-sync` | 15m | Full poll (cursor-paginated, not `limit`/`offset`) of a connected Buffer account into `social.*` (channels + posting schedule/limits, posts + metrics + failure text), upserted on `(organizationId, bufferId)`; walks the account's Buffer organizations, and flags channels that stopped coming back as disconnected. Queries are built from the live schema — see §13b |
 | ✅ | Scheduler | — | Redis distributed locks, watermarks, overlap guard |
 | ✅ | `webhooks` | 1m | Fires on goal conversion; HMAC over `timestamp.body`, auto-disables after 20 failures |
 | ✅ | `webhook-revive` | 6h | Re-enables hooks disabled by a transient outage |
@@ -206,7 +209,7 @@ Verified end to end: one person, two devices, two products, both stores agreeing
 
 | | Feature | Notes |
 |---|---|---|
-| ✅ | 213 unit tests | core 82, ingest 61, queries 30, worker 7, web 21, sdk-node 12 |
+| ✅ | 272 unit tests | core 82, ingest 61, buffer-client 48, queries 30, ai 12, sdk-node 12, worker 11, web 9, research 4, clay-client 3 |
 | ✅ | Injection-safety suite | Prototype pollution, wildcard leakage, param binding |
 | ✅ | Query smoke runner | 32 queries against live ClickHouse |
 | ✅ | Job verifier | Runs all 11 jobs once |
@@ -267,7 +270,7 @@ own AI reading it over MCP.
 | ⬜ | OAuth providers | `account` table ready; none configured |
 | ⬜ | Billing / plan limits | |
 
-## 13. Integrations — Linki + Bund AI built; generic multi-service design superseded
+## 13. Integrations — Linki + Bund AI + Buffer + Clay built; generic multi-service design superseded
 
 The generic "any service, inbound or outbound, via `integrations` /
 `integration_syncs` / `integration_mappings`" design that used to live here
@@ -275,44 +278,191 @@ was never built. What got built instead is more specific: deep, two-way
 integration with two of the operator's own products — **Linki** (sales
 outreach/CRM) and **Bund AI** (AI customer support) — each running as its own
 independently-deployed service that Falorb calls into and mirrors, rather
-than a generic connector framework. The full phased plan (with named risk
-gates for the parts that touch live external systems) lives outside this repo
-at `~/.claude/plans/modular-gathering-cocoa.md`; this section tracks what of
+than a generic connector framework, plus two simpler, hosted-SaaS providers
+that reuse the exact same `integrationConnections` table rather than needing
+their own: **Buffer** (social post scheduling) and **Clay** (contact
+enrichment for prospects discovered off-site, §17). The full phased plan for
+Linki/Bund AI (with named risk gates for the parts that touch live external
+systems) lives outside this repo at
+`~/.claude/plans/modular-gathering-cocoa.md`; Buffer's plan is
+`~/.claude/plans/composed-drifting-crystal.md`. This section tracks what of
 it actually exists in code.
 
 ### Shape (what was actually built)
 
-Falorb never becomes Linki's or Bund AI's database. Each stays the owner of
-its own execution — real LinkedIn/email sending in Linki, real customer chat
-in Bund AI — and Falorb is a client + a read mirror:
+Falorb never becomes Linki's, Bund AI's, or Buffer's database. Linki and Bund
+AI stay the owner of their own execution — real LinkedIn/email sending in
+Linki, real customer chat in Bund AI; Buffer is a hosted third-party SaaS with
+no execution of Falorb's to own. In all three cases Falorb is a client + a
+read mirror:
 
 - **Credential storage** — `schema.integrationConnections`
   (`packages/db/src/schema/integrations.ts`), one `provider`-discriminated
-  table (`linki` | `bund_ai`) rather than one table per service, so a third
-  integration (e.g. a queued Postiz connection for social posting) reuses it.
-  API keys are AES-256-GCM encrypted (`packages/db/src/crypto.ts`,
-  `INTEGRATION_CREDENTIAL_ENC_KEY`) — envelope encryption with a key outside
-  the database, exactly as the old design constraints called for, since these
-  must be decryptable to use, unlike `api_keys.keyHash`.
+  table (`linki` | `bund_ai` | `buffer` | `clay` | `exa` | `firecrawl` |
+  `elevenlabs`) rather than one table per service. API keys are AES-256-GCM
+  encrypted (`packages/db/src/crypto.ts`, `INTEGRATION_CREDENTIAL_ENC_KEY`) —
+  envelope encryption with a key outside the database, since these must be
+  decryptable to use, unlike `api_keys.keyHash`.
+- **Property-level overrides** — a row is either org-level (`projectId`
+  null) or one property's own override (`projectId` set), same table, same
+  shape, distinguished by two partial unique indexes rather than a second
+  table: `(organizationId, provider)` where `projectId is null`, and
+  `(organizationId, projectId, provider)` where `projectId is not null`. Read
+  side is `activeConnection` in `apps/web/src/server/integrations.ts`: it
+  prefers the calling property's own row and falls back to the
+  organization's when the property has none for that provider. Write side is
+  each property's Settings → Integrations panel
+  (`apps/web/src/app/(app)/p/[project]/settings/IntegrationsPanel.tsx`),
+  calling `connectProjectIntegration`/`testProjectIntegrationConnection`/
+  `revokeProjectIntegrationConnection`
+  (`apps/web/src/server/actions/integrations.ts`) — same
+  connect/verify/revoke shape as the organization's panel, just scoped to
+  one property's row instead. Wired into the read path today for Exa/
+  Firecrawl (`content-draft.ts`'s `researchTopic`, which already has a
+  property in scope) and exposed on every getter (`getBufferClient`,
+  `getResearchClients`, etc. all take an optional `projectId`) for callers
+  that gain property scope later. The periodic mirror/enrichment jobs
+  (`linki-sync`, `bund-ai-sync`, `buffer-sync`, `clay-enrichment`,
+  `ugc-video-gen`) deliberately stay org-level only — they pull one
+  provider's full account into org-scoped mirror tables
+  (`crm.*`/`support.*`/`social.*`) with no property dimension to mirror a
+  property's override into, so a property override is read on demand, never
+  swept by a background job.
 - **Typed clients** — `packages/linki-client`, `packages/bund-ai-client`,
-  thin wrappers confirmed against each product's real `/api/v1/*` contract
-  (not guessed).
-- **Mirror** — `packages/db/src/schema/crm.ts` (13 tables) and
-  `packages/db/src/schema/support.ts` (5 tables), pulled by
-  `apps/worker/src/jobs/{linki-sync,bund-ai-sync}.ts` — see §7. Sync health is
-  `integrationConnections.lastSyncedAt`, not a separate `integration_syncs`
-  table.
+  `packages/buffer-client`, `packages/clay-client`,
+  `packages/elevenlabs-client`, thin wrappers confirmed against each
+  product's real API contract (not guessed) — except `buffer-client`, built
+  against Buffer's live GraphQL schema, which the client introspects rather
+  than hardcoding; see §13b for why and what that buys. Buffer, Clay, and ElevenLabs are all
+  proof the one-table design scales past the original two providers: none
+  needed a schema change to add, just a new `provider` enum value and a new
+  client with the same `verifyConnection()` shape the generic
+  connect/test/revoke actions already call — ElevenLabs' UGC video pipeline
+  (§18) is a second consumer of that same machinery, not a special case
+  bolted on beside it.
+- **Mirror** — `packages/db/src/schema/crm.ts` (13 tables),
+  `packages/db/src/schema/support.ts` (5 tables), and
+  `packages/db/src/schema/social.ts` (2 tables: channels, posts), pulled by
+  `apps/worker/src/jobs/{linki-sync,bund-ai-sync,buffer-sync}.ts` — see §7.
+  Sync health is `integrationConnections.lastSyncedAt`, not a separate
+  `integration_syncs` table. Clay and ElevenLabs have no table here — Clay's
+  enrichment writes to `prospects` (§17) instead, and ElevenLabs' output is
+  generated content Falorb creates via the API, not a mirror of pre-existing
+  external data — see §18.
 - **Identity resolution** — a set-based SQL backfill after each sync links a
   mirrored contact/lead/conversation to a Falorb `person` by email match (or,
   for Bund AI conversations, `identifiedId` == the widget's `externalUserRef`,
   best-effort). This is the `person_aliases`-adjacent resolution the old
   design called out as "the hard part" — implemented directly rather than via
   a new alias kind, since a CRM contact isn't a device/session identity the
-  way `person_aliases` models.
-- **Manual actions** — `apps/web/src/server/actions/{crm,support}.ts`: push a
-  signal to Linki, create/update a Linki contact, resolve a Bund AI
-  escalation. Deliberately per-record and human-clicked (`can.actOnIntegrations`,
-  member tier), not the bulk/automated flow described below.
+  way `person_aliases` models. Buffer's mirror has no equivalent: a scheduled
+  or sent post isn't naturally scoped to one analytics person, so
+  `social.ts` carries no `personId` column.
+- **Manual actions** — `apps/web/src/server/actions/{crm,support,social}.ts`:
+  push a signal to Linki, create/update a Linki contact, resolve a Bund AI
+  escalation, compose and publish a Buffer post. Deliberately per-record and
+  human-clicked (`can.actOnIntegrations`, member tier), not a bulk/automated
+  flow.
+
+### 13b. Buffer specifics
+
+Buffer's third-party API access has a messy history that shaped this
+integration's auth model:
+
+- Buffer closed third-party OAuth app registration in 2019, revoking existing
+  integrations. A new GraphQL API (`api.buffer.com`) relaunched in beta in
+  early 2026, but — per Buffer's own docs plus independent developer
+  write-ups — it issues **personal API keys scoped to one Buffer account**,
+  with no "connect someone else's account" OAuth flow for third parties. The
+  legacy REST API, which did support real OAuth, accepts no new app
+  registrations and is being retired February 1, 2027.
+- Given that, this integration deliberately uses the personal-key model —
+  the same shape as Linki/Bund AI's connect form — rather than building
+  speculative OAuth/token-refresh infrastructure against an approval process
+  of unknown availability. The real limitation this carries: **each Falorb
+  organization can only connect one Buffer account it personally controls**,
+  not an arbitrary customer's, unlike a true third-party OAuth integration
+  would allow. This is a Buffer platform restriction, not a Falorb gap —
+  documented here rather than silently designed around.
+- Buffer's endpoint is fixed (`https://api.buffer.com`, exported as
+  `BUFFER_API_ENDPOINT`), unlike Linki/Bund AI which are self-hosted — same
+  shape as Clay's and ElevenLabs' fixed roots. `IntegrationsPanel.tsx`'s
+  shared `HAS_BASE_URL` map skips the base-URL field in the connect dialog
+  for all three, and the server-side `FIXED_BASE_URL` map (in
+  `apps/api/src/routes/integrations.ts` and
+  `apps/web/src/server/actions/integrations.ts`) fills the value in rather
+  than trusting the client to send it, so
+  `integration_connections.base_url` still has a value for every provider
+  without a schema exception.
+- Buffer's GraphQL API is Relay-cursor-paginated (`after`/`first` →
+  `edges`/`pageInfo`), unlike Linki/Bund AI's `limit`/`offset` REST
+  pagination — `BufferClient.listPosts` cursor-walks internally rather than
+  `buffer-sync.ts` driving pages itself, so there's no `paginateAll` helper
+  reused there.
+- **The client builds its queries from the live schema, not from the docs.**
+  The first version hardcoded selection sets taken from Buffer's developer
+  docs, and the first real API key rejected them:
+
+  ```
+  Field "weeklyPostingLimit" of type "WeeklyPostingLimit" must have a
+  selection of subfields.   extensions: { code: GRAPHQL_VALIDATION_FAILED }
+  ```
+
+  — a field the docs list flat is an object type in the running beta schema,
+  and because that is a *validation* error it arrives as **HTTP 200** with a
+  top-level `errors[]` array, not a 4xx. Rather than guessing a second time
+  against an API still changing under us, `packages/buffer-client/src/schema.ts`
+  introspects the schema once per client and builds every selection set,
+  argument list, enum value and mutation payload shape from what Buffer
+  actually exposes: a scalar is selected bare, an object gets its own
+  subfields expanded, a union payload (`Post | InvalidInputError`) gets
+  `__typename` plus inline fragments, and a field Buffer doesn't have is
+  dropped instead of failing the query. This also means `channels(organizationId:)`
+  and `channels(input:)` both work without this package picking a side.
+- **Three layers of tolerance**, in order: introspection-driven queries; a
+  rebuild-and-retry that drops exactly the fields a validation error blamed;
+  and, if introspection itself is unavailable, a conservative documented query
+  set that asks only for fields that are scalars in every version of the docs
+  (so a sync still runs, with the object-typed extras null).
+- Buffer serialization is still not pinned by contract:
+  `dueAt`/`sentAt`/`metricsUpdatedAt` may be ISO strings or Unix seconds, so
+  `normalize.ts` passes both through unchanged and `buffer-sync.ts`'s
+  `toDate()` parses either. `weeklyPostingLimit` is stored twice — the
+  flattened cap in `social_channels.weekly_posting_limit` and the object it
+  came from in `weekly_posting_limit_detail` — so an inner-field rename costs
+  the number, not the data.
+- A Buffer *account* can own several Buffer *organizations*, and `channels`
+  is scoped to one: `listChannels()` resolves the account's organizations and
+  merges, de-duplicated by channel id, recording the owning organization in
+  `social_channels.buffer_organization_id`. `verifyConnection()` reports the
+  organization count at connect time, because "connected, zero organizations"
+  is the shape of a key that will mirror nothing.
+- Everything above is unit-tested against a hand-built introspection fixture
+  (`packages/buffer-client/src/schema.fixture.ts`, 48 tests) rather than a
+  live account, since CI has no Buffer key — the fixture is deliberately
+  shaped around the `weeklyPostingLimit` mismatch that broke the first cut.
+
+### 13c. AI gateways — bring your own model (OpenRouter, Ramp Router)
+
+Every AI feature in Falorb — the four signals (§14e), the weekly digest
+(§14f), content drafts (§14h), outreach drafts, property profiles (§17),
+UGC scripts (§18), and the agent loop (§19) — is a prompt sent to somebody
+else's gateway. That gateway used to be fixed: OpenRouter, on the
+deployment's own `OPENROUTER_API_KEY`, one key and one bill for everyone on
+the instance. An organization can now bring its own instead, through the
+same `integrationConnections` table every other provider uses.
+
+| | Feature | Notes |
+|---|---|---|
+| ✅ | Two gateways | **OpenRouter** (openrouter.ai) and **Ramp Router** (router.com). Both put many vendors' models behind one key; picking between them is the org's call, not the deployment's |
+| ✅ | Two protocols, one interface | They do **not** speak the same API. OpenRouter speaks OpenAI *chat completions* (`POST /chat/completions`, `messages`, `tool_calls`); Ramp Router speaks OpenAI *responses* (`POST /responses`, `input`, `function_call` output items) and documents no chat-completions endpoint at all. `packages/ai/src/transport.ts` is the only module that knows which — `complete()`, `chat()` and every caller above them work in one `ChatMessage`/`ChatResult` shape. Tool calling works on both |
+| ✅ | Bring your own **model**, not just your own key | `integration_connections.model`, set on the connect form or changed afterwards without re-entering the key. Blank means the provider's default: `openrouter/auto` on OpenRouter (its own per-request selection — the platform's deliberate non-pinning default, see §14e), and *nothing* on Ramp Router, which has no auto model |
+| ✅ | Model picker reads the live catalogue | `GET /models` against the stored key, not a hardcoded list: OpenRouter carries hundreds and changes them weekly, and Ramp Router's callable ids are key-specific — its own docs say the display names in its model table are not necessarily valid `model` values. The text field stays authoritative, so a model newer than the list is still typeable and a gateway that won't answer the list request can't block a change |
+| ✅ | Per-property override | Same override-with-fallback rule as every other provider (§13): a property's own connection wins, else the organization's, else the deployment's `OPENROUTER_API_KEY`. `resolveAiCredentials` (`packages/db/src/ai-credentials.ts`) is the single implementation, shared by the dashboard, the worker and the MCP server so the three can't drift |
+| ✅ | Both gateways connectable at once | An org trying Ramp Router while keeping its OpenRouter key. Most recently updated active connection wins, so connecting or reconnecting one is what switches to it — and Settings → Integrations marks which is **in use** rather than leaving it implicit |
+| ✅ | Verified on connect, like every other provider | OpenRouter is checked against `GET /key`, deliberately **not** `GET /models`: its model list is public and answers 200 for a completely invalid key, so verifying against it would report every typo as a working connection. Ramp Router's `GET /models` *is* key-scoped, so there it is the right check |
+| ✅ | Nothing breaks for anyone who ignores it | A null credential falls through to `OPENROUTER_API_KEY` inside `complete()`/`chat()` themselves, so an organization that connects nothing behaves exactly as it did before |
+| 🟡 | Ramp Router verified against docs, not a live key | The responses-API request/response mapping in `transport.ts` is written against router.com's published API (`https://api.router.com/v1`, bearer auth, `/responses` + `/models`); no live Ramp Router key was available while building it. Cost reporting is the one known gap: OpenRouter returns `usage.cost` and Ramp Router does not, so an agent running on Ramp Router shows a token count and a zero spend. Same caveat `packages/buffer-client` carries above |
 
 ### Not yet built
 
@@ -327,22 +477,42 @@ in Bund AI — and Falorb is a client + a read mirror:
   `POST /api/integrations/bund-ai/events` to receive it yet — `bund-ai-sync`
   is poll-only, which the design always treated as an acceptable fallback,
   not a broken half-measure.
-- **Full read-only dashboard.** Only a person's linked Linki contact (on
-  `/people/[personId]`) and Bund AI escalations (`/support`) are visible.
-  Contacts/lists/workflows/runs/opportunities list views, and Bund AI
-  conversations/leads/tickets views, are not built.
+- **Full read-only dashboard.** `/crm` now covers contacts (full paginated
+  mirror at `/crm/contacts`, plus the pre-existing unmatched-backlog tab),
+  workflows, lists, signal rules, runs (`/crm/runs/[id]` for per-target,
+  per-channel track state), sent messages and suppressions. `/support` now
+  has detail pages for all four entities (`/support/{conversations,
+  escalations,leads,tickets}/[id]`) showing the fields the list tables omit
+  — a ticket's `description`, a lead's `phone`/`notes`, and each entity's
+  originating conversation via `conversationId`; a conversation's detail
+  page shows what it turned into (which escalations/leads/tickets trace
+  back to it).
+- **Buffer post editing/deletion/queue reordering.** Only `createPost` is
+  wired to a manual action (`/social`); `BufferClient.deletePost` exists but
+  nothing in the UI calls it yet, and `movePostInQueue`/`editPost` aren't in
+  the client at all.
+- **Buffer aggregated analytics.** Per-post metrics mirror into
+  `socialPosts.metrics`, but Buffer's `aggregatedPostMetrics` query (rollups
+  across a filtered post set) isn't pulled — no dashboard view needs it yet.
 - **MCP exposure** — no `list_crm_contacts`/`get_sync_status`-style tools yet,
   matching the old design's intent that connect/disconnect and any write stay
   out of MCP's reach regardless.
 
 ### Design constraints carried over from the old plan, honored
 
-- Credentials encrypted at rest, never returned by any API response.
+- Credentials encrypted at rest, never returned by any API response. Clay's
+  connect form additionally never redisplays the stored key at all — the
+  panel shows only the last-4 preview, same convention as `api_keys`.
 - Every connection and every mirrored row is per-organization.
 - A resolution to an existing person is never guessed — email or an explicit
   `identify()`-equivalent signal only, same standard as `person_aliases`.
+  (Clay's enrichment writes to `prospects`, §17, which is deliberately
+  outside `person_aliases` — a prospect is not a resolved identity.)
 - Sync failures are visible (`integrationConnections.status`/`lastError`),
   not silently indistinguishable from "nothing changed."
+- Connect/disconnect stays a dashboard-only action for every provider,
+  including Clay and ElevenLabs — no MCP tool can create, rotate, or revoke
+  a credential.
 
 ### Not planned
 
@@ -350,9 +520,12 @@ Anything that ships personal data to an ad network for cross-site retargeting.
 That would reintroduce, through a side door, exactly the tracking this platform
 deliberately does not do. Generic, arbitrary-service integrations (Stripe,
 HubSpot, Slack, Shopify, Search Console) remain unbuilt and are no longer the
-near-term direction — Linki and Bund AI cover sales/support, and a queued
-third integration (Postiz, for social posting) follows the same
-provider-specific pattern rather than a generic connector framework.
+near-term direction — Linki and Bund AI cover sales/support, and Buffer now
+covers social posting. Postiz (the open-source, self-hosted social scheduler
+originally queued for this slot) was not built — Buffer was chosen instead
+once this specific integration was requested; Postiz remains a separate,
+undecided possibility if a self-hosted alternative is wanted later, not
+something this work replaced.
 
 ## 14. Dashboard — `apps/web`
 
@@ -391,6 +564,8 @@ layer.
 | ✅ | `/settings/mcp` | API keys + MCP connection config |
 | ✅ | `/settings/new` | Add a property |
 | ✅ | `/insights` | Cross-project builder — metric × dimension × chart, people across products |
+| ✅ | `/prospecting` | Org-wide list of prospects discovered off-site (social listening) with contact enrichment and outreach drafting — see §17 |
+| 🟡 | `/ugc-videos`, `/ugc-videos/[id]` | Generate and review AI UGC-style videos, queue them for posting — see §18. Typechecks, never exercised against a live ElevenLabs connection |
 | ✅ | `/alerts` | Delivery channels, rules, firing history |
 | 🟡 | `/support` | Bund AI escalations mirrored from a connected business, resolvable in one click; see §13. Typechecks, never exercised against a live connection |
 | ✅ | `/share/[token]` | Public read-only property summary |
@@ -473,10 +648,10 @@ query layer.
 | ✅ | Sales: structured hot-leads list with actions | The signal panel used to be prose-only. Each hot lead (from the same `hotLeads()` data) now renders as a row with a "Mark contacted" toggle (`persons.contactedAt`/`contactedBy` — a human-only field, deliberately separate from the visitor-supplied, `identify()`-merged `traits` bag) and a "Draft outreach message" button that calls OpenRouter with that one lead's data for a personalized 3-5 sentence draft, shown in a copyable field |
 | ✅ | Portfolio-scoped caching | `ai_signals.projectId` is nullable, mirroring `dashboards.projectId`'s existing precedent for the same reason; a portfolio-wide signal is scoped by `organizationId` instead and reads the same regardless of which project's page triggered it |
 | ✅ | Cached, not generated per page load | 5-minute regenerate cooldown per `(projectId, kind)` pair, same shape as the rate limiting elsewhere in the dashboard |
-| ✅ | Model selection | Defaults to `"openrouter/auto"` (OpenRouter picks per request) rather than pinning one; `OPENROUTER_MODEL` overrides with a single model or a comma-separated fallback list |
+| ✅ | Model selection | Defaults to `"openrouter/auto"` (OpenRouter picks per request) rather than pinning one; `OPENROUTER_MODEL` overrides with a single model or a comma-separated fallback list. An organization that has connected its own gateway (§13c) chooses its own model instead, and that choice wins over this env var |
 | ✅ | Plain-text output, guaranteed | A prompt instruction against markdown is not reliable on its own — verified live that models still reach for `**bold**` and `##` headers — so `stripMarkdown` strips it programmatically after generation. Deliberately skips underscore-based emphasis: the context data is full of snake_case field names (`utm_source`, `content_tag`) the model echoes back, and a naive single-underscore rule would merge two unrelated words together |
-| ✅ | Graceful failure | No `OPENROUTER_API_KEY` configured, an unreachable upstream, an empty response, and a real `402` (insufficient OpenRouter credits, hit live during testing) all surface as a clear toast, never a crash |
-| ✅ | Shared across web and worker | The OpenRouter call, prompts and markdown-stripping moved to their own package, `packages/ai` — not `@falorb/core`, which is documented as pure/browser-safe and gets bundled into the client; a secret-holding network call must never live there. `apps/web/src/server/ai.ts` re-exports it behind the app's server-only boundary; `apps/worker`'s digest job (§14f) imports it directly |
+| ✅ | Graceful failure | No credentials at all (neither a connected gateway nor `OPENROUTER_API_KEY`), an unreachable upstream, an empty response, a rejected key, and a real `402` (insufficient OpenRouter credits, hit live during testing) all surface as a clear toast, never a crash |
+| ✅ | Shared across web and worker | The gateway call, prompts and markdown-stripping moved to their own package, `packages/ai` — not `@falorb/core`, which is documented as pure/browser-safe and gets bundled into the client; a secret-holding network call must never live there. `apps/web/src/server/ai.ts` re-exports it behind the app's server-only boundary; `apps/worker`'s digest job (§14f) imports it directly |
 | 🟡 | Playwright coverage | Verified manually for all four kinds and both sales scopes, including a real generated recommendation end to end; no automated coverage yet |
 
 ## 14f. Weekly digest email
@@ -546,17 +721,18 @@ pre-launch to attach it to.
 
 ## 14k. Web research — Exa + Firecrawl
 
-Two platform-level API keys, the same shape as `OPENROUTER_API_KEY` — a
-secret Falorb itself holds to call a third-party research API, not a
-per-organization connection like Linki or Bund AI (§13). Grounds two
+Two per-organization connections through Settings → Integrations (§13), the
+same shape as Linki/Bund AI/Clay — connected from `IntegrationsPanel.tsx`,
+stored in `integrationConnections`, no platform-wide key. Grounds two
 existing AI features in real web content instead of the LLM's own guesses.
 
 | | Feature | Notes |
 |---|---|---|
-| ✅ | `packages/research` | Exa (`searchWeb`) and Firecrawl (`scrapeUrl`) clients, one `*ApiError` class each, same fetch/timeout/error-shape convention as `@falorb/ai`'s `complete()`. `apps/web/src/server/research.ts` re-exports behind the app's server-only boundary |
-| ✅ | Content drafts research | `draftContentPage` (§14h) now calls `researchTopic` first: Exa searches the topic to see what already ranks, Firecrawl does a full scrape of the closest match for real depth/structure, both folded into the OpenRouter prompt so the draft is differentiated rather than a generic overview. Falls back to the interest-data-only prompt if `EXA_API_KEY` is unset or Exa errors — never blocks the draft |
-| ✅ | Company research | New "Research this company" action on the person profile's Company card (`CompanyResearchCard.tsx`, `enrichCompany` action) — fills `companies.industry`/`employeeRange`/`linkedinUrl`, fields the automatic ASN-based enrichment job (§4, `apps/worker/src/jobs/enrichment.ts`) never populates since it only ever learns a network operator's registered name. Firecrawl scrapes the company's own homepage, Exa searches for supplementary context, one short OpenRouter call extracts only what the content actually states — told explicitly to leave a field `unknown` rather than infer it. Gated by `writeAnalysis` (member+), same manual-and-explicit shape as every other AI-backed write. Skipped entirely for an ASN-only placeholder company (`as12345`, no real domain to research) |
-| ✅ | Independent, graceful degradation | Either key can be set alone — a missing key on one side just skips that step rather than failing the caller. Both blank disables web research entirely; every other feature is unaffected |
+| ✅ | `packages/research` | `ExaClient`/`FirecrawlClient`, same shape as `@falorb/linki-client`/`@falorb/clay-client` so they plug into the generic connect/test/revoke actions unchanged — `EXA_DEFAULT_BASE_URL`/`FIRECRAWL_DEFAULT_BASE_URL` are supplied server-side like Clay's, so their connect dialogs ask only for an API key, no base URL. `ExaClient.verifyConnection()` is a minimal 1-result `/search` (no dedicated health endpoint); `FirecrawlClient.verifyConnection()` is the free `GET /v1/team/credit-usage` (no credits spent, unlike scrape/search) — both verified live against real accounts, including the 401 path for a bad key |
+| ✅ | Exa and Firecrawl are fallbacks for each other | Never called together for one request: `search()` (`orchestrate.ts`) tries a connected Exa client first and only reaches for Firecrawl's own search if the org has no Exa connection or Exa errors; `fetchPage()` tries a connected Firecrawl client first and only reaches for Exa's `/contents` if the org has no Firecrawl connection or it errors. `apps/web/src/server/integrations.ts`'s `getResearchClients(organizationId)` builds the `{exa, firecrawl}` client bag each caller passes in — a `null` entry just means that provider isn't connected |
+| ✅ | Content drafts research | `draftContentPage` (§14h) now calls `researchTopic` first: a web search for the topic sees what already ranks, folded into the OpenRouter prompt so the draft is differentiated rather than a generic overview. Falls back to the interest-data-only prompt if the organization has connected neither provider or both error — never blocks the draft |
+| ✅ | Company research | "Research this company" action on the person profile's Company card (`CompanyResearchCard.tsx`, `enrichCompany` action) — fills `companies.industry`/`employeeRange`/`linkedinUrl`, fields the automatic ASN-based enrichment job (§4, `apps/worker/src/jobs/enrichment.ts`) never populates since it only ever learns a network operator's registered name. A scrape of the company's own homepage feeds one short OpenRouter call that extracts only what the content actually states — told explicitly to leave a field `unknown` rather than infer it. Verified live: a Firecrawl scrape of a real homepage (anthropic.com) correctly extracted "AI research and products" as industry and left size/LinkedIn blank rather than inventing them. Gated by `writeAnalysis` (member+); connecting/revoking Exa or Firecrawl itself is gated by `manageIntegrations` (admin+), same split as every other integration. Skipped entirely for an ASN-only placeholder company (`as12345`, no real domain to research) |
+| ✅ | Graceful degradation | An organization that has connected neither provider (or whose connected one errors) gets a clean `ResearchUnavailableError`/toast rather than a blocked action — the underlying fallback logic is unit-independent of *how* a client was obtained, so this carries over unchanged from when it was verified against the both-unconfigured env-var case |
 
 ## 15. SDKs
 
@@ -575,6 +751,215 @@ existing AI features in real web content instead of the LLM's own guesses.
 | ✅ | Backups | `infra/backup.sh` — incremental ClickHouse, verified gzip for Postgres |
 | ⬜ | Rollout to the operator's own live sites | one deployment instrumenting every property in the portfolio |
 
+## 17. Prospecting — social listening & contact enrichment
+
+The other half of "who to contact" alongside §14e's on-site hot leads: people
+discovered talking about the product somewhere the organization doesn't own,
+not people already tracked as visitors. Deliberately a new table
+(`prospects`) rather than a `persons` row with no site history —
+`persons.ts`'s docblock is an explicit privacy boundary ("every field is
+derived from first-party activity on the org's own properties") that an
+externally-discovered person does not fit.
+
+| | Feature | Notes |
+|---|---|---|
+| ✅ | `prospects` schema | Source, excerpt, matched keywords, AI relevance score, contact-enrichment cache (mirrors `companies`'s `raw`/`enrichedAt`/`lookupFailedAt` shape), status, owner-set `contactedAt`/`contactedBy`, optional `personId` for a future **human-confirmed** merge only |
+| ✅ | `prospect_keywords` | Per-project listening config — configured on that property's own Settings tab even though results are consumed org-wide, same split as goals/referral links |
+| ✅ | `packages/core/src/prospect-sources.ts` | One registry describing every value `prospects.source` can hold (Reddit, Hacker News, job postings) — what it is and why a match there matters, in plain language, so both the dashboard and an AI reasoning over the MCP tools understand a source without reading its worker job. Browser-safe, used by `ProspectList.tsx`'s badges and `list_prospect_sources` alike |
+| ✅ | Clay credential storage | Reuses §13's shared `integrationConnections` table (`provider = "clay"`) rather than a prospecting-specific one — same envelope encryption (`packages/db/src/crypto.ts`, `INTEGRATION_CREDENTIAL_ENC_KEY`) Linki/Bund AI already use. `packages/clay-client` is the typed client, same `verifyConnection()` shape as `LinkiClient`/`BundAiClient` |
+| ✅ | `reddit-listener` worker job | 15m. Platform-wide Reddit app-only OAuth (no per-org credential needed — unlike Clay, nothing here is org-specific), soft-disables without `REDDIT_CLIENT_ID`/`REDDIT_CLIENT_SECRET`. Per-keyword try/catch, dedup on `(org, source, source_id)`. In `verify:jobs` |
+| ✅ | `hackernews-listener` worker job | 15m. Algolia's public HN Search API — keyless, so unlike Reddit this never soft-disables. Searches stories and comments in one call, unlike Reddit's posts-only public search. Same per-keyword try/catch and dedup shape as `reddit-listener`. In `verify:jobs` |
+| ✅ | `job-listener` worker job | 30m. The one listening source with no free public API: reuses each org's own connected Exa/Firecrawl `integrationConnections` (the same research providers company research and content drafting already use) rather than adding a fourth paid integration. Query text biased toward job boards (`site:linkedin.com/jobs`, Indeed, Lever, Greenhouse, Ashby, Workday) since neither client exposes a domain filter. No natural post id, so `sourceId` is a hash of the result URL. Capped at 10 keywords and 6 results/keyword per org per run. Deliberately **excluded** from `verify:jobs` — spends a connected org's own paid Exa/Firecrawl credits, same reasoning as `clay-enrichment` |
+| ✅ | `prospect-relevance.ts` | AI relevance scoring shared by all three listeners (moved out of `reddit-listener.ts` once Hacker News/job-search made the duplication real) — one prompt, one parser, and it degrades gracefully insertion-side on a scoring failure, never dropping the underlying discovery. Reads each source's description from `prospect-sources.ts` and, when crawled, the matched property's `profileSummary` (below), so scoring has more to reason with than a bare project name |
+| ✅ | Property profile crawl (`projects.profile*`, `property-profiler` worker job, `packages/research/src/property-profile.ts`) | What a property actually is, in its own words: crawls the property's homepage (via the org's connected Exa/Firecrawl, same as `company-research.ts`) and has AI extract a summary, ideal-customer sentence, key features, and suggested prospecting keywords — a direct answer to "what to track, what to sell, what to listen for" per property rather than a bare name. The worker job picks up a project two ways: never crawled (`profileCrawledAt` null — covers onboarding automatically, no separate "on create" trigger needed) or stale (>30d); negative-result caching (`profileCrawlFailedAt`) mirrors `enrichCompanies`. 6h interval, capped at 5 projects/org/run. Deliberately **excluded** from `verify:jobs`, same reasoning as `job-listener`. The manual "Re-crawl" action on `/p/[project]/settings` (`PropertyProfileCard.tsx`) runs the identical crawl-and-summarize logic on demand, gated `writeAnalysis` like `enrichCompany` |
+| ✅ | Suggested keywords on the Settings tab | `ProspectKeywordsCard` surfaces `profileSuggestedKeywords` (from the crawl) as one-click "add" buttons, filtered down to terms not already watched — never auto-added, same manual-confirmation posture as every other AI suggestion in this app |
+| ✅ | `clay-enrichment` worker job | 30m. Per-org loop over connected Clay `integrationConnections`, each org's own try/catch so one bad/rotated key can't stop the sweep; negative-result caching like `enrichCompanies`. Sync health lives on the connection row (`lastSyncedAt`/`lastError`), same convention as `linki-sync`/`bund-ai-sync` — no separate run-history table. Deliberately **excluded** from `verify:jobs` — unlike every other job there, a live run spends a connected org's own paid Clay credits. Covered instead by a unit test of the response parsing (`packages/clay-client/src/index.test.ts`) |
+| ✅ | `/prospecting` | Top-level route, not a per-project tab — a prospect is discovered via one project's keywords but the useful view is portfolio-wide, same reasoning as `hotLeads`'s `"portfolio"` scope. Source badges carry each source's description as a tooltip. Mark contacted, dismiss, draft outreach (AI, grounded in the specific public post/posting and — when crawled — the property's own profile; never implies an on-site relationship that never happened) |
+| ✅ | Clay on `/settings/integrations` | A third `ProviderCard` alongside Linki/Bund AI, not a bespoke panel — reuses the generic connect/test/revoke actions unchanged. Its connect dialog has no Base URL field (Clay has one fixed API root, set server-side); gated `manageIntegrations` (admin+), the same tier every other integration credential uses |
+| ✅ | MCP tools | `apps/mcp/src/tools/prospects.ts` — `list_prospect_sources` (what each source is), `list_prospects`, `get_prospect`, `list_prospect_keywords` (read); `mark_prospect_contacted`, `dismiss_prospect`, `draft_prospect_outreach` (now grounded in the property's crawled profile when one exists), `add_prospect_keyword`, `remove_prospect_keyword` (write). `list_projects` (`discovery.ts`) now includes each property's crawled summary. Connect/disconnect, and triggering a re-crawl, deliberately **not** exposed, per §13's stated integrations rule and the same "spends real money per call" reasoning `ugc-video-gen` MCP exposure stays out for |
+| ✅ | Verified | Full monorepo typecheck + test suite (`prospect-relevance.test.ts`, `hackernews-listener.test.ts`, `job-listener.test.ts`, `property-profile.test.ts` cover the new parsing/hashing logic), `verify:jobs` (`reddit-listener`/`hackernews-listener` run cleanly; `job-listener`/`property-profiler` excluded for the cost reasons above, matching `clay-enrichment`'s precedent) |
+| 🟡 | Playwright coverage | Verified via typecheck/tests/`verify:jobs` as above; no automated end-to-end coverage yet, same gap as every other §14d–§14j feature; no live walkthrough against a running dev stack for this pass |
+| ⬜ | Comment/social platforms beyond Reddit/Hacker News | X/LinkedIn need a paid API tier or a listening-as-a-service vendor; deliberately deferred to keep the free-tier sources at zero cost |
+
+---
+
+## 18. UGC AI video generation — script, voice, and a talking avatar video
+
+Built in-house rather than integrating a single UGC vendor (Arcads, HeyGen,
+Synthesia) — a chain of calls Falorb owns end to end: a script
+(`@falorb/ai`'s `complete()`, same OpenRouter path §14e's AI signals use), a
+voiceover, then a lip-synced talking video animating a user-supplied
+presenter photo. The voice and video stages both go through ElevenLabs —
+their Flows video API added an image+audio-to-video lipsync model
+(`creatify-aurora`) in 2026, so one vendor now covers both stages rather than
+a separate TTS vendor and a separate avatar vendor.
+
+ElevenLabs is connected exactly like Linki/Bund AI/Clay (§13): each org
+brings its own ElevenLabs account via `integrationConnections`
+(`provider: "elevenlabs"`) on `/settings/integrations`, not a Falorb-wide
+shared key. An org's own voices (including any clones) and its own billing —
+not a pooled credential every org draws against.
+
+Org-wide (`/ugc-videos`), not a per-project tab — same reasoning as §17: a
+UGC ad is marketing content for the business, not analysis of one property's
+traffic. A video's `projectId` is an optional tag for which property/brand
+it's for, not an ownership scope.
+
+| | Feature | Notes |
+|---|---|---|
+| ✅ | `ugc_videos` schema | Org-scoped, optional `projectId` tag. `status` is both the lifecycle and the resume point (`pending → script_ready → voice_ready → video_processing → ready`, or `failed`) — plain `text()`, UI-driven vocabulary, same convention as `prospects.status`. Presenter photo and generated voiceover stored as base64 `text` (Falorb has no object storage yet; both are small — see the table's own docblock for why introducing a blob store solely for this one feature would be premature). The final video itself is **not** re-hosted — `videoUrl` points at ElevenLabs' own output URL |
+| ✅ | `ugc_video_post_queue` schema | A human-curated "post this" to-do list, not automated posting — Postiz (queued, §13) doesn't exist yet. Nothing transitions an entry out of `queued` except a person clicking "mark posted" on the review page |
+| ✅ | `elevenlabs` on `integration_provider` | Fourth value on the enum `packages/db/src/schema/integrations.ts` already had (`linki`/`bund_ai`/`clay`) — no new table, same encrypted-credential row shape as the other three |
+| ✅ | `@falorb/elevenlabs-client` | Thin client for `POST /v1/text-to-speech/{voice_id}` (confirmed against ElevenLabs' stable docs) and the Flows video API `POST /v1/flows/video` + `GET /v1/flows/video/{id}` (2026, still beta on ElevenLabs' side — the request schema for `creatify-aurora` is confirmed, the completed-generation response shape is not, so `getVideoGeneration` checks several plausible field names rather than asserting one; same "verify before production traffic" caveat `@falorb/clay-client` carries for its own contract). `verifyConnection()` pings `GET /v1/user` — cheapest authenticated call that doesn't spend generation credits, same "who am I" reasoning `ClayClient`'s equivalent method gives |
+| ✅ | ElevenLabs on `/settings/integrations` | A fourth `ProviderCard`, not a bespoke panel — reuses the generic connect/test/revoke actions unchanged. Its connect dialog has no Base URL field (ElevenLabs has one fixed API root, set server-side, `ELEVENLABS_DEFAULT_BASE_URL`), gated `manageIntegrations` (admin+), same tier every other integration credential uses |
+| ✅ | `ugc-video-gen` worker job | 1m interval — short, deliberately, since this is user-facing and someone is on the review page waiting. Per-organization loop over connected `elevenlabs` `integrationConnections`, same shape as `clay-enrichment.ts`: each org's own decrypted key, each org's own try/catch so one bad/revoked key can't stop the sweep for other orgs, connection health (`lastSyncedAt`/`status`/`lastError`) reflects the run. Within one org's batch, advances **one stage per row per tick** rather than running the whole chain in one call, so a crash mid-chain resumes from the last persisted stage instead of re-running (and re-billing) earlier stages; a `video_processing` row stuck past 10 minutes is treated as failed rather than left stranded forever. No-ops with zero DB writes when no org has connected ElevenLabs. Deliberately **excluded** from `verify:jobs`, same reasoning as `clay-enrichment` — a live run spends a connected org's own paid ElevenLabs credits |
+| ✅ | `/ugc-videos` | Brief + optional property tag + required voice ID + a required presenter photo upload in, a `status: "pending"` row out — generation is entirely the worker job's responsibility, never awaited inside the request/response cycle. Refuses to insert the row (with a link to Settings → Integrations) if the org has no active ElevenLabs connection, rather than accepting a brief that can never advance past `pending`. List shows every video with a status badge and an inline player once `ready` |
+| ✅ | `/ugc-videos/[id]` | Script, video player, and the queue-for-posting form (platform, caption, optional target date) once `ready`; existing queue entries with mark-posted/cancel actions |
+| ✅ | Capability | New `can.manageUgcVideos` (member tier) — same trust tier as `manageCrm`/`writeAnalysis` for *using* an already-connected account; connecting/revoking the ElevenLabs credential itself is `manageIntegrations` (admin+), the same split every other provider draws between "connect it" and "use it" |
+| ⬜ | MCP tools | Not exposed — generation spends real money per call, same reasoning integrations' write actions stay out of MCP's reach (§13) |
+| ⬜ | Automated posting | Deliberately out of scope until Postiz (§13's queued third integration) lands. The post queue exists so a finished video isn't lost track of while that's built, not so it can fire anywhere today |
+| ⬜ | Durable video storage | `videoUrl` is ElevenLabs' own hosted URL; its retention window isn't confirmed. Mirroring finished videos into an object store is a natural follow-up once Falorb has one for any feature, not something to stand up solely for this |
+| 🟡 | Verified | Typechecks and builds; never exercised against a live ElevenLabs connection — no live account was available to confirm the Flows video API's actual completed-generation response shape (see the client's caveat above) or the `creatify-aurora` request contract end to end |
+
+---
+
+## 19. AI employees — agents that work alongside people
+
+The premise, and the reason this is not an "AI features" panel bolted onto
+the side: **an agent is a workspace member that happens to be software.** It
+has a name, a job title, a manager-written brief, a role drawn from the same
+four-value vocabulary a human member has, and it works the same task board.
+Every action it takes passes the same `can.*` check in
+`packages/db/src/roles.ts` that a person's click passes, and lands in the
+same `audit_log`. There is deliberately no second permission system for
+machines — a second interpretation of "may this actor do this" is exactly how
+one surface quietly permits what the other forbids.
+
+Work flows both ways. A human assigns a task to an agent by picking it from
+the same dropdown they would pick a colleague from. An agent hands work back
+by opening a task with a stated `handoffReason` — which is what happens
+whenever it hits something it cannot or should not do: a capability its role
+denies, a credential nobody has connected, a judgement call about a customer,
+or something that happens outside software entirely.
+
+**Skillsets, not agent types.** What makes one agent a growth analyst and
+another a support lead is only which *toolkits* it holds. There is no
+`agentType` enum the runtime switches on, because that would make "an SDR who
+also watches support tickets" inexpressible — and that combination is the
+normal shape of a job at a small company. `AGENT_PRESETS` ships six starting
+points (chief of staff, growth analyst, SDR, support lead, content
+strategist, revenue ops); after creation an agent is just an agent, and
+`preset` is provenance only.
+
+### The autonomy dial, and why it is graded on *effect*
+
+Every tool declares an effect — `read`, `internal` (changes Falorb's own
+data, reversible from the same screen), or `external` (reaches another
+product, a customer, or anything a person will see). Autonomy is graded
+against that, not against tool names or toolkits, because "does this reach
+outside the building" is the question a manager is actually answering.
+
+| Autonomy | Reads | Changes inside Falorb | Reaches outside |
+|---|---|---|---|
+| `observer` | yes | **refused** | **refused** |
+| `assisted` (default) | yes | needs approval | needs approval |
+| `autonomous` | yes | immediate | needs approval |
+
+"Autonomous" deliberately does not mean unbounded: it makes an agent fast at
+its own desk, and a named per-tool grant (`autoApproveTools`) is what lets it
+act on someone else's. `["*"]` waives every gate for an operator who wants
+that, but it is never a default, never implied, and settable only by an
+owner. Independently of all of this, the agent's `role` bounds it from above
+— a `viewer` agent set to `autonomous` with a blanket waiver still cannot
+write, because the role check runs first and nothing relaxes it.
+
+### Approvals do not block the shift
+
+When a gated tool is called, the approval row is written, the agent is told
+"this is queued, carry on, do not retry it and do not look for another route"
+(stated in its briefing, not left to inference), and it finishes the rest of
+its objective. A human decides later and the **worker** performs the action
+through the same `tool.execute` the agent would have called — never a second
+copy of the logic in the approver's request. Blocking instead would hold a
+whole shift hostage to one queued email, and a nightly agent would routinely
+resume a day after the numbers it reasoned about stopped being true.
+
+Two checks make the queue a safety feature rather than an escalation route:
+approving requires the reviewer to hold the capability the queued tool
+declares (`canDecideApproval`) — approving is exercising — and the agent's
+role is re-checked at execution time, so an approval sitting in the queue
+while somebody demoted the agent does not still fire.
+
+| | Feature | Notes |
+|---|---|---|
+| ✅ | `agents` schema | Name, job title, avatar, brief, `role` (reuses the existing `member_role` enum — welded to the human one on purpose), `autonomy`, `toolkits[]`, `autoApproveTools[]`, `projectIds[]` scope, shift interval + standing objective, and per-agent budget (`maxStepsPerRun`, `dailyRunLimit`, `dailyTokenLimit`). Vocabulary columns are plain `text()` per the `ugc.ts`/`prospecting.ts` convention; `role` is the one deliberate exception |
+| ✅ | `agent_runs` / `agent_steps` schema | One shift, and its full transcript. **The transcript lives in Postgres, not worker memory** — every model turn and tool result is written as it happens and the next turn's conversation is rebuilt from those rows. Costs a few writes per step; buys a run that survives a worker restart mid-shift, a shift a human can watch progress, and an answer to "what did it actually do" without separate logging |
+| ✅ | `tasks` / `task_comments` schema | One table for human work and agent work, because it is the same work. `assigneeType` is stored rather than derived so "assigned to a person, not yet a specific person" is expressible. `handoffReason` gets its own column rather than a line in the body — it is the single most useful thing on a handoff, and it is what tells a manager their agent is under-permissioned rather than incapable |
+| ✅ | `agent_approvals` schema | The gate. `requiredCapability` is denormalised from the tool so the reviewer's own role can be checked at decision time. `expiresAt` (72h) because a stale approval is dangerous in a way a stale task is not — "send this follow-up" agreed on Monday should not fire on Friday against numbers nobody re-read |
+| ✅ | `agent_memories` schema | What an agent still knows next week — conclusions and corrections, written by the agent itself through a tool. Without it an agent re-derives the same findings every shift and never accumulates judgement, which is the difference between a scheduled script and an employee. Scoped per agent, not per org: two agents holding contradictory beliefs is legible, whereas a shared pool would let one agent's mistake silently steer another's work |
+| ✅ | `auditLog.actorAgentId` | Agent actions land in the same log as human ones. A separate "agent activity" table would mean answering "who changed this deal" required reading two places and merging by timestamp — and the whole point is that both kinds of colleague are accountable the same way |
+| ✅ | `@falorb/agents` | The runtime: `policy.ts` (one `decide()` every gate funnels through — UI, worker, and approval-resume all call it, so they cannot drift apart), `run.ts` (the loop, resume, budget, approval raising, `executeApproval`), `prompt.ts` (briefing assembly), `presets.ts`, and the tool registry. Server-only, same boundary `@falorb/ai`/`@falorb/mailer` draw |
+| ✅ | Seven toolkits, 22 tools | `analytics` (through `@falorb/queries`, the same layer the dashboard and MCP server read — an agent computing its own aggregates would eventually report a figure a human cannot reproduce), `people`, `crm` (reads the mirror, writes to Linki), `support` (reads the mirror, resolves in Bund AI), `tasks`, `memory`, `content`. Suppression-list and duplicate-contact checks are enforced *in the tool*, not left to the prompt — putting do-not-contact in a prompt makes it a suggestion |
+| ✅ | `chat()` in `@falorb/ai` | Tool-calling turn beside the existing `complete()`, separate rather than a flag on it: different shape of interaction, and folding them together would push a `tool_calls` branch into four call sites that will never take it. Both are now thin wrappers over `transport.ts`'s `callModel`, so agents work against either supported gateway. Agents run on `openrouter/auto` like everything else — no pinned model to go stale, no per-deployment model list to maintain. What makes that safe is `provider.require_parameters`, sent whenever tools are present, so auto only considers models that support function calling; without it an agent silently degrades into one that writes prose *about* the action it would have taken |
+| ✅ | Shifts bill to the organization's own gateway | Through `@falorb/db`'s shared `resolveAiCredentials`, not a copy — the dashboard, the worker and the agent runtime have to agree on which gateway an org's AI runs against, and two implementations of that eventually disagree. The result is carried on `AgentContext`, resolved once per shift rather than per turn, because it decrypts a stored key and a gateway swapped mid-run would bill half a conversation to each. Without it every shift would quietly fall through to the deployment-wide `OPENROUTER_API_KEY`, ignoring both the connection an org configured and the model it chose. `draft_text` reads the same credentials, so a tool that itself calls a model spends the same key the shift does |
+| ✅ | `agents-enqueue` / `agents-run` / `agents-approvals` worker jobs | Enqueue is a cheap indexed lookup on a 1m beat so assigning a task feels immediate; execution costs real model calls, so it runs on its own 2m beat with a small per-sweep cap and `skipOnBoot` (a restart loop must not fire a paid shift on every boot). `nextRunAt` advances at enqueue, not completion, so a wedged run cannot push a daily agent into being a weekly one. Stalled runs are reclaimed by heartbeat and *resume* from `agent_steps` rather than re-running a billed shift |
+| ✅ | `/agents`, `/agents/[id]`, `/agents/approvals` | Roster, then brief / permissions / shifts / memory per agent, then the decision queue. Ordered as a manager reviews someone — what they did first, the settings that shaped it second |
+| ✅ | `/tasks`, `/tasks/[id]` | The shared board, with one assignee dropdown containing people and agents together. That is the smallest UI decision here and the most load-bearing: choosing who does a piece of work should not begin with choosing what *kind of thing* does it |
+| ✅ | Escalation routes closed | `canGrantAgentRole` caps an agent's role at the granter's own (otherwise an admin creates an `owner` agent and drives it); `canDecideApproval` requires the reviewer to hold the tool's capability; blanket auto-approval is owner-only. 12 unit tests in `policy.test.ts` cover each |
+| ✅ | Resume tested without a database | `rebuildMessages` is pure and exported precisely so the post-crash path can be asserted (`run.test.ts`) — see §19a |
+| ⬜ | Agent-to-agent delegation | The schema supports it (`trigger: "delegation"`, `parentTaskId`), and an agent can already create a task — but nothing lets it *assign* one to another agent. Deliberate: a delegation loop between two autonomous agents is the failure mode with no natural bound, and it needs its own depth limit before the tool exists |
+| ⬜ | Event-triggered shifts | `trigger: "alert"` is in the vocabulary and nothing emits it yet. A fired alert waking the relevant agent is the obvious next step — the alerts worker already knows when something broke |
+| ✅ | Task editing and deletion | `updateTaskAction` / `deleteTaskAction`, plus an edit card on the task page. Status and assignee are deliberately excluded from that form — both are one-click controls elsewhere on the same page, and duplicating them into a Save-button form would give one thing two ways to change that disagree about whether the change has landed |
+| ✅ | Verified against a live model | `pnpm --filter @falorb/agents verify` drives a real shift end to end. Confirmed working: the loop (43 steps, 8 turns, $0.005), tool dispatch through the real query layer, transcript persistence, the budget backstop, **the approval gate holding** under `assisted` (a `create_task` was queued, not performed), the approve → worker-execute round trip actually creating the task, and agent attribution in `audit_log`. See §19a for what that run exposed and what is still unproven |
+
+### 19a. What the live run exposed, and what is still unproven
+
+The first real shift worked and found three genuine defects, all since fixed:
+
+1. **Markdown in the report.** The briefing asks for plain prose; the model
+   opened with `## Report` and used `**bold**` regardless. The summary is
+   rendered without a markdown parser, so that showed as literal hashes on
+   screen. Now passed through `@falorb/ai`'s `stripMarkdown` — whose own
+   docblock already says an instruction alone is not reliable here. It was
+   right.
+2. **A tool call written out as text.** When the turn budget runs out the
+   loop asks for a closing report with the tools withheld — but did not
+   *say* they were withheld, so the model emitted its intended
+   `create_task` call as literal markup inside the report. The closing
+   instruction now names the constraint and gives the intent somewhere else
+   to go ("say so and leave it as a recommendation").
+3. **"Steps" meaning two different things.** The budget counts model turns;
+   `stepCount` counts transcript rows, which is several times larger. Both
+   were labelled "steps" in the same UI, so a limit of 8 sat next to a run
+   reporting 61. The budget control now says "turns".
+
+A fourth was found by review rather than by running, and is the one that
+would have hurt most: **resumed runs could not have worked.** `rebuildMessages`
+synthesised tool-call ids on the assistant side while reusing the original
+ids on the result side, so no `tool` message would have matched a preceding
+assistant `tool_calls[].id` and the first request of every resumed run would
+have been rejected outright — the failure landing precisely on the
+post-crash path the persisted transcript exists to protect. Real ids are now
+persisted, and the rebuild is a pure exported function with six tests
+(`run.test.ts`) asserting the pairing invariant directly, since a path that
+only runs after a worker dies is one normal use never exercises.
+
+Still unproven, honestly:
+
+- **The closing-report fix (2) has not been re-run** — the OpenRouter account
+  ran out of credit partway through verification. The credit-exhaustion path
+  itself is confirmed to behave correctly (run marked failed with the
+  provider's message, transcript intact, already-queued approval preserved),
+  but the corrected prompt has not been seen working.
+- **No agent has been driven by the worker's own sweeps.** `executeRun` and
+  `executeApproval` were called directly by the verify script. The scheduling,
+  claiming and heartbeat-reclaim logic in `apps/worker/src/jobs/agents.ts`
+  typechecks and follows the same locking pattern as the other jobs, but has
+  not run in a live worker process.
+- **The `crm` and `support` write tools have never fired.** Neither Linki nor
+  Bund AI is connected in this workspace (Gate A/D, §13), so those tools have
+  only ever returned their "not connected — hand this to a human" refusal.
+
 ---
 
 ## Backend surface not yet in the dashboard
@@ -586,16 +971,34 @@ the most.
 
 | Backend | State | What is missing in the UI |
 |---|---|---|
-| `dataRequests` | worker processes them | No way to raise a GDPR export or erasure. The `data-requests` job runs every 2m against rows nothing creates |
-| `segments` | table + `segment-counts` worker | People can be filtered but not *saved* as a segment; the worker caches sizes for segments that cannot be created |
-| `funnels` | table | The funnel builder is URL-only. Nothing saves a funnel, so one cannot be shared by name or reused in an alert |
-| `insights` | table | Same for the cross-project builder — the query lives in the URL and nowhere else |
 | `dashboardWidgets` | table | The design system's custom-view builder (widget grid) is not built; `/insights` is a single fixed layout |
-| `webhooks` | table + dispatcher job | No UI to register an endpoint or see delivery history |
-| `consentRecords` | ingest writes them | No UI to read the consent log |
-| `auditLog` | API writes it | No UI to read it. Written on project, key, member and person actions and visible only in Postgres |
-| `personMerges` | resolver writes it | Merge/unmerge exists in the API; the person profile cannot trigger or reverse one |
-| `closedSessions` | query exists | Not consumed — the session list uses `sessionList` |
+
+`dataRequests`, `webhooks`, `consentRecords`, `auditLog` and `personMerges` are
+now built — see §18. `closedSessions` was removed from this list: it's a
+worker-internal ingestion query (`sessionizer.ts`/`backfill.ts` roll closed
+sessions into Postgres totals against raw `events`) with different
+correctness requirements than the UI's own `sessionList` (which reads
+`events_v` live, so identity merges are reflected) — not a missing frontend
+feature, just a different consumer.
+
+`segments` is now built: a two-level condition-tree builder
+(`@/components/ConditionTreeBuilder` — AND across groups, OR within a group,
+producing the exact `Filter[]` `compileFilters`/`refreshSegmentCounts` already
+expect), a `/segments` management page (list/rename/delete, showing
+`cachedCount`/`cachedAt`), and a "Save as segment" entry point on the People
+page that scopes the saved segment to that property. Verified end to end: a
+saved segment's definition round-tripped through `refreshSegmentCounts`
+(`apps/worker/src/jobs/rollups.ts`) via `verify-jobs.ts` and its `cachedCount`
+updated in the UI.
+
+`funnels` and `insights` are now built: the funnel builder has a "Save"
+button (`apps/web/src/server/actions/funnels.ts`) alongside the existing
+read path (`listFunnels`/`SavedFunnels.tsx`), and the cross-project builder
+gained the same for the pragmatic scope it actually has today — metric,
+dimension, chart, property selection (`apps/web/src/server/actions/insights.ts`,
+`SavedInsights.tsx`) — not the fuller `kind`/query vocabulary the `insights`
+schema leaves room for later. Verified live: saved and deleted both, in both
+places.
 
 Auth internals (`account`, `session`, `verification`) are managed by better-auth
 and correctly have no UI.
@@ -640,14 +1043,32 @@ and correctly have no UI.
   verbatim payload shown in the event detail view was built from the *unmasked*
   props, preserving exactly what masking had just removed.
 
+## 18. Trust & ops surfaces — GDPR requests, audit log, webhooks, consent log, person merge
+
+The five highest-cost items from the old "Backend surface not yet in the
+dashboard" list — each already had a complete backend (a worker, a full API
+route, or just a written-to-but-unread table) and needed only UI wired onto
+it.
+
+| | Feature | Notes |
+|---|---|---|
+| ✅ | GDPR data requests | `/people/[personId]`'s new "Data requests" card. Duplicates `POST/GET /requests` in `apps/api/src/routes/people.ts` directly against `dataRequests` (same reasoning as every other action in `apps/web/src/server/actions`), gated `manageProject`. Verified live: requested an export, ran `processDataRequests` (`apps/worker/src/jobs/retention-gc.ts`) via `verify:jobs`, confirmed the card flipped to "completed" |
+| ✅ | Audit log viewer | `/settings/audit-log` — `listAuditLog` (new, paginated, actor joined from `user`) + an action-name filter sourced from `AUDIT_ACTIONS`. Readable by any workspace member, matching `/settings/team`'s read-open convention |
+| ✅ | Webhooks | `/settings/webhooks` — register/delete/enable-disable an `ops.webhooks` endpoint (distinct from an alert channel's webhook destination). Triggers are goal names, shown as clickable reference chips sourced from each property's real `listGoals`, not a blind text field. Secret shown once on creation, same UX as API key issuance. Gated `manageProject` |
+| ✅ | Consent log | `/p/[project]/consent-log`, linked from the property's Settings tab next to the consent-mode field (which was also carrying a stale warning — "server-side enforcement is not implemented yet" — contradicted by §3's actual `apps/ingest/src/consent.ts`; corrected in the same edit) |
+| ✅ | Person merge/unmerge | New "Merge duplicate profile" card on `/people/[personId]`: search (reuses `listPeople`'s existing search), merge, and a reversible history list with an unmerge button. Duplicates `POST /merge` / `POST /unmerge/:mergeId` in `apps/api/src/routes/people.ts`, gated `manageProject`. **Found and fixed a real bug while verifying this live**: interpolating a plain JS array (`merged.projectIds`) or `Date` (`merged.firstSeenAt`) directly into a drizzle `sql` template isn't reliably bound by this project's postgres.js setup — every merge attempt with a non-empty `projectIds` crashed. Fixed here by building the array/timestamp as an explicit SQL literal (`ARRAY[...]::integer[]`, `::timestamptz`), the same pattern already used correctly elsewhere (`identity-resolver.ts`'s other three `unnest()` calls, `backfill.ts`, `sessionizer.ts`). The identical bug still exists in `apps/api/src/routes/people.ts`'s `/merge` route and in `identity-resolver.ts`'s own automatic-merge path (line ~437) — flagged as a follow-up, not fixed here, since it's outside this branch's scope |
+| ✅ | Verified | Full monorepo typecheck + test suite, production build, and a live walkthrough of every item above against the dev stack, including the merge/unmerge round trip end to end (search → merge → totals updated correctly → unmerge → row restored) |
+| 🟡 | Playwright coverage | Verified manually as above; no automated coverage yet, same gap as every other dashboard feature in this document |
+
 ## Suggested next order
 
 1. Fix defect 1 (`SEED_OWNER_EMAIL`) and rotate `BETTER_AUTH_SECRET`, in that
    order — the first makes the dashboard show data, the second is cheap now and
    expensive after real accounts exist.
-2. Close the highest-cost integration gaps: GDPR data requests, then saved
-   segments and funnels. Each has a worker or a table already waiting on a UI.
-3. Audit log and consent log viewers — both are written today and readable only
-   in Postgres, which is the wrong place to look during an incident.
-4. Webhook management, then the custom-view widget builder.
+2. Apply §18's merge-bug fix to `apps/api/src/routes/people.ts` and
+   `identity-resolver.ts` — the automatic merge path runs continuously in
+   production and may be silently erroring right now.
+3. Saved funnels, saved insights and segments (condition-tree builder,
+   `/segments`, "Save as segment" on the People page) are now built.
+4. The custom-view widget builder — depends on saved insights existing first.
 5. Coolify deploy, then instrument the primary site first.

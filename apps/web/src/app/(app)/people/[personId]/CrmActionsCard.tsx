@@ -21,19 +21,41 @@ const SIGNAL_LABELS: Record<string, string> = {
   custom: "Custom",
 };
 
+export interface SentMessageView {
+  id: string;
+  subject: string | null;
+  status: string | null;
+  acceptedAt: string | null;
+}
+
+export interface CampaignRunView {
+  runId: string;
+  workflowName: string | null;
+  status: string | null;
+  startedAt: string | null;
+}
+
 /**
  * Manual, per-person actions against Linki — create/update the linked
  * contact, or push a signal. Nothing here fires automatically; every button
  * is one explicit click for the one person on screen.
+ *
+ * `sentMessages`/`campaignRuns` are read-only: Linki's synced outreach
+ * history for this contact, matched via email the same way a manually-added
+ * CRM contact (`createCrmContact`) is — not just an auto-synced one.
  */
 export function CrmActionsCard({
   personId,
   connected,
   contact,
+  sentMessages = [],
+  campaignRuns = [],
 }: {
   personId: string;
   connected: boolean;
   contact: LinkedContactView | null;
+  sentMessages?: SentMessageView[];
+  campaignRuns?: CampaignRunView[];
 }) {
   const { run, pending } = useAction();
   const [linkedinUrl, setLinkedinUrl] = useState("");
@@ -115,6 +137,76 @@ export function CrmActionsCard({
             {pending ? "Updating…" : "Update from Falorb"}
           </Button>
         </div>
+
+        {(sentMessages.length > 0 || campaignRuns.length > 0) && (
+          <div style={{ display: "grid", gap: 10, borderTop: "1px solid var(--border-subtle)", paddingTop: 14 }}>
+            {campaignRuns.length > 0 && (
+              <div style={{ display: "grid", gap: 4 }}>
+                <span
+                  style={{
+                    fontSize: "var(--size-label)",
+                    color: "var(--text-secondary)",
+                    fontWeight: "var(--wt-medium)",
+                  }}
+                >
+                  Campaigns
+                </span>
+                {campaignRuns.map((r) => (
+                  <div key={r.runId} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: "var(--size-body-sm)", color: "var(--text-body)", flex: 1, minWidth: 0 }}>
+                      {r.workflowName ?? "Unnamed workflow"}
+                    </span>
+                    <Badge tone={r.status === "completed" ? "up" : r.status === "failed" ? "down" : "neutral"}>
+                      {r.status ?? "unknown"}
+                    </Badge>
+                  </div>
+                ))}
+              </div>
+            )}
+            {sentMessages.length > 0 && (
+              <div style={{ display: "grid", gap: 4 }}>
+                <span
+                  style={{
+                    fontSize: "var(--size-label)",
+                    color: "var(--text-secondary)",
+                    fontWeight: "var(--wt-medium)",
+                  }}
+                >
+                  Emails{" "}
+                  <span style={{ color: "var(--text-muted)", fontWeight: "var(--wt-regular)" }}>
+                    ({sentMessages.length})
+                  </span>
+                </span>
+                {sentMessages.slice(0, 5).map((m) => (
+                  <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span
+                      style={{
+                        fontSize: "var(--size-body-sm)",
+                        color: "var(--text-body)",
+                        flex: 1,
+                        minWidth: 0,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                      title={m.subject ?? undefined}
+                    >
+                      {m.subject ?? "(no subject)"}
+                    </span>
+                    <Badge tone={m.status === "bounced" || m.status === "complained" ? "down" : "neutral"}>
+                      {m.status ?? "sent"}
+                    </Badge>
+                  </div>
+                ))}
+                {sentMessages.length > 5 && (
+                  <span style={{ fontSize: "var(--size-micro)", color: "var(--text-muted)" }}>
+                    +{sentMessages.length - 5} more
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         <div style={{ display: "grid", gap: 8, borderTop: "1px solid var(--border-subtle)", paddingTop: 14 }}>
           <span

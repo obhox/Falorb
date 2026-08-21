@@ -1,11 +1,32 @@
-import { resolveModel } from "./resolve-model";
+import { envCredentials, type AiCredentials } from "./credentials";
 import { stripMarkdown } from "./strip-markdown";
+import { AiTransportError, callModel } from "./transport";
 
 export { resolveModel } from "./resolve-model";
 export { stripMarkdown } from "./strip-markdown";
+export { chat, AiChatError } from "./chat";
+export type {
+  ChatMessage,
+  ChatOptions,
+  ChatResult,
+  ChatUsage,
+  ToolCall,
+  ToolSpec,
+} from "./chat";
+export {
+  AI_PROVIDERS,
+  AI_PROVIDER_BASE_URLS,
+  AI_PROVIDER_DEFAULT_MODELS,
+  AI_PROVIDER_LABELS,
+  envCredentials,
+  isAiProvider,
+} from "./credentials";
+export type { AiCredentials, AiProvider } from "./credentials";
+export { AiGatewayClient, AiGatewayError } from "./gateway-client";
+export type { GatewayModel, VerifyResult } from "./gateway-client";
 
 /**
- * The platform's OpenRouter integration, shared by every caller that turns
+ * The platform's AI-gateway integration, shared by every caller that turns
  * already-computed analytics data into written text: the four AI signals
  * (`apps/web/src/server/ai.ts`), the weekly digest worker job, per-lead
  * outreach drafts, and AI-drafted content pages.
@@ -18,6 +39,14 @@ export { stripMarkdown } from "./strip-markdown";
  * server-side code (Next.js server actions/route handlers behind
  * `apps/web/src/server`, and the worker), the same boundary `@falorb/mailer`
  * already draws for `RESEND_API_KEY`.
+ *
+ * Which gateway answers is no longer fixed. An organization can connect its
+ * own OpenRouter or Ramp Router (router.com) account in Settings →
+ * Integrations and name the model it wants — see `credentials.ts` for the
+ * two providers and `transport.ts` for the protocol difference between
+ * them. Callers that know which organization they are acting for pass its
+ * credentials; callers that do not fall back to the deployment-wide
+ * `OPENROUTER_API_KEY`, which is exactly what every caller did before.
  */
 
 export class AiSignalError extends Error {}
@@ -74,72 +103,60 @@ export interface CompletionOptions {
   /** Defaults to true. Set false when the caller's output is itself markdown
    * (e.g. a drafted content page body) rather than dashboard prose. */
   stripMarkdown?: boolean;
+  /**
+   * The organization's own AI connection (see `credentials.ts`). Omitted or
+   * null falls back to the deployment-wide `OPENROUTER_API_KEY` — the
+   * behaviour every caller had before organizations could bring their own
+   * gateway and model.
+   */
+  credentials?: AiCredentials | null;
 }
 
 /**
- * Ask the configured OpenRouter model to turn structured input into short
- * written prose. The generic building block behind `generateSignal` and any
- * other prompt-specific caller (outreach drafts, content drafts) — one fetch
- * path, one error-handling shape, one markdown-stripping pass.
+ * Ask the configured model to turn structured input into short written
+ * prose. The generic building block behind `generateSignal` and any other
+ * prompt-specific caller (outreach drafts, content drafts) — one request
+ * path, one error-handling shape, one markdown-stripping pass, whichever
+ * gateway is on the other end.
  */
 export async function complete(
   systemPrompt: string,
   userContent: unknown,
   opts: CompletionOptions = {},
 ): Promise<string> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) {
+  const credentials = opts.credentials ?? envCredentials();
+  if (!credentials) {
     throw new AiSignalError(
-      "AI recommendations are not configured — OPENROUTER_API_KEY is missing.",
+      "AI recommendations are not configured — connect OpenRouter or Ramp " +
+        "Router in Settings → Integrations, or set OPENROUTER_API_KEY.",
     );
   }
 
-  let response: Response;
+  let result;
   try {
-    response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        ...resolveModel(process.env.OPENROUTER_MODEL),
-        messages: [
-          { role: "system", content: systemPrompt },
-          {
-            role: "user",
-            content: typeof userContent === "string" ? userContent : JSON.stringify(userContent),
-          },
-        ],
-        max_tokens: opts.maxTokens ?? 1000,
-      }),
-      signal: AbortSignal.timeout(opts.timeoutMs ?? 20_000),
+    result = await callModel(credentials, {
+      messages: [
+        { role: "system", content: systemPrompt },
+        {
+          role: "user",
+          content: typeof userContent === "string" ? userContent : JSON.stringify(userContent),
+        },
+      ],
+      maxTokens: opts.maxTokens ?? 1000,
+      timeoutMs: opts.timeoutMs ?? 20_000,
     });
   } catch (error) {
-    throw new AiSignalError(
-      `Could not reach OpenRouter: ${error instanceof Error ? error.message : "unknown error"}`,
-    );
+    if (error instanceof AiTransportError) throw new AiSignalError(error.message);
+    throw error;
   }
 
-  if (!response.ok) {
-    if (response.status === 402) {
-      throw new AiSignalError("OpenRouter rejected the request: insufficient credits.");
-    }
-    throw new AiSignalError(`OpenRouter request failed (${response.status}).`);
-  }
-
-  const body = (await response.json()) as {
-    choices?: Array<{ message?: { content?: string } }>;
-  };
-  const text = body.choices?.[0]?.message?.content?.trim();
-  if (!text) {
-    throw new AiSignalError("OpenRouter returned an empty response.");
-  }
+  const text = result.content?.trim();
+  if (!text) throw new AiSignalError("The AI gateway returned an empty response.");
   return opts.stripMarkdown === false ? text : stripMarkdown(text);
 }
 
 /**
- * Ask the configured OpenRouter model to turn already-computed analytics
+ * Ask the configured model to turn already-computed analytics
  * data into one of the four short written recommendations shown on
  * `/p/[project]/signals`.
  *
@@ -148,6 +165,10 @@ export async function complete(
  * prompt says so explicitly so the model doesn't just re-describe the
  * numbers.
  */
-export async function generateSignal(kind: SignalKind, contextData: unknown): Promise<string> {
-  return complete(SYSTEM_PROMPTS[kind], contextData);
+export async function generateSignal(
+  kind: SignalKind,
+  contextData: unknown,
+  credentials?: AiCredentials | null,
+): Promise<string> {
+  return complete(SYSTEM_PROMPTS[kind], contextData, { credentials });
 }

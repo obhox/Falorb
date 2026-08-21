@@ -3,10 +3,9 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { and, eq, isNotNull, isNull } from "drizzle-orm";
 import { schema } from "@falorb/db";
-import { benchmarkReport } from "@falorb/queries";
+import { RANGE_DESCRIPTION, benchmarkReport, parseRange } from "@falorb/queries";
 import type { McpContext } from "../context";
 import { requireScope, resolveProjects } from "../context";
-import { parseRange, RANGE_DESCRIPTION } from "../range";
 import { duration, failure, num, pct, table, text } from "../format";
 
 const TOKEN_BYTES = 32;

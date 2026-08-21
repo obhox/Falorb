@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { Button, Card, Checkbox, Icon, Input, Select, Switch } from "@falorb/ui";
 import { updateProjectSettings } from "@/server/actions/project";
 import { useAction } from "@/lib/use-action";
@@ -147,9 +148,13 @@ export function SettingsForm({
                 if (entry) setConsent(entry[0] as ProjectSettings["consentMode"]);
               }}
             />
-            <span style={{ fontSize: "var(--size-micro)", color: "var(--signal-warn)" }}>
-              The tracker honours this setting. Server-side enforcement is not implemented yet, so
-              a client that ignores the setting is not currently blocked at ingest.
+            <span style={{ fontSize: "var(--size-micro)", color: "var(--text-muted)" }}>
+              Enforced at ingest, not just by the tracker — an opt-in batch with no recorded
+              consent is refused server-side.{" "}
+              <Link href={`/p/${project.slug}/consent-log`} style={{ color: "var(--text-primary)" }}>
+                View the consent log
+              </Link>
+              .
             </span>
           </div>
 

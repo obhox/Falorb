@@ -1,12 +1,16 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { and, arrayOverlaps, desc, eq, inArray, isNull } from "drizzle-orm";
-import { schema, type Database } from "@falorb/db";
+import { schema, type Database, resolveAiCredentials } from "@falorb/db";
 import { AiSignalError, complete } from "@falorb/ai";
-import { crossProjectPeople, type DateRange } from "@falorb/queries";
+import {
+  RANGE_DESCRIPTION,
+  crossProjectPeople,
+  parseRange,
+  type DateRange,
+} from "@falorb/queries";
 import type { McpContext } from "../context";
 import { requireScope, resolveProjects } from "../context";
-import { parseRange, RANGE_DESCRIPTION } from "../range";
 import { ago, failure, money, num, table, text } from "../format";
 
 export interface HotLead {
@@ -306,6 +310,7 @@ export function registerLeadTools(server: McpServer, ctx: () => McpContext): voi
               propertiesVisited: lead.projectCount,
               interests: lead.interestScores,
             },
+            { credentials: await resolveAiCredentials(db, scope.organizationId) },
           );
           return text(draft);
         } catch (error) {

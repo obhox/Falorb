@@ -1,7 +1,9 @@
+import { eq } from "drizzle-orm";
 import { Card } from "@falorb/ui";
-import { can } from "@falorb/db";
+import { can, db, schema } from "@falorb/db";
 import { requireProject } from "@/server/session";
 import { getShare } from "@/server/sharing";
+import { listProjectConnections } from "@/server/integrations";
 import {
   getCollectorHealth,
   getConnectionStatus,
@@ -14,6 +16,9 @@ import { ShareControl } from "./ShareControl";
 import { BadgeEmbedControl } from "./BadgeEmbedControl";
 import { ConnectionPanel } from "./ConnectionPanel";
 import { ProjectCreatedTracker } from "./ProjectCreatedTracker";
+import { ProspectKeywordsCard } from "./ProspectKeywordsCard";
+import { PropertyProfileCard } from "./PropertyProfileCard";
+import { IntegrationsPanel } from "./IntegrationsPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -30,11 +35,21 @@ export default async function ProjectSettingsPage({
 }) {
   const { session, project } = await requireProject((await params).project);
 
-  const [share, connection, collector, domainStatuses] = await Promise.all([
+  const [share, connection, collector, domainStatuses, keywords, integrationConnections] = await Promise.all([
     getShare(session.workspace.organizationId, project.id),
     getConnectionStatus(project.id),
     getCollectorHealth(),
     getDomainStatuses([{ id: project.id, domains: project.domains }]),
+    db()
+      .select({
+        id: schema.prospectKeywords.id,
+        keyword: schema.prospectKeywords.keyword,
+        active: schema.prospectKeywords.active,
+      })
+      .from(schema.prospectKeywords)
+      .where(eq(schema.prospectKeywords.projectId, project.id))
+      .orderBy(schema.prospectKeywords.keyword),
+    listProjectConnections(session.workspace.organizationId, project.id),
   ]);
   const origin = process.env.FALORB_APP_URL ?? "http://localhost:3000";
 
@@ -89,6 +104,33 @@ export default async function ProjectSettingsPage({
       />
       </>
       )}
+
+      <PropertyProfileCard
+        slug={project.slug}
+        profile={{
+          summary: project.profileSummary,
+          icp: project.profileIcp,
+          keyFeatures: project.profileKeyFeatures,
+          suggestedKeywords: project.profileSuggestedKeywords,
+          crawledAt: project.profileCrawledAt?.toISOString() ?? null,
+          hasDomain: project.domains.length > 0,
+        }}
+        canEdit={can.writeAnalysis(session.workspace.role)}
+      />
+
+      <ProspectKeywordsCard
+        slug={project.slug}
+        keywords={keywords}
+        suggestedKeywords={project.profileSuggestedKeywords}
+        canEdit={can.writeAnalysis(session.workspace.role)}
+      />
+
+      <IntegrationsPanel
+        slug={project.slug}
+        connections={integrationConnections}
+        canManage={can.manageIntegrations(session.workspace.role)}
+        now={Date.now()}
+      />
 
       <SettingsForm
         project={{

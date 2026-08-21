@@ -7,6 +7,7 @@ import { requireProject } from "@/server/session";
 import { getHotLead } from "@/server/sales";
 import { generateOutreachMessage } from "@/server/outreach";
 import { AiSignalError } from "@/server/ai";
+import { getAiCredentials } from "@/server/integrations";
 import type { ActionResult } from "./project";
 import { deny } from "./guard";
 
@@ -71,7 +72,11 @@ export async function draftOutreachMessage(
   if (!lead) return { ok: false, message: "No such lead." };
 
   try {
-    const draft = await generateOutreachMessage(lead, project.name);
+    const draft = await generateOutreachMessage(
+      lead,
+      project.name,
+      await getAiCredentials(session.workspace.organizationId, project.id),
+    );
     return { ok: true, message: draft };
   } catch (error) {
     return {

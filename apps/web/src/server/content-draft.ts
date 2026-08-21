@@ -1,6 +1,7 @@
 import "server-only";
+import { ResearchUnavailableError, search } from "@falorb/research";
 import { complete } from "@/server/ai";
-import { ExaApiError, FirecrawlApiError, scrapeUrl, searchWeb } from "@/server/research";
+import { getAiCredentials, getResearchClients } from "@/server/integrations";
 
 /**
  * Turns a "rising interest, thin coverage" topic into a draft landing/content
@@ -23,54 +24,41 @@ export interface ContentDraft {
 
 const BODY_DELIMITER = "---";
 
-/** Best-effort external research folded into the draft prompt, or null when unavailable. */
-async function researchTopic(topic: string): Promise<string | null> {
-  let results: Awaited<ReturnType<typeof searchWeb>>;
+/**
+ * Best-effort external research folded into the draft prompt, or null when
+ * unavailable. `search()` picks exactly one connected provider (Exa,
+ * falling back to Firecrawl only if there's no Exa connection or Exa itself
+ * errors) — this never combines both for one topic. Each is either this
+ * property's own connection (Settings → Integrations on the property) or,
+ * absent that, the organization's — a property and an organization that
+ * have connected neither just skip this step.
+ */
+async function researchTopic(topic: string, organizationId: string, projectId: number): Promise<string | null> {
+  const clients = await getResearchClients(organizationId, projectId);
+  let results: Awaited<ReturnType<typeof search>>;
   try {
-    results = await searchWeb(topic, { numResults: 5, textCharLimit: 500 });
+    results = await search(clients, topic, { limit: 5 });
   } catch (error) {
-    // EXA_API_KEY unset, or Exa itself unreachable/erroring — the draft still
-    // generates from interest data alone, same graceful-degrade shape as
-    // every other optional integration in this codebase.
-    if (error instanceof ExaApiError) return null;
+    if (error instanceof ResearchUnavailableError) return null;
     throw error;
   }
   if (!results.length) return null;
 
-  // The single best match gets a full Firecrawl scrape — cleaner, more
-  // complete markdown than Exa's inline snippet — so the draft can ground
-  // itself in one real page's actual structure and depth, not just titles.
-  let scraped: string | null = null;
-  const top = results[0];
-  if (top) {
-    try {
-      const page = await scrapeUrl(top.url, { timeoutMs: 15_000 });
-      scraped = `Closest existing page (${page.url}):\n${page.markdown.slice(0, 3000)}`;
-    } catch (error) {
-      if (!(error instanceof FirecrawlApiError)) throw error;
-      // Scrape failed (blocked, unset key, timed out) — the search snippets below still help.
-    }
-  }
-
   const snippets = results
-    .map((r) => `- ${r.title ?? r.url} (${r.url})${r.text ? `: ${r.text}` : ""}`)
+    .map((r) => `- ${r.title ?? r.url} (${r.url}): ${r.text.slice(0, 500)}`)
     .join("\n");
 
-  return [
-    `What already ranks for "${topic}" on the open web:`,
-    snippets,
-    scraped,
-  ]
-    .filter(Boolean)
-    .join("\n\n");
+  return `What already ranks for "${topic}" on the open web:\n${snippets}`;
 }
 
 export async function generateContentDraft(
   topic: string,
   contextData: unknown,
   projectName: string,
+  organizationId: string,
+  projectId: number,
 ): Promise<ContentDraft> {
-  const research = await researchTopic(topic);
+  const research = await researchTopic(topic, organizationId, projectId);
 
   const systemPrompt =
     `You are a content strategist writing a new landing/content page for ${projectName}. ` +
@@ -93,7 +81,11 @@ export async function generateContentDraft(
   const raw = await complete(
     systemPrompt,
     { topic, projectName, interestContext: contextData, ...(research ? { research } : {}) },
-    { maxTokens: 2000, stripMarkdown: false },
+    {
+      maxTokens: 2000,
+      stripMarkdown: false,
+      credentials: await getAiCredentials(organizationId, projectId),
+    },
   );
 
   return parseContentDraft(raw, topic);

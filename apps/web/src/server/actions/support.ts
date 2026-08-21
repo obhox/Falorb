@@ -59,6 +59,7 @@ export async function resolveEscalationAction(escalationId: string): Promise<Act
     });
 
     revalidatePath("/support");
+    revalidatePath(`/support/escalations/${row.id}`);
     return { ok: true, message: "Escalation resolved." };
   } catch (error) {
     const detail = error instanceof BundAiApiError ? error.message : String(error);

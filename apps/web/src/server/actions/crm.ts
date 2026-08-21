@@ -679,6 +679,7 @@ export async function getLinkedContact(
   };
 }
 
+/** Org-level connection only — a property-only override doesn't light up this org-wide "Linki connected" check; see `packages/db/src/schema/integrations.ts`. */
 export async function isLinkiConnected(organizationId: string): Promise<boolean> {
   const [row] = await db()
     .select({ id: schema.integrationConnections.id })
@@ -686,6 +687,7 @@ export async function isLinkiConnected(organizationId: string): Promise<boolean>
     .where(
       and(
         eq(schema.integrationConnections.organizationId, organizationId),
+        isNull(schema.integrationConnections.projectId),
         eq(schema.integrationConnections.provider, "linki"),
         eq(schema.integrationConnections.status, "active"),
         isNull(schema.integrationConnections.revokedAt),

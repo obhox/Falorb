@@ -39,7 +39,7 @@ export async function draftContentPage(slug: string, topic: string): Promise<Act
 
   let draft: Awaited<ReturnType<typeof generateContentDraft>>;
   try {
-    draft = await generateContentDraft(topic, topicContext, project.name);
+    draft = await generateContentDraft(topic, topicContext, project.name, session.workspace.organizationId, project.id);
   } catch (error) {
     return {
       ok: false,

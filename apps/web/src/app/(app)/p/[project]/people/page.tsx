@@ -1,12 +1,15 @@
 import { Card } from "@falorb/ui";
+import { can } from "@falorb/db";
 import { requireProject } from "@/server/session";
 import { listPeople } from "@/server/people";
+import { FILTERABLE_FIELDS } from "@/server/analytics";
 import { PageBody } from "@/components/shell/PageHeader";
 import { PeopleFilters } from "@/components/PeopleFilters";
 import { PeopleTable, type PersonListItem } from "@/components/PeopleTable";
 import { Pager } from "@/components/Pager";
 import { personLabel } from "@/lib/format";
 import { one, type SearchParams } from "@/lib/range";
+import { SaveSegmentButton } from "./SaveSegmentButton";
 
 export const dynamic = "force-dynamic";
 
@@ -68,6 +71,11 @@ export default async function ProjectPeoplePage({
 
   return (
     <PageBody>
+      {can.writeAnalysis(session.workspace.role) && (
+        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+          <SaveSegmentButton projectId={project.id} fields={FILTERABLE_FIELDS} />
+        </div>
+      )}
       <PeopleFilters
         search={term}
         identifiedOnly={identifiedOnly}

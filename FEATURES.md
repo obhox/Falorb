@@ -13,7 +13,7 @@ Living record of what exists, what is half-built, and what has not been started.
 
 **Where things stand:** the collection pipeline, storage layer, identity graph,
 query layer, background workers, MCP server and self-serve account system are
-complete and verified. The dashboard is built — 36 routes on the Falorb design
+complete and verified. The dashboard is built — 41 routes on the Falorb design
 system, light and dark, role-enforced. Most routes are driven end to end by
 Playwright; the eight newest — sales lead actions, the weekly digest, the
 product signal's drop-off data, the public benchmark report, the referral
@@ -298,11 +298,36 @@ read mirror:
 
 - **Credential storage** — `schema.integrationConnections`
   (`packages/db/src/schema/integrations.ts`), one `provider`-discriminated
-  table (`linki` | `bund_ai` | `buffer` | `clay` | `elevenlabs`) rather than
-  one table per service. API keys are AES-256-GCM encrypted
-  (`packages/db/src/crypto.ts`, `INTEGRATION_CREDENTIAL_ENC_KEY`) — envelope
-  encryption with a key outside the database, since these must be
+  table (`linki` | `bund_ai` | `buffer` | `clay` | `exa` | `firecrawl` |
+  `elevenlabs`) rather than one table per service. API keys are AES-256-GCM
+  encrypted (`packages/db/src/crypto.ts`, `INTEGRATION_CREDENTIAL_ENC_KEY`) —
+  envelope encryption with a key outside the database, since these must be
   decryptable to use, unlike `api_keys.keyHash`.
+- **Property-level overrides** — a row is either org-level (`projectId`
+  null) or one property's own override (`projectId` set), same table, same
+  shape, distinguished by two partial unique indexes rather than a second
+  table: `(organizationId, provider)` where `projectId is null`, and
+  `(organizationId, projectId, provider)` where `projectId is not null`. Read
+  side is `activeConnection` in `apps/web/src/server/integrations.ts`: it
+  prefers the calling property's own row and falls back to the
+  organization's when the property has none for that provider. Write side is
+  each property's Settings → Integrations panel
+  (`apps/web/src/app/(app)/p/[project]/settings/IntegrationsPanel.tsx`),
+  calling `connectProjectIntegration`/`testProjectIntegrationConnection`/
+  `revokeProjectIntegrationConnection`
+  (`apps/web/src/server/actions/integrations.ts`) — same
+  connect/verify/revoke shape as the organization's panel, just scoped to
+  one property's row instead. Wired into the read path today for Exa/
+  Firecrawl (`content-draft.ts`'s `researchTopic`, which already has a
+  property in scope) and exposed on every getter (`getBufferClient`,
+  `getResearchClients`, etc. all take an optional `projectId`) for callers
+  that gain property scope later. The periodic mirror/enrichment jobs
+  (`linki-sync`, `bund-ai-sync`, `buffer-sync`, `clay-enrichment`,
+  `ugc-video-gen`) deliberately stay org-level only — they pull one
+  provider's full account into org-scoped mirror tables
+  (`crm.*`/`support.*`/`social.*`) with no property dimension to mirror a
+  property's override into, so a property override is read on demand, never
+  swept by a background job.
 - **Typed clients** — `packages/linki-client`, `packages/bund-ai-client`,
   `packages/buffer-client`, `packages/clay-client`,
   `packages/elevenlabs-client`, thin wrappers confirmed against each
@@ -430,10 +455,16 @@ integration's auth model:
   `POST /api/integrations/bund-ai/events` to receive it yet — `bund-ai-sync`
   is poll-only, which the design always treated as an acceptable fallback,
   not a broken half-measure.
-- **Full read-only dashboard.** Only a person's linked Linki contact (on
-  `/people/[personId]`) and Bund AI escalations (`/support`) are visible.
-  Contacts/lists/workflows/runs/opportunities list views, and Bund AI
-  conversations/leads/tickets views, are not built.
+- **Full read-only dashboard.** `/crm` now covers contacts (full paginated
+  mirror at `/crm/contacts`, plus the pre-existing unmatched-backlog tab),
+  workflows, lists, signal rules, runs (`/crm/runs/[id]` for per-target,
+  per-channel track state), sent messages and suppressions. `/support` now
+  has detail pages for all four entities (`/support/{conversations,
+  escalations,leads,tickets}/[id]`) showing the fields the list tables omit
+  — a ticket's `description`, a lead's `phone`/`notes`, and each entity's
+  originating conversation via `conversationId`; a conversation's detail
+  page shows what it turned into (which escalations/leads/tickets trace
+  back to it).
 - **Buffer post editing/deletion/queue reordering.** Only `createPost` is
   wired to a manual action (`/social`); `BufferClient.deletePost` exists but
   nothing in the UI calls it yet, and `movePostInQueue`/`editPost` aren't in
@@ -668,17 +699,18 @@ pre-launch to attach it to.
 
 ## 14k. Web research — Exa + Firecrawl
 
-Two platform-level API keys, the same shape as `OPENROUTER_API_KEY` — a
-secret Falorb itself holds to call a third-party research API, not a
-per-organization connection like Linki or Bund AI (§13). Grounds two
+Two per-organization connections through Settings → Integrations (§13), the
+same shape as Linki/Bund AI/Clay — connected from `IntegrationsPanel.tsx`,
+stored in `integrationConnections`, no platform-wide key. Grounds two
 existing AI features in real web content instead of the LLM's own guesses.
 
 | | Feature | Notes |
 |---|---|---|
-| ✅ | `packages/research` | Exa (search) and Firecrawl (scrape) clients, same fetch/timeout/error-shape convention as `@falorb/ai`'s `complete()`. Exa and Firecrawl are fallbacks for each other, never called together for one request: `search()` tries Exa first and only reaches for Firecrawl's own search if Exa is unconfigured or errors; `fetchPage()` tries Firecrawl's scrape first and only reaches for Exa's `/contents` if Firecrawl is unconfigured or errors. `apps/web/src/server/research.ts` re-exports behind the app's server-only boundary |
-| ✅ | Content drafts research | `draftContentPage` (§14h) now calls `researchTopic` first: a web search for the topic sees what already ranks, folded into the OpenRouter prompt so the draft is differentiated rather than a generic overview. Falls back to the interest-data-only prompt if neither provider is configured or working — never blocks the draft |
-| ✅ | Company research | New "Research this company" action on the person profile's Company card (`CompanyResearchCard.tsx`, `enrichCompany` action) — fills `companies.industry`/`employeeRange`/`linkedinUrl`, fields the automatic ASN-based enrichment job (§4, `apps/worker/src/jobs/enrichment.ts`) never populates since it only ever learns a network operator's registered name. A scrape of the company's own homepage feeds one short OpenRouter call that extracts only what the content actually states — told explicitly to leave a field `unknown` rather than infer it. Gated by `writeAnalysis` (member+), same manual-and-explicit shape as every other AI-backed write. Skipped entirely for an ASN-only placeholder company (`as12345`, no real domain to research) |
-| ✅ | Graceful degradation | Both providers unconfigured or failing surfaces a clean `ResearchUnavailableError`/toast rather than blocking the caller — verified live, including both fallback directions and the both-unavailable path |
+| ✅ | `packages/research` | `ExaClient`/`FirecrawlClient`, same shape as `@falorb/linki-client`/`@falorb/clay-client` so they plug into the generic connect/test/revoke actions unchanged — `EXA_DEFAULT_BASE_URL`/`FIRECRAWL_DEFAULT_BASE_URL` are supplied server-side like Clay's, so their connect dialogs ask only for an API key, no base URL. `ExaClient.verifyConnection()` is a minimal 1-result `/search` (no dedicated health endpoint); `FirecrawlClient.verifyConnection()` is the free `GET /v1/team/credit-usage` (no credits spent, unlike scrape/search) — both verified live against real accounts, including the 401 path for a bad key |
+| ✅ | Exa and Firecrawl are fallbacks for each other | Never called together for one request: `search()` (`orchestrate.ts`) tries a connected Exa client first and only reaches for Firecrawl's own search if the org has no Exa connection or Exa errors; `fetchPage()` tries a connected Firecrawl client first and only reaches for Exa's `/contents` if the org has no Firecrawl connection or it errors. `apps/web/src/server/integrations.ts`'s `getResearchClients(organizationId)` builds the `{exa, firecrawl}` client bag each caller passes in — a `null` entry just means that provider isn't connected |
+| ✅ | Content drafts research | `draftContentPage` (§14h) now calls `researchTopic` first: a web search for the topic sees what already ranks, folded into the OpenRouter prompt so the draft is differentiated rather than a generic overview. Falls back to the interest-data-only prompt if the organization has connected neither provider or both error — never blocks the draft |
+| ✅ | Company research | "Research this company" action on the person profile's Company card (`CompanyResearchCard.tsx`, `enrichCompany` action) — fills `companies.industry`/`employeeRange`/`linkedinUrl`, fields the automatic ASN-based enrichment job (§4, `apps/worker/src/jobs/enrichment.ts`) never populates since it only ever learns a network operator's registered name. A scrape of the company's own homepage feeds one short OpenRouter call that extracts only what the content actually states — told explicitly to leave a field `unknown` rather than infer it. Verified live: a Firecrawl scrape of a real homepage (anthropic.com) correctly extracted "AI research and products" as industry and left size/LinkedIn blank rather than inventing them. Gated by `writeAnalysis` (member+); connecting/revoking Exa or Firecrawl itself is gated by `manageIntegrations` (admin+), same split as every other integration. Skipped entirely for an ASN-only placeholder company (`as12345`, no real domain to research) |
+| ✅ | Graceful degradation | An organization that has connected neither provider (or whose connected one errors) gets a clean `ResearchUnavailableError`/toast rather than a blocked action — the underlying fallback logic is unit-independent of *how* a client was obtained, so this carries over unchanged from when it was verified against the both-unconfigured env-var case |
 
 ## 15. SDKs
 
@@ -772,9 +804,6 @@ the most.
 
 | Backend | State | What is missing in the UI |
 |---|---|---|
-| `segments` | table + `segment-counts` worker | People can be filtered but not *saved* as a segment; the worker caches sizes for segments that cannot be created. No condition-tree filter builder exists anywhere in the app yet — the People page's filter bar is a flat search+checkbox, not the `Filter[]` AST `compileFilters`/`refreshSegmentCounts` already expect |
-| `funnels` | table | The funnel builder is URL-only. Nothing saves a funnel, so one cannot be shared by name or reused in an alert. `listFunnels`/`SavedFunnels.tsx` (read path) already exist — only a save/delete action is missing |
-| `insights` | table | Same for the cross-project builder — the query lives in the URL and nowhere else |
 | `dashboardWidgets` | table | The design system's custom-view builder (widget grid) is not built; `/insights` is a single fixed layout |
 
 `dataRequests`, `webhooks`, `consentRecords`, `auditLog` and `personMerges` are
@@ -784,6 +813,25 @@ sessions into Postgres totals against raw `events`) with different
 correctness requirements than the UI's own `sessionList` (which reads
 `events_v` live, so identity merges are reflected) — not a missing frontend
 feature, just a different consumer.
+
+`segments` is now built: a two-level condition-tree builder
+(`@/components/ConditionTreeBuilder` — AND across groups, OR within a group,
+producing the exact `Filter[]` `compileFilters`/`refreshSegmentCounts` already
+expect), a `/segments` management page (list/rename/delete, showing
+`cachedCount`/`cachedAt`), and a "Save as segment" entry point on the People
+page that scopes the saved segment to that property. Verified end to end: a
+saved segment's definition round-tripped through `refreshSegmentCounts`
+(`apps/worker/src/jobs/rollups.ts`) via `verify-jobs.ts` and its `cachedCount`
+updated in the UI.
+
+`funnels` and `insights` are now built: the funnel builder has a "Save"
+button (`apps/web/src/server/actions/funnels.ts`) alongside the existing
+read path (`listFunnels`/`SavedFunnels.tsx`), and the cross-project builder
+gained the same for the pragmatic scope it actually has today — metric,
+dimension, chart, property selection (`apps/web/src/server/actions/insights.ts`,
+`SavedInsights.tsx`) — not the fuller `kind`/query vocabulary the `insights`
+schema leaves room for later. Verified live: saved and deleted both, in both
+places.
 
 Auth internals (`account`, `session`, `verification`) are managed by better-auth
 and correctly have no UI.
@@ -853,8 +901,7 @@ it.
 2. Apply §18's merge-bug fix to `apps/api/src/routes/people.ts` and
    `identity-resolver.ts` — the automatic merge path runs continuously in
    production and may be silently erroring right now.
-3. Saved funnels (mostly built — only save/delete is missing), then saved
-   insights, then segments (the one genuinely new UI: a condition-tree filter
-   builder doesn't exist anywhere yet).
+3. Saved funnels, saved insights and segments (condition-tree builder,
+   `/segments`, "Save as segment" on the People page) are now built.
 4. The custom-view widget builder — depends on saved insights existing first.
 5. Coolify deploy, then instrument the primary site first.

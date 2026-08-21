@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@falorb/db";
 import { requireSession } from "@/server/session";
 import type { ActionResult } from "./project";
@@ -48,6 +48,7 @@ export async function createUgcVideo(formData: FormData): Promise<ActionResult> 
     .where(
       and(
         eq(schema.integrationConnections.organizationId, session.workspace.organizationId),
+        isNull(schema.integrationConnections.projectId),
         eq(schema.integrationConnections.provider, "elevenlabs"),
       ),
     )

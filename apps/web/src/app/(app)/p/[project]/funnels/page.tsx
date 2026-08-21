@@ -1,4 +1,5 @@
 import { Card, ChartFrame, FunnelChart } from "@falorb/ui";
+import { can } from "@falorb/db";
 import { requireProject } from "@/server/session";
 import { funnel, FilterError } from "@/server/analytics";
 import { PageBody } from "@/components/shell/PageHeader";
@@ -26,7 +27,8 @@ export default async function FunnelsPage({
   params: Promise<{ project: string }>;
   searchParams: Promise<SearchParams>;
 }) {
-  const { project } = await requireProject((await params).project);
+  const { session, project } = await requireProject((await params).project);
+  const canManage = can.writeAnalysis(session.workspace.role);
   const search = await searchParams;
   const resolved = resolveRange({
     range: one(search, "range"),
@@ -78,9 +80,10 @@ export default async function FunnelsPage({
         slug={project.slug}
         funnels={saved}
         activeSteps={serializeSteps(spec.steps)}
+        canManage={canManage}
       />
 
-      <FunnelBuilder spec={spec} />
+      <FunnelBuilder slug={project.slug} spec={spec} canSave={canManage} />
 
       {error ? (
         <Card>

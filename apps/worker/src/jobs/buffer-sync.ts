@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { decryptCredential, schema } from "@falorb/db";
 import { BufferClient, type BufferChannel, type BufferPost } from "@falorb/buffer-client";
 import type { WorkerContext } from "../context";
@@ -24,11 +24,16 @@ import type { WorkerContext } from "../context";
  */
 
 export async function syncBuffer(context: WorkerContext): Promise<void> {
+  // Org-level connections only. `socialChannels`/`socialPosts` are keyed by
+  // `organizationId` alone, with no property scope to mirror a property's
+  // own Buffer override into — that override is only ever read on demand
+  // (see `packages/db/src/schema/integrations.ts`).
   const connections = await context.db
     .select()
     .from(schema.integrationConnections)
     .where(
       and(
+        isNull(schema.integrationConnections.projectId),
         eq(schema.integrationConnections.provider, "buffer"),
         eq(schema.integrationConnections.status, "active"),
       ),

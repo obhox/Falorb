@@ -1,6 +1,7 @@
 import "server-only";
+import { fetchPage, ResearchUnavailableError } from "@falorb/research";
 import { complete } from "@/server/ai";
-import { fetchPage, ResearchUnavailableError } from "@/server/research";
+import { getResearchClients } from "@/server/integrations";
 
 export class CompanyResearchError extends Error {}
 
@@ -17,22 +18,27 @@ export interface CompanyResearchResult {
  * learns a network operator's registered name — it has no way to know what
  * the company actually does, how big it is, or its LinkedIn presence. This
  * fills that gap on demand: `fetchPage` gets the company's own homepage
- * (the single highest-signal page) from whichever provider is configured
- * — Firecrawl's real scrape, falling back to Exa's `/contents` only if
- * Firecrawl itself is unconfigured or errors — and a short OpenRouter call
- * turns that into the few structured fields `companies` has columns for,
- * explicitly told to leave a field blank rather than infer one that isn't
- * actually stated.
+ * (the single highest-signal page) from whichever provider this
+ * organization has connected — Firecrawl's real scrape, falling back to
+ * Exa's `/contents` only if there's no Firecrawl connection or it errors —
+ * and a short OpenRouter call turns that into the few structured fields
+ * `companies` has columns for, explicitly told to leave a field blank
+ * rather than infer one that isn't actually stated.
  */
-export async function researchCompany(name: string, domain: string): Promise<CompanyResearchResult> {
+export async function researchCompany(
+  name: string,
+  domain: string,
+  organizationId: string,
+): Promise<CompanyResearchResult> {
+  const clients = await getResearchClients(organizationId);
   let homepage: string;
   try {
-    const page = await fetchPage(`https://${domain}`, { timeoutMs: 20_000 });
+    const page = await fetchPage(clients, `https://${domain}`, { timeoutMs: 20_000 });
     homepage = page.text.slice(0, 3000);
   } catch (error) {
     if (error instanceof ResearchUnavailableError) {
       throw new CompanyResearchError(
-        "Web research is unavailable — configure EXA_API_KEY or FIRECRAWL_API_KEY.",
+        "Web research is unavailable — connect Exa or Firecrawl in Settings → Integrations.",
       );
     }
     throw error;

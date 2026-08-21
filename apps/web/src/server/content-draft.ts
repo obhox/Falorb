@@ -1,6 +1,7 @@
 import "server-only";
+import { ResearchUnavailableError, search } from "@falorb/research";
 import { complete } from "@/server/ai";
-import { ResearchUnavailableError, search } from "@/server/research";
+import { getResearchClients } from "@/server/integrations";
 
 /**
  * Turns a "rising interest, thin coverage" topic into a draft landing/content
@@ -25,18 +26,19 @@ const BODY_DELIMITER = "---";
 
 /**
  * Best-effort external research folded into the draft prompt, or null when
- * unavailable. `search()` picks exactly one provider (Exa, falling back to
- * Firecrawl only if Exa itself is unconfigured or erroring) — this never
- * combines both for one topic.
+ * unavailable. `search()` picks exactly one connected provider (Exa,
+ * falling back to Firecrawl only if there's no Exa connection or Exa itself
+ * errors) — this never combines both for one topic. Each is either this
+ * property's own connection (Settings → Integrations on the property) or,
+ * absent that, the organization's — a property and an organization that
+ * have connected neither just skip this step.
  */
-async function researchTopic(topic: string): Promise<string | null> {
+async function researchTopic(topic: string, organizationId: string, projectId: number): Promise<string | null> {
+  const clients = await getResearchClients(organizationId, projectId);
   let results: Awaited<ReturnType<typeof search>>;
   try {
-    results = await search(topic, { limit: 5 });
+    results = await search(clients, topic, { limit: 5 });
   } catch (error) {
-    // Neither provider configured/working — the draft still generates from
-    // interest data alone, same graceful-degrade shape as every other
-    // optional integration in this codebase.
     if (error instanceof ResearchUnavailableError) return null;
     throw error;
   }
@@ -53,8 +55,10 @@ export async function generateContentDraft(
   topic: string,
   contextData: unknown,
   projectName: string,
+  organizationId: string,
+  projectId: number,
 ): Promise<ContentDraft> {
-  const research = await researchTopic(topic);
+  const research = await researchTopic(topic, organizationId, projectId);
 
   const systemPrompt =
     `You are a content strategist writing a new landing/content page for ${projectName}. ` +

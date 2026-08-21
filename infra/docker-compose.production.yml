@@ -170,6 +170,12 @@ services:
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-}
       IPINFO_TOKEN: ${IPINFO_TOKEN:-}
+      # Decrypts each connected org's Linki/Bund AI/Buffer/Clay/Exa/Firecrawl/
+      # ElevenLabs credential before every sync/enrichment job call. This was
+      # missing from this file entirely until the "connect an integration"
+      # crash it caused was diagnosed — see the note on the `api`/`web`
+      # services below for how to set the real value.
+      INTEGRATION_CREDENTIAL_ENC_KEY: ${INTEGRATION_CREDENTIAL_ENC_KEY:-}
     depends_on:
       migrate: { condition: service_completed_successfully }
 
@@ -202,6 +208,10 @@ services:
       FALORB_TRUSTED_ORIGINS: https://dashboard.${FALORB_DOMAIN},https://${FALORB_DOMAIN}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-}
+      # See the note on `web`'s copy of this variable below — same key, both
+      # containers must have the identical value or one can decrypt what the
+      # other encrypted.
+      INTEGRATION_CREDENTIAL_ENC_KEY: ${INTEGRATION_CREDENTIAL_ENC_KEY:-}
     depends_on:
       migrate: { condition: service_completed_successfully }
 
@@ -256,6 +266,23 @@ services:
       FALORB_TRUSTED_ORIGINS: https://dashboard.${FALORB_DOMAIN},https://${FALORB_DOMAIN}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       EMAIL_FROM: ${EMAIL_FROM:-}
+      # Encrypts every Linki/Bund AI/Buffer/Clay/Exa/Firecrawl/ElevenLabs
+      # credential stored from Settings -> Integrations, and decrypts them
+      # back for `apps/web/src/server/actions/integrations.ts` and every
+      # per-org client getter. This variable did not exist anywhere in this
+      # file before — every "Connect" click was calling encryptCredential()
+      # against an unset key, throwing, and Next.js redacting that throw to
+      # an opaque digest-only error in the browser (the actual cause,
+      # "INTEGRATION_CREDENTIAL_ENC_KEY is not set", only appeared in
+      # container logs).
+      #
+      # No Coolify magic generator produces the right shape (`SERVICE_
+      # BASE64_64_*` is base64; `packages/db/src/crypto.ts` requires 64
+      # hex characters) — set this manually in the Coolify console, on
+      # this service AND `api` AND `worker` (byte-identical on all three,
+      # or a credential encrypted by one can't be decrypted by another):
+      # `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
+      INTEGRATION_CREDENTIAL_ENC_KEY: ${INTEGRATION_CREDENTIAL_ENC_KEY:-}
     depends_on:
       migrate: { condition: service_completed_successfully }
 

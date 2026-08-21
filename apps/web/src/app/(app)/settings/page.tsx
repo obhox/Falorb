@@ -73,6 +73,16 @@ export default async function InstanceSettingsPage() {
                 Integrations
               </Button>
             </Link>
+            <Link href="/settings/audit-log" style={{ textDecoration: "none" }}>
+              <Button size="sm" iconLeft={<Icon name="scroll-text" size={13} />}>
+                Audit log
+              </Button>
+            </Link>
+            <Link href="/settings/webhooks" style={{ textDecoration: "none" }}>
+              <Button size="sm" iconLeft={<Icon name="webhook" size={13} />}>
+                Webhooks
+              </Button>
+            </Link>
             {can.manageProject(session.workspace.role) && (
               <Link href="/settings/new">
                 <Button size="sm" variant="primary" iconLeft={<Icon name="plus" size={13} />}>

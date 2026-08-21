@@ -13,7 +13,7 @@ Living record of what exists, what is half-built, and what has not been started.
 
 **Where things stand:** the collection pipeline, storage layer, identity graph,
 query layer, background workers, MCP server and self-serve account system are
-complete and verified. The dashboard is built — 33 routes on the Falorb design
+complete and verified. The dashboard is built — 36 routes on the Falorb design
 system, light and dark, role-enforced. Most routes are driven end to end by
 Playwright; the eight newest — sales lead actions, the weekly digest, the
 product signal's drop-off data, the public benchmark report, the referral
@@ -625,16 +625,18 @@ the most.
 
 | Backend | State | What is missing in the UI |
 |---|---|---|
-| `dataRequests` | worker processes them | No way to raise a GDPR export or erasure. The `data-requests` job runs every 2m against rows nothing creates |
-| `segments` | table + `segment-counts` worker | People can be filtered but not *saved* as a segment; the worker caches sizes for segments that cannot be created |
-| `funnels` | table | The funnel builder is URL-only. Nothing saves a funnel, so one cannot be shared by name or reused in an alert |
+| `segments` | table + `segment-counts` worker | People can be filtered but not *saved* as a segment; the worker caches sizes for segments that cannot be created. No condition-tree filter builder exists anywhere in the app yet — the People page's filter bar is a flat search+checkbox, not the `Filter[]` AST `compileFilters`/`refreshSegmentCounts` already expect |
+| `funnels` | table | The funnel builder is URL-only. Nothing saves a funnel, so one cannot be shared by name or reused in an alert. `listFunnels`/`SavedFunnels.tsx` (read path) already exist — only a save/delete action is missing |
 | `insights` | table | Same for the cross-project builder — the query lives in the URL and nowhere else |
 | `dashboardWidgets` | table | The design system's custom-view builder (widget grid) is not built; `/insights` is a single fixed layout |
-| `webhooks` | table + dispatcher job | No UI to register an endpoint or see delivery history |
-| `consentRecords` | ingest writes them | No UI to read the consent log |
-| `auditLog` | API writes it | No UI to read it. Written on project, key, member and person actions and visible only in Postgres |
-| `personMerges` | resolver writes it | Merge/unmerge exists in the API; the person profile cannot trigger or reverse one |
-| `closedSessions` | query exists | Not consumed — the session list uses `sessionList` |
+
+`dataRequests`, `webhooks`, `consentRecords`, `auditLog` and `personMerges` are
+now built — see §18. `closedSessions` was removed from this list: it's a
+worker-internal ingestion query (`sessionizer.ts`/`backfill.ts` roll closed
+sessions into Postgres totals against raw `events`) with different
+correctness requirements than the UI's own `sessionList` (which reads
+`events_v` live, so identity merges are reflected) — not a missing frontend
+feature, just a different consumer.
 
 Auth internals (`account`, `session`, `verification`) are managed by better-auth
 and correctly have no UI.
@@ -679,14 +681,33 @@ and correctly have no UI.
   verbatim payload shown in the event detail view was built from the *unmasked*
   props, preserving exactly what masking had just removed.
 
+## 18. Trust & ops surfaces — GDPR requests, audit log, webhooks, consent log, person merge
+
+The five highest-cost items from the old "Backend surface not yet in the
+dashboard" list — each already had a complete backend (a worker, a full API
+route, or just a written-to-but-unread table) and needed only UI wired onto
+it.
+
+| | Feature | Notes |
+|---|---|---|
+| ✅ | GDPR data requests | `/people/[personId]`'s new "Data requests" card. Duplicates `POST/GET /requests` in `apps/api/src/routes/people.ts` directly against `dataRequests` (same reasoning as every other action in `apps/web/src/server/actions`), gated `manageProject`. Verified live: requested an export, ran `processDataRequests` (`apps/worker/src/jobs/retention-gc.ts`) via `verify:jobs`, confirmed the card flipped to "completed" |
+| ✅ | Audit log viewer | `/settings/audit-log` — `listAuditLog` (new, paginated, actor joined from `user`) + an action-name filter sourced from `AUDIT_ACTIONS`. Readable by any workspace member, matching `/settings/team`'s read-open convention |
+| ✅ | Webhooks | `/settings/webhooks` — register/delete/enable-disable an `ops.webhooks` endpoint (distinct from an alert channel's webhook destination). Triggers are goal names, shown as clickable reference chips sourced from each property's real `listGoals`, not a blind text field. Secret shown once on creation, same UX as API key issuance. Gated `manageProject` |
+| ✅ | Consent log | `/p/[project]/consent-log`, linked from the property's Settings tab next to the consent-mode field (which was also carrying a stale warning — "server-side enforcement is not implemented yet" — contradicted by §3's actual `apps/ingest/src/consent.ts`; corrected in the same edit) |
+| ✅ | Person merge/unmerge | New "Merge duplicate profile" card on `/people/[personId]`: search (reuses `listPeople`'s existing search), merge, and a reversible history list with an unmerge button. Duplicates `POST /merge` / `POST /unmerge/:mergeId` in `apps/api/src/routes/people.ts`, gated `manageProject`. **Found and fixed a real bug while verifying this live**: interpolating a plain JS array (`merged.projectIds`) or `Date` (`merged.firstSeenAt`) directly into a drizzle `sql` template isn't reliably bound by this project's postgres.js setup — every merge attempt with a non-empty `projectIds` crashed. Fixed here by building the array/timestamp as an explicit SQL literal (`ARRAY[...]::integer[]`, `::timestamptz`), the same pattern already used correctly elsewhere (`identity-resolver.ts`'s other three `unnest()` calls, `backfill.ts`, `sessionizer.ts`). The identical bug still exists in `apps/api/src/routes/people.ts`'s `/merge` route and in `identity-resolver.ts`'s own automatic-merge path (line ~437) — flagged as a follow-up, not fixed here, since it's outside this branch's scope |
+| ✅ | Verified | Full monorepo typecheck + test suite, production build, and a live walkthrough of every item above against the dev stack, including the merge/unmerge round trip end to end (search → merge → totals updated correctly → unmerge → row restored) |
+| 🟡 | Playwright coverage | Verified manually as above; no automated coverage yet, same gap as every other dashboard feature in this document |
+
 ## Suggested next order
 
 1. Fix defect 1 (`SEED_OWNER_EMAIL`) and rotate `BETTER_AUTH_SECRET`, in that
    order — the first makes the dashboard show data, the second is cheap now and
    expensive after real accounts exist.
-2. Close the highest-cost integration gaps: GDPR data requests, then saved
-   segments and funnels. Each has a worker or a table already waiting on a UI.
-3. Audit log and consent log viewers — both are written today and readable only
-   in Postgres, which is the wrong place to look during an incident.
-4. Webhook management, then the custom-view widget builder.
+2. Apply §18's merge-bug fix to `apps/api/src/routes/people.ts` and
+   `identity-resolver.ts` — the automatic merge path runs continuously in
+   production and may be silently erroring right now.
+3. Saved funnels (mostly built — only save/delete is missing), then saved
+   insights, then segments (the one genuinely new UI: a condition-tree filter
+   builder doesn't exist anywhere yet).
+4. The custom-view widget builder — depends on saved insights existing first.
 5. Coolify deploy, then instrument the primary site first.

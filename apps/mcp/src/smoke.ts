@@ -96,6 +96,10 @@ await call("get_platform_health", { window_hours: 168 });
 await call("list_alerts");
 await call("get_install_snippet", { project: "acme" });
 
+console.log("\nprospecting");
+await call("list_prospects", { limit: 5 });
+await call("list_prospect_keywords");
+
 console.log("\nnegative cases (these SHOULD be rejected)");
 async function expectError(name: string, args: Record<string, unknown>, why: string): Promise<void> {
   const result = (await client.callTool({ name, arguments: args })) as ToolResult;

@@ -14,21 +14,28 @@ import { organizations } from "./tenancy";
 /**
  * Credentials Falorb holds to call another product's API on the
  * organization's behalf — Linki (sales/outreach), Bund AI (customer
- * support), and Buffer (social posting) today, more over time. One table,
- * not one per provider, because the shape is identical: a base URL, an
- * encrypted key, and a status a sync job can check before calling out.
+ * support), Buffer (social posting), and Clay (prospect contact enrichment,
+ * see FEATURES.md §17) today, more over time. One table, not one per
+ * provider, because the shape is identical: a base URL, an encrypted key,
+ * and a status a sync job can check before calling out.
  *
- * Buffer's `base_url` is always the same fixed GraphQL endpoint (Buffer,
- * unlike Linki/Bund AI, isn't self-hosted) — stored per-row anyway rather
- * than special-cased, so every provider fits this one table without an
- * exception.
+ * Buffer's and Clay's `base_url` are each a fixed API root rather than
+ * user-entered (unlike Linki/Bund AI's self-hosted deployments) — set
+ * server-side, not exposed on their connect forms. Stored per-row anyway
+ * rather than special-cased, so every provider fits this one table without
+ * a schema exception.
  *
  * The key is stored encrypted, not hashed, unlike `api_keys`. Those keys are
  * only ever compared against a caller-presented value; this key must be
  * presented in plaintext *to* the other product on every outbound call, so a
  * one-way hash would be useless here.
  */
-export const integrationProviderEnum = pgEnum("integration_provider", ["linki", "bund_ai", "buffer"]);
+export const integrationProviderEnum = pgEnum("integration_provider", [
+  "linki",
+  "bund_ai",
+  "buffer",
+  "clay",
+]);
 
 export const integrationStatusEnum = pgEnum("integration_status", [
   "active",

@@ -1,4 +1,4 @@
-ALTER TYPE "public"."integration_provider" ADD VALUE 'buffer';--> statement-breakpoint
+ALTER TYPE "public"."integration_provider" ADD VALUE 'buffer' BEFORE 'clay';--> statement-breakpoint
 CREATE TABLE "social_channels" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,

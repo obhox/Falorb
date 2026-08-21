@@ -6,11 +6,4 @@ import "server-only";
  * `apps/web` goes through `src/server` so secret-holding code never reaches
  * the client bundle.
  */
-export {
-  ExaApiError,
-  FirecrawlApiError,
-  scrapeUrl,
-  searchWeb,
-  type ExaSearchResult,
-  type FirecrawlScrapeResult,
-} from "@falorb/research";
+export { ResearchUnavailableError, search, fetchPage, type ResearchResult } from "@falorb/research";

@@ -11,14 +11,15 @@ import {
 } from "@falorb/db";
 import { LinkiClient } from "@falorb/linki-client";
 import { BundAiClient } from "@falorb/bund-ai-client";
-import { BufferClient } from "@falorb/buffer-client";
+import { BufferClient, BUFFER_API_ENDPOINT } from "@falorb/buffer-client";
+import { ClayClient, CLAY_DEFAULT_BASE_URL } from "@falorb/clay-client";
 import type { Workspace } from "../onboarding";
 import { HttpError } from "../http";
 import { requireHumanSession } from "../guards";
 
 /**
  * Connection management for the external products Falorb drives on the
- * organization's behalf (Linki, Bund AI, Buffer, more over time).
+ * organization's behalf (Linki, Bund AI, Buffer, Clay, more over time).
  *
  * Deliberately human-session-only end to end, not scope-gated for API keys —
  * same reasoning as `POST /api/keys` in `index.ts`: storing, testing, or
@@ -27,11 +28,12 @@ import { requireHumanSession } from "../guards";
  * revoking the leaked key would not undo what it already connected.
  *
  * `verifyConnection` delegates to each product's real typed client
- * (`packages/linki-client`, `packages/bund-ai-client`, `packages/buffer-client`)
- * rather than a generic raw `fetch` — one implementation of "how do I reach
- * this API" per product, shared with the mirror jobs (`linki-sync.ts`,
- * `bund-ai-sync.ts`, `buffer-sync.ts`) instead of a second one living only
- * here.
+ * (`packages/linki-client`, `packages/bund-ai-client`, `packages/buffer-client`,
+ * `packages/clay-client`) rather than a generic raw `fetch` — one
+ * implementation of "how do I reach this API" per product, shared with the
+ * mirror/enrichment jobs (`linki-sync.ts`, `bund-ai-sync.ts`,
+ * `buffer-sync.ts`, `clay-enrichment.ts`) instead of a second one living
+ * only here.
  */
 
 type Vars = {
@@ -41,9 +43,12 @@ type Vars = {
 };
 
 const PROVIDERS = {
-  linki: { label: "Linki" },
-  bund_ai: { label: "Bund AI" },
-  buffer: { label: "Buffer" },
+  linki: { label: "Linki", hasBaseUrl: true },
+  bund_ai: { label: "Bund AI", hasBaseUrl: true },
+  // Buffer and Clay each have one fixed API root, unlike Linki/Bund AI's
+  // self-hosted deployments — callers don't supply a baseUrl for either.
+  buffer: { label: "Buffer", hasBaseUrl: false },
+  clay: { label: "Clay", hasBaseUrl: false },
 } as const;
 
 type Provider = keyof typeof PROVIDERS;
@@ -53,6 +58,11 @@ function parseProvider(raw: string): Provider {
   throw new HttpError(404, `Unknown integration provider "${raw}".`);
 }
 
+/** The fixed API root for a provider with no self-hosted deployment. */
+function fixedBaseUrl(provider: "buffer" | "clay"): string {
+  return provider === "buffer" ? BUFFER_API_ENDPOINT : CLAY_DEFAULT_BASE_URL;
+}
+
 async function pingProvider(
   provider: Provider,
   baseUrl: string,
@@ -60,7 +70,8 @@ async function pingProvider(
 ): Promise<{ ok: boolean; detail: string }> {
   if (provider === "linki") return new LinkiClient({ baseUrl, apiKey }).verifyConnection();
   if (provider === "bund_ai") return new BundAiClient({ baseUrl, apiKey }).verifyConnection();
-  return new BufferClient({ baseUrl, apiKey }).verifyConnection();
+  if (provider === "buffer") return new BufferClient({ baseUrl, apiKey }).verifyConnection();
+  return new ClayClient({ baseUrl, apiKey }).verifyConnection();
 }
 
 function publicConnection(row: typeof schema.integrationConnections.$inferSelect) {
@@ -91,7 +102,7 @@ export function integrationsRoutes(db: Database): Hono<{ Variables: Vars }> {
   });
 
   const connectSchema = z.object({
-    baseUrl: z.string().url(),
+    baseUrl: z.string().url().optional(),
     apiKey: z.string().min(1),
   });
 
@@ -100,9 +111,15 @@ export function integrationsRoutes(db: Database): Hono<{ Variables: Vars }> {
     const provider = parseProvider(c.req.param("provider"));
 
     const parsed = connectSchema.safeParse(await c.req.json().catch(() => ({})));
-    if (!parsed.success) throw new HttpError(422, "baseUrl and apiKey are required.");
+    if (!parsed.success) throw new HttpError(422, "apiKey is required.");
+    if (PROVIDERS[provider].hasBaseUrl && !parsed.data.baseUrl) {
+      throw new HttpError(422, "baseUrl is required.");
+    }
+    const baseUrl = PROVIDERS[provider].hasBaseUrl
+      ? parsed.data.baseUrl!
+      : fixedBaseUrl(provider as "buffer" | "clay");
 
-    const check = await pingProvider(provider, parsed.data.baseUrl, parsed.data.apiKey);
+    const check = await pingProvider(provider, baseUrl, parsed.data.apiKey);
     const encrypted = encryptCredential(parsed.data.apiKey);
 
     const [row] = await db
@@ -110,7 +127,7 @@ export function integrationsRoutes(db: Database): Hono<{ Variables: Vars }> {
       .values({
         organizationId: workspace.organizationId,
         provider,
-        baseUrl: parsed.data.baseUrl,
+        baseUrl,
         encryptedApiKey: encrypted.ciphertext,
         iv: encrypted.iv,
         authTag: encrypted.authTag,
@@ -122,7 +139,7 @@ export function integrationsRoutes(db: Database): Hono<{ Variables: Vars }> {
       .onConflictDoUpdate({
         target: [schema.integrationConnections.organizationId, schema.integrationConnections.provider],
         set: {
-          baseUrl: parsed.data.baseUrl,
+          baseUrl,
           encryptedApiKey: encrypted.ciphertext,
           iv: encrypted.iv,
           authTag: encrypted.authTag,
@@ -141,7 +158,7 @@ export function integrationsRoutes(db: Database): Hono<{ Variables: Vars }> {
       action: AUDIT_ACTIONS.integrationConnected,
       targetType: "integration_connection",
       targetId: row!.id,
-      metadata: { provider, baseUrl: parsed.data.baseUrl, verified: check.ok },
+      metadata: { provider, baseUrl, verified: check.ok },
     });
 
     return c.json(

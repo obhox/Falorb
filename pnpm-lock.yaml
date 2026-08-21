@@ -38,6 +38,9 @@ importers:
       '@falorb/bund-ai-client':
         specifier: workspace:*
         version: link:../../packages/bund-ai-client
+      '@falorb/clay-client':
+        specifier: workspace:*
+        version: link:../../packages/clay-client
       '@falorb/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -164,6 +167,9 @@ importers:
       '@falorb/bund-ai-client':
         specifier: workspace:*
         version: link:../../packages/bund-ai-client
+      '@falorb/clay-client':
+        specifier: workspace:*
+        version: link:../../packages/clay-client
       '@falorb/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -237,6 +243,9 @@ importers:
       '@falorb/bund-ai-client':
         specifier: workspace:*
         version: link:../../packages/bund-ai-client
+      '@falorb/clay-client':
+        specifier: workspace:*
+        version: link:../../packages/clay-client
       '@falorb/core':
         specifier: workspace:*
         version: link:../../packages/core
@@ -330,6 +339,18 @@ importers:
         specifier: ^3.0.5
         version: 3.2.7(@types/node@22.20.1)(tsx@4.23.12)
 
+  packages/clay-client:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.5
+        version: 22.20.1
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.5
+        version: 3.2.7(@types/node@22.20.1)(tsx@4.23.12)
+
   packages/core:
     dependencies:
       zod:
@@ -367,6 +388,9 @@ importers:
       typescript:
         specifier: ^5.7.3
         version: 5.9.3
+      vitest:
+        specifier: ^3.0.5
+        version: 3.2.7(@types/node@22.20.1)(tsx@4.23.12)
 
   packages/linki-client:
     devDependencies:

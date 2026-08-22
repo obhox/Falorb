@@ -220,10 +220,10 @@ Verified end to end: one person, two devices, two products, both stores agreeing
 
 ## 11. MCP server — `apps/mcp`
 
-Lets any MCP-capable assistant query **and run** the platform directly. **133
-tools, 2 resources, 3 prompts — all verified** with a real MCP client
-(`pnpm --filter @falorb/mcp smoke` → 80/80, including that every
-local-operator-only tool below is genuinely refused to a bearer key).
+Lets any MCP-capable assistant query **and run** the platform directly. **144
+tools, 2 resources, 3 prompts** (`pnpm --filter @falorb/mcp smoke` exercises
+every tool against a real MCP client, including that every local-operator-
+only tool below is genuinely refused to a bearer key).
 
 | | Feature | Notes |
 |---|---|---|
@@ -243,7 +243,9 @@ local-operator-only tool below is genuinely refused to a bearer key).
 | ✅ | CRM tools | Read: `list_crm_contacts`, `get_crm_contact`, `list_crm_deals`, `list_crm_lists`, `list_crm_workflows`, `list_crm_runs`, `list_crm_signal_rules`, `list_crm_sent_messages`, `list_crm_suppressions` (the mirrored Linki data). Write: `create_crm_contact`, `push_crm_signal` — reach Linki itself, enforcing the same suppression-list and duplicate-contact checks as the agent runtime's equivalent tools |
 | ✅ | Support tools | Read: `list_support_conversations`, `list_support_escalations`, `list_support_leads`, `list_support_tickets`. Write: `resolve_support_escalation` — closes one out in Bund AI |
 | ✅ | Social tools | Read: `list_social_channels`, `list_social_posts`. Write: `create_social_post` (queue/draft/schedule/publish to Buffer), `delete_social_post` |
-| ✅ | Integration tools | `get_integration_status` (read, any scope) — connected/healthy/last-synced per provider, never the credential itself. `connect_integration`, `test_integration_connection`, `revoke_integration_connection`, `set_integration_model` (local operator only) — store, verify, rotate, or clear a credential, org- or property-scoped |
+| ✅ | Billing tools | `apps/mcp/src/tools/billing.ts` — a read-only mirror of Stripe (§20), org- or project-scoped like the read side of `apps/web/src/server/billing.ts`: `get_billing_summary`, `list_billing_customers`, `list_billing_subscriptions`, `list_billing_invoices`, `list_billing_charges`. No write tools — Stripe has no write path anywhere in this codebase yet |
+| ✅ | Email tools | `apps/mcp/src/tools/email.ts` — cold-outreach mailboxes on Migadu. Read: `list_email_accounts`, `list_email_messages` (not a fixed-interval mirror like CRM/support/social/billing — inbound rows land on the worker's 5-minute IMAP poll, outbound rows the instant `send_email` sends them). Write: `send_email` (write scope, matching `composeEmail`'s `actOnIntegrations` gate); `create_email_account`, `archive_email_account` (local operator only — provisioning is dashboard-only, owner/admin, with no bearer-key route at all today) |
+| ✅ | Integration tools | `get_integration_status` (read, any scope) — connected/healthy/last-synced per provider, never the credential itself, now covering Stripe/Migadu/OpenSEO alongside the original six. `connect_integration`, `test_integration_connection`, `revoke_integration_connection`, `set_integration_model` (local operator only) — store, verify, rotate, or clear a credential, org- or property-scoped. `github` stays dashboard-only (its connect form needs a repo/branch/path config this server has nowhere to collect) |
 | ✅ | Task-board tools | `list_tasks`, `get_task`, `create_task`, `update_task`, `assign_task`, `set_task_status`, `comment_on_task`, `delete_task` — the same `tasks`/`task_comments` tables the dashboard and the agent runtime both use; assigning to an agent starts its shift within a minute via the worker's existing sweep |
 | ✅ | AI-employee tools | `list_agents`, `get_agent`, `hire_agent`, `update_agent`, `set_agent_status`, `retire_agent`, `run_agent_now`, `list_agent_runs`, `get_agent_run`, `list_agent_approvals`, `decide_agent_approval`. An agent hired or edited through this server is capped at role "member" — never admin/owner — since a write-scope key carries no per-human role for `canGrantAgentRole` to check against |
 | ✅ | `archive_project` | The one project-lifecycle action there is — there is no hard delete anywhere in this codebase, so a write-scope key may do it like any other write |
@@ -812,6 +814,7 @@ monitoring page.
 | 🟡 | Content drafts grounded in live SEO data | `generateContentDraft` (§14h, and `apps/mcp`'s `draft_content_page` tool independently) now also calls `seoContext`: keyword difficulty/volume for the topic, and whether the property's own domain already ranks for it — folded into the OpenRouter prompt alongside the existing interest and web-research context, so the model can judge how competitive a term is rather than write into it blind. Best-effort like the Exa/Firecrawl research call: an unconnected or errored OpenSEO connection never blocks a draft |
 | 🟡 | `/p/[project]/seo` monitoring page | Domain overview, ranking keywords, backlinks, rank tracker, and Search Console performance, fetched fresh on every load. Each panel fails independently (surfaced as a small list of what didn't load) rather than the whole page erroring — OpenSEO having rank tracking but no linked Search Console property for a domain is a normal state, not a bug |
 | 🟡 | `get_seo_report` MCP tool | Same data as the monitoring page, one call, for an agent asking about a project's SEO standing |
+| ✅ | Connectable through MCP | `connect_integration`/`get_integration_status`/`test_integration_connection`/`revoke_integration_connection` (§11) now list `openseo` as a provider — a local operator can connect/verify/revoke it the same way as every other credential, not dashboard-only |
 
 ## 15. SDKs
 
@@ -1060,10 +1063,10 @@ Still unproven, honestly:
 A read-only mirror of Stripe (the operator's own payment processing account
 — the business run *through* Falorb, not Falorb's own SaaS billing for
 itself): customers, subscriptions, invoices, and charges, pulled on a
-schedule and shown at `/billing` (org-wide) and `/p/[project]/billing`
-(one property's own). There is no write path yet — no refunds, no
-subscription changes, no invoice creation from Falorb — see "Not yet built"
-below.
+schedule and shown at `/billing` (org-wide), `/p/[project]/billing` (one
+property's own), and now the MCP server's billing tools (see §11). There is
+no write path yet — no refunds, no subscription changes, no invoice creation
+from Falorb — see "Not yet built" below.
 
 **Multi-account, tied to a project.** `integration_connections` (§13) has
 always supported an org-level row (`projectId` null) and a project-level
@@ -1091,6 +1094,7 @@ provider already has:
 | ✅ | `apps/web/src/server/billing.ts` takes an optional `projectId` | `isStripeConnected`, `listCustomers`, `listSubscriptions`, `listInvoices`, `listCharges`, `getBillingSummary`. Omitted, every query is `projectId IS NULL` — `/billing`'s original behavior, unchanged, for an organization that only ever connects one Stripe account at the org level. Passed, every query is `projectId = <value>` — that project's own connection's data only, never blended with the org-level connection's or a sibling project's |
 | ✅ | `/p/[project]/billing` | New route, same `BillingTabsPanel`/`StatStrip` UI as the org-wide `/billing` page, reading the now-project-aware `billing.ts` functions with this project's id. Added to the property tab strip (`p/[project]/layout.tsx`) next to Settings. The per-property Settings → Integrations panel (`p/[project]/settings/IntegrationsPanel.tsx`) already let a user connect Stripe at the project level — it was wired generically across every provider when the connect UI was first built, so no change was needed there, only the read side |
 | 🟡 | Live sync unverified | No live Stripe key exists in this environment (same as before this fix). Verified: full monorepo typecheck, full test suite, a production `next build` (confirms `/p/[project]/billing` builds and is routed), and the generated migration SQL read back line-by-line to confirm both partial unique indexes exist per table. Not verified against a live Stripe account: an actual two-account sync (org-level + a second project-level account) has not been run end to end against real data |
+| ✅ | MCP tools | `apps/mcp/src/tools/billing.ts` — `get_billing_summary`, `list_billing_customers`, `list_billing_subscriptions`, `list_billing_invoices`, `list_billing_charges`, each taking the same optional `project` either/or scoping as `billing.ts`'s own read functions. `connect_integration`/`get_integration_status` (§11) now cover `stripe` as a provider, local operator only, same as every other credential |
 
 Not yet built: any write path (refunds, subscription changes, invoice
 creation), a Stripe Events/webhook consumer for incremental sync (today's

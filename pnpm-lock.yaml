@@ -161,6 +161,9 @@ importers:
       '@falorb/linki-client':
         specifier: workspace:*
         version: link:../../packages/linki-client
+      '@falorb/migadu-client':
+        specifier: workspace:*
+        version: link:../../packages/migadu-client
       '@falorb/openseo-client':
         specifier: workspace:*
         version: link:../../packages/openseo-client
@@ -170,6 +173,9 @@ importers:
       '@falorb/research':
         specifier: workspace:*
         version: link:../../packages/research
+      '@falorb/stripe-client':
+        specifier: workspace:*
+        version: link:../../packages/stripe-client
       '@modelcontextprotocol/sdk':
         specifier: ^1.30.0
         version: 1.30.0(zod@3.25.76)

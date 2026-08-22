@@ -33,10 +33,17 @@ export async function listMigaduDomains(): Promise<{ ok: true; domains: string[]
   const refusal = deny(session.workspace.role, "manageIntegrations", "list Migadu domains");
   if (refusal) return { ok: false, message: refusal.message ?? "You do not have permission to do that." };
 
-  const client = await getMigaduClient(session.workspace.organizationId);
-  if (!client) return { ok: false, message: "Migadu isn't connected. Connect it in Settings → Integrations." };
-
+  // `getMigaduClient` decrypts the stored credential and parses it into
+  // `MigaduClient` — both can throw (a corrupted row, a stale
+  // `INTEGRATION_CREDENTIAL_ENC_KEY`). Kept inside the same try/catch as the
+  // API call below rather than left to propagate: an uncaught rejection here
+  // reaches the dialog's `useEffect` as an unhandled promise rejection, which
+  // leaves the domain list silently empty with no error shown at all — worse
+  // than surfacing the real message.
   try {
+    const client = await getMigaduClient(session.workspace.organizationId);
+    if (!client) return { ok: false, message: "Migadu isn't connected. Connect it in Settings → Integrations." };
+
     const domains = await client.listDomains();
     return { ok: true, domains: domains.map((d) => d.name) };
   } catch (error) {

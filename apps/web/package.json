@@ -27,6 +27,7 @@
     "@falorb/db": "workspace:*",
     "@falorb/elevenlabs-client": "workspace:*",
     "@falorb/linki-client": "workspace:*",
+    "@falorb/openseo-client": "workspace:*",
     "@falorb/queries": "workspace:*",
     "@falorb/research": "workspace:*",
     "@falorb/ui": "workspace:*",

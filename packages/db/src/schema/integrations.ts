@@ -18,17 +18,22 @@ import { organizations, projects } from "./tenancy";
  * support), Buffer and Postiz (social posting), Clay (prospect contact
  * enrichment, see FEATURES.md §17), Exa/Firecrawl (web research, see
  * FEATURES.md §14k), ElevenLabs (UGC video generation, see FEATURES.md §18),
- * and the two AI gateways — OpenRouter and Ramp Router (router.com) — an
- * organization can bring its own account and model on (see FEATURES.md §19
- * and `@falorb/ai`'s `credentials.ts`) today, more over time. One table, not
- * one per provider, because the shape is identical: a base URL, an
- * encrypted key, and a status a sync job can check before calling out.
+ * OpenSEO (keyword/SERP/backlink/rank-tracking data, called live when
+ * drafting content and for per-project SEO monitoring — its own MCP server
+ * is the only surface it exposes, so `@falorb/openseo-client` speaks MCP
+ * instead of REST; see that package for why the row shape still fits here
+ * unchanged), and the two AI gateways — OpenRouter and Ramp Router
+ * (router.com) — an organization can bring its own account and model on (see
+ * FEATURES.md §19 and `@falorb/ai`'s `credentials.ts`) today, more over
+ * time. One table, not one per provider, because the shape is identical: a
+ * base URL, an encrypted key, and a status a sync job can check before
+ * calling out.
  *
- * Buffer's, Postiz's, Clay's, Exa/Firecrawl's, and ElevenLabs' `baseUrl` are
- * each a fixed API root rather than user-entered (unlike Linki/Bund AI's
- * self-hosted deployments) — set server-side, not exposed on their connect
- * forms. Stored per-row anyway rather than special-cased, so every provider
- * fits this one table without a schema exception.
+ * Buffer's, Postiz's, Clay's, Exa/Firecrawl's, ElevenLabs', and OpenSEO's
+ * `baseUrl` are each a fixed API root rather than user-entered (unlike
+ * Linki/Bund AI's self-hosted deployments) — set server-side, not exposed on
+ * their connect forms. Stored per-row anyway rather than special-cased, so
+ * every provider fits this one table without a schema exception.
  *
  * The key is stored encrypted, not hashed, unlike `api_keys`. Those keys are
  * only ever compared against a caller-presented value; this key must be
@@ -52,6 +57,7 @@ export const integrationProviderEnum = pgEnum("integration_provider", [
   "openrouter",
   "router",
   "gemini",
+  "openseo",
 ]);
 
 export const integrationStatusEnum = pgEnum("integration_status", [

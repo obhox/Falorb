@@ -9,6 +9,7 @@ import { BufferClient, BUFFER_API_ENDPOINT } from "@falorb/buffer-client";
 import { ClayClient, CLAY_DEFAULT_BASE_URL } from "@falorb/clay-client";
 import { ExaClient, EXA_DEFAULT_BASE_URL, FirecrawlClient, FIRECRAWL_DEFAULT_BASE_URL } from "@falorb/research";
 import { ElevenLabsClient, ELEVENLABS_DEFAULT_BASE_URL } from "@falorb/elevenlabs-client";
+import { OpenSeoClient, OPENSEO_DEFAULT_BASE_URL } from "@falorb/openseo-client";
 import {
   AI_PROVIDER_BASE_URLS,
   AI_PROVIDER_DEFAULT_MODELS,
@@ -23,7 +24,7 @@ import { deny } from "./guard";
 
 /**
  * Connect, test, or revoke Falorb's connection to Linki, Bund AI, Buffer,
- * Clay, Exa, Firecrawl, ElevenLabs, or one of the three AI providers
+ * Clay, Exa, Firecrawl, ElevenLabs, OpenSEO, or one of the three AI providers
  * (OpenRouter, Ramp Router, Google Gemini) — at the organization level (this file) or, via
  * the `*ProjectIntegration*` actions below, overriding it for one property.
  * A property with its own connection for a provider uses that one; a
@@ -50,6 +51,7 @@ export type Provider =
   | "exa"
   | "firecrawl"
   | "elevenlabs"
+  | "openseo"
   | AiProvider;
 
 const LABELS: Record<Provider, string> = {
@@ -60,16 +62,17 @@ const LABELS: Record<Provider, string> = {
   exa: "Exa",
   firecrawl: "Firecrawl",
   elevenlabs: "ElevenLabs",
+  openseo: "OpenSEO",
   openrouter: "OpenRouter",
   router: "Ramp Router",
   gemini: "Google Gemini",
 };
 
 /**
- * Buffer, Clay, Exa, Firecrawl, ElevenLabs, and both AI gateways each have
- * one fixed API root, unlike Linki/Bund AI's self-hosted deployments —
- * their connect forms carry no baseUrl field at all, so the fixed root is
- * supplied here rather than asked of the user.
+ * Buffer, Clay, Exa, Firecrawl, ElevenLabs, OpenSEO, and both AI gateways
+ * each have one fixed API root, unlike Linki/Bund AI's self-hosted
+ * deployments — their connect forms carry no baseUrl field at all, so the
+ * fixed root is supplied here rather than asked of the user.
  */
 const FIXED_BASE_URLS: Partial<Record<Provider, string>> = {
   buffer: BUFFER_API_ENDPOINT,
@@ -77,6 +80,7 @@ const FIXED_BASE_URLS: Partial<Record<Provider, string>> = {
   exa: EXA_DEFAULT_BASE_URL,
   firecrawl: FIRECRAWL_DEFAULT_BASE_URL,
   elevenlabs: ELEVENLABS_DEFAULT_BASE_URL,
+  openseo: OPENSEO_DEFAULT_BASE_URL,
   openrouter: AI_PROVIDER_BASE_URLS.openrouter,
   router: AI_PROVIDER_BASE_URLS.router,
   gemini: AI_PROVIDER_BASE_URLS.gemini,
@@ -94,6 +98,7 @@ function clientFor(
   | ExaClient
   | FirecrawlClient
   | ElevenLabsClient
+  | OpenSeoClient
   | AiGatewayClient {
   if (isAiProvider(provider)) return new AiGatewayClient({ provider, baseUrl, apiKey });
   if (provider === "linki") return new LinkiClient({ baseUrl, apiKey });
@@ -102,7 +107,8 @@ function clientFor(
   if (provider === "clay") return new ClayClient({ baseUrl, apiKey });
   if (provider === "exa") return new ExaClient({ baseUrl, apiKey });
   if (provider === "firecrawl") return new FirecrawlClient({ baseUrl, apiKey });
-  return new ElevenLabsClient({ baseUrl, apiKey });
+  if (provider === "elevenlabs") return new ElevenLabsClient({ baseUrl, apiKey });
+  return new OpenSeoClient({ baseUrl, apiKey });
 }
 
 function isProvider(value: string): value is Provider {
@@ -114,7 +120,8 @@ function isProvider(value: string): value is Provider {
     value === "clay" ||
     value === "exa" ||
     value === "firecrawl" ||
-    value === "elevenlabs"
+    value === "elevenlabs" ||
+    value === "openseo"
   );
 }
 

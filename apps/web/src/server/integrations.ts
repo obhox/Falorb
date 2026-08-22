@@ -6,6 +6,7 @@ import { BundAiClient } from "@falorb/bund-ai-client";
 import { BufferClient } from "@falorb/buffer-client";
 import { ExaClient, FirecrawlClient, type ResearchClients } from "@falorb/research";
 import { ElevenLabsClient } from "@falorb/elevenlabs-client";
+import { OpenSeoClient } from "@falorb/openseo-client";
 import type { AiCredentials, AiProvider } from "@falorb/ai";
 
 /**
@@ -30,7 +31,7 @@ import type { AiCredentials, AiProvider } from "@falorb/ai";
  */
 async function activeConnection(
   organizationId: string,
-  provider: "linki" | "bund_ai" | "buffer" | "exa" | "firecrawl" | "elevenlabs",
+  provider: "linki" | "bund_ai" | "buffer" | "exa" | "firecrawl" | "elevenlabs" | "openseo",
   projectId?: number,
 ) {
   if (projectId != null) {
@@ -76,6 +77,21 @@ export async function getBundAiClient(organizationId: string, projectId?: number
   if (!row) return null;
   const apiKey = decryptCredential({ ciphertext: row.encryptedApiKey, iv: row.iv, authTag: row.authTag });
   return new BundAiClient({ baseUrl: row.baseUrl, apiKey });
+}
+
+/**
+ * A project's own OpenSEO connection if it has one, else the org's — used
+ * both when drafting a content page (`@/server/content-draft`) and by the
+ * per-project SEO monitoring page (`@/server/seo`). Project-scoped like
+ * `getLinkiClient`, not org-only like `getElevenLabsClient`: OpenSEO's data
+ * (rank tracking, domain keywords) is inherently about one property's own
+ * domain, not the organization as a whole.
+ */
+export async function getOpenSeoClient(organizationId: string, projectId?: number): Promise<OpenSeoClient | null> {
+  const row = await activeConnection(organizationId, "openseo", projectId);
+  if (!row) return null;
+  const apiKey = decryptCredential({ ciphertext: row.encryptedApiKey, iv: row.iv, authTag: row.authTag });
+  return new OpenSeoClient({ baseUrl: row.baseUrl, apiKey });
 }
 
 export async function getBufferClient(organizationId: string, projectId?: number): Promise<BufferClient | null> {
@@ -165,6 +181,7 @@ export type Provider =
   | "exa"
   | "firecrawl"
   | "elevenlabs"
+  | "openseo"
   | AiProvider;
 
 export const PROVIDERS: Provider[] = [
@@ -179,6 +196,7 @@ export const PROVIDERS: Provider[] = [
   "exa",
   "firecrawl",
   "elevenlabs",
+  "openseo",
 ];
 
 export interface ConnectionView {

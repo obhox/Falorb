@@ -21,6 +21,7 @@
     "@falorb/ai": "workspace:*",
     "@falorb/core": "workspace:*",
     "@falorb/db": "workspace:*",
+    "@falorb/openseo-client": "workspace:*",
     "@falorb/queries": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "drizzle-orm": "^0.45.2",

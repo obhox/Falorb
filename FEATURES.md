@@ -584,6 +584,7 @@ layer.
 | ✅ | `/p/[project]/paths` | Sankey + entry/exit/frustration reports |
 | ✅ | `/p/[project]/content` | Content & interest insights — needs-attention, top pages, entry/exit, project-level interest rollup with trend; "rising interest, thin coverage" rows can auto-draft a page, see §14h |
 | ✅ | `/p/[project]/content/drafts/[id]` | Viewer for an AI-drafted content page — title, meta description, markdown body; see §14h |
+| 🟡 | `/p/[project]/seo` | Live SEO snapshot from OpenSEO — domain overview, ranking keywords, backlinks, rank tracker, Search Console performance; see §14l. Typechecks, never exercised against a live OpenSEO connection |
 | ✅ | `/p/[project]/retention` | Cohort grid + stickiness distribution |
 | ✅ | `/p/[project]/events` | Event explorer with per-event filtering and session list |
 | ✅ | `/p/[project]/crawlers` | **AI & crawlers** — see §14b |
@@ -768,6 +769,27 @@ existing AI features in real web content instead of the LLM's own guesses.
 | ✅ | Content drafts research | `draftContentPage` (§14h) now calls `researchTopic` first: a web search for the topic sees what already ranks, folded into the OpenRouter prompt so the draft is differentiated rather than a generic overview. Falls back to the interest-data-only prompt if the organization has connected neither provider or both error — never blocks the draft |
 | ✅ | Company research | "Research this company" action on the person profile's Company card (`CompanyResearchCard.tsx`, `enrichCompany` action) — fills `companies.industry`/`employeeRange`/`linkedinUrl`, fields the automatic ASN-based enrichment job (§4, `apps/worker/src/jobs/enrichment.ts`) never populates since it only ever learns a network operator's registered name. A scrape of the company's own homepage feeds one short OpenRouter call that extracts only what the content actually states — told explicitly to leave a field `unknown` rather than infer it. Verified live: a Firecrawl scrape of a real homepage (anthropic.com) correctly extracted "AI research and products" as industry and left size/LinkedIn blank rather than inventing them. Gated by `writeAnalysis` (member+); connecting/revoking Exa or Firecrawl itself is gated by `manageIntegrations` (admin+), same split as every other integration. Skipped entirely for an ASN-only placeholder company (`as12345`, no real domain to research) |
 | ✅ | Graceful degradation | An organization that has connected neither provider (or whose connected one errors) gets a clean `ResearchUnavailableError`/toast rather than a blocked action — the underlying fallback logic is unit-independent of *how* a client was obtained, so this carries over unchanged from when it was verified against the both-unconfigured env-var case |
+
+## 14l. SEO — OpenSEO
+
+Keyword research, live SERP, domain/competitor data, backlinks, rank
+tracking, and Search Console reporting, live from OpenSEO — a per-project
+override on the same org-level `integrationConnections` table as every
+other provider (§13), connected from `IntegrationsPanel.tsx` (both the org
+and per-project settings pages). Unlike every other integration, OpenSEO
+exposes no REST API at all — its hosted endpoint is an MCP server, the
+protocol normally used for interactive tool-calling, not backend-to-backend
+sync. Two consumers: content drafting (§14h) is grounded in live keyword
+difficulty and who currently ranks, and each property gets its own SEO
+monitoring page.
+
+| | Feature | Notes |
+|---|---|---|
+| 🟡 | `packages/openseo-client` | Wraps `@modelcontextprotocol/sdk`'s `Client` + `StreamableHTTPClientTransport` (Bearer-token auth) instead of `fetch` — the same transport `apps/mcp`'s own server already speaks, just client-side against a hosted endpoint. OpenSEO's docs describe tool categories, not exact literal tool names, so each capability is resolved at runtime against the server's own `tools/list` against a short candidate list and cached per connection, rather than hardcoding a name that could silently be wrong. Typechecks; never connected to a live OpenSEO account |
+| 🟡 | No sync job | Rank tracking, domain keywords, and Search Console rows are queries about the current state of one domain, not a list Falorb would mirror wholesale like Linki/Bund AI/Buffer/Clay — every call is live, on demand, same reasoning as Exa/Firecrawl (§14k) |
+| 🟡 | Content drafts grounded in live SEO data | `generateContentDraft` (§14h, and `apps/mcp`'s `draft_content_page` tool independently) now also calls `seoContext`: keyword difficulty/volume for the topic, and whether the property's own domain already ranks for it — folded into the OpenRouter prompt alongside the existing interest and web-research context, so the model can judge how competitive a term is rather than write into it blind. Best-effort like the Exa/Firecrawl research call: an unconnected or errored OpenSEO connection never blocks a draft |
+| 🟡 | `/p/[project]/seo` monitoring page | Domain overview, ranking keywords, backlinks, rank tracker, and Search Console performance, fetched fresh on every load. Each panel fails independently (surfaced as a small list of what didn't load) rather than the whole page erroring — OpenSEO having rank tracking but no linked Search Console property for a domain is a normal state, not a bug |
+| 🟡 | `get_seo_report` MCP tool | Same data as the monitoring page, one call, for an agent asking about a project's SEO standing |
 
 ## 15. SDKs
 

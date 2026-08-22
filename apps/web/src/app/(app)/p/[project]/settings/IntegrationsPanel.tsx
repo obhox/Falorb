@@ -26,6 +26,7 @@ const LABELS: Record<Provider, string> = {
   exa: "Exa",
   firecrawl: "Firecrawl",
   elevenlabs: "ElevenLabs",
+  openseo: "OpenSEO",
 };
 
 const HAS_BASE_URL: Record<Provider, boolean> = {
@@ -39,6 +40,7 @@ const HAS_BASE_URL: Record<Provider, boolean> = {
   exa: false,
   firecrawl: false,
   elevenlabs: false,
+  openseo: false,
 };
 
 const KEY_PLACEHOLDERS: Record<Provider, string> = {
@@ -52,6 +54,7 @@ const KEY_PLACEHOLDERS: Record<Provider, string> = {
   exa: "exa_…",
   firecrawl: "fc-…",
   elevenlabs: "Your ElevenLabs API key",
+  openseo: "oseo_…",
 };
 
 const PROVIDERS: Provider[] = [
@@ -65,6 +68,7 @@ const PROVIDERS: Provider[] = [
   "exa",
   "firecrawl",
   "elevenlabs",
+  "openseo",
 ];
 
 /**

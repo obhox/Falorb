@@ -23,6 +23,14 @@ export interface ToolCall {
    * owns the schema and can report a validation failure back to the model as
    * a tool result rather than crashing the run. */
   argumentsJson: string;
+  /**
+   * Opaque provider token that must be echoed back with the call on the next
+   * request. Gemini 3 models attach one to every function call (surfaced as
+   * `extra_content.google.thought_signature` on the OpenAI-compatibility
+   * layer) and reject the follow-up request outright — a 400, not degraded
+   * output — when it is missing. Other providers never set it.
+   */
+  thoughtSignature?: string;
 }
 
 export type ChatMessage =

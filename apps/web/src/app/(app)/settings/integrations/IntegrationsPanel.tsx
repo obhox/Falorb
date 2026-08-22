@@ -26,8 +26,10 @@ const LABELS: Record<Provider, string> = {
   exa: "Exa",
   firecrawl: "Firecrawl",
   elevenlabs: "ElevenLabs",
+  stripe: "Stripe",
   github: "GitHub",
   migadu: "Migadu",
+  openseo: "OpenSEO",
 };
 const BLURBS: Record<Provider, string> = {
   openrouter:
@@ -44,15 +46,19 @@ const BLURBS: Record<Provider, string> = {
   exa: "Neural web search, grounding content drafts in what already ranks. Generate a key at dashboard.exa.ai/api-keys.",
   firecrawl: "Page scraping, grounding company research in a company's own site. Generate a key at firecrawl.dev/app/api-keys.",
   elevenlabs: "Script, voice, and talking-video generation for UGC videos (see UGC videos). Generate a key in ElevenLabs at Settings → API Keys.",
+  stripe:
+    "Read-only mirror of your own Stripe account — customers, subscriptions, invoices, and charges, for revenue and payment health (see Billing). Never used for Falorb's own billing. Generate a secret key in Stripe at Developers → API keys; a restricted key needs read access to Balance, Customers, Subscriptions, Invoices and Charges.",
   github:
     "Own your blog. Falorb commits AI-drafted posts straight to your site's git repo — your existing deploy pipeline ships them live. Generate a fine-grained PAT at github.com/settings/personal-access-tokens, scoped to Contents: Read and write on this one repo.",
   migadu:
     "Cold-outreach mailboxes — provision addresses, send, and track replies from Email. Generate an API key in Migadu at your account's API settings, and enter the admin email it belongs to.",
+  openseo:
+    "Keyword research, live SERP, backlinks, rank tracking, and Search Console data — called live when drafting content and on each property's SEO page. Generate an API key at app.openseo.so/ai.",
 };
 
-/** Buffer, Clay, Exa, Firecrawl, ElevenLabs, and GitHub each have one fixed
- * API root — unlike Linki/Bund AI's self-hosted deployments, their connect
- * dialogs have no Base URL field to fill in. */
+/** Buffer, Clay, Exa, Firecrawl, ElevenLabs, GitHub, Migadu, and OpenSEO each
+ * have one fixed API root — unlike Linki/Bund AI's self-hosted deployments,
+ * their connect dialogs have no Base URL field to fill in. */
 const HAS_BASE_URL: Record<Provider, boolean> = {
   openrouter: false,
   router: false,
@@ -64,8 +70,10 @@ const HAS_BASE_URL: Record<Provider, boolean> = {
   exa: false,
   firecrawl: false,
   elevenlabs: false,
+  stripe: false,
   github: false,
   migadu: false,
+  openseo: false,
 };
 
 /** Migadu is the one provider whose management API needs a second secret —
@@ -82,8 +90,10 @@ const HAS_USERNAME: Record<Provider, boolean> = {
   exa: false,
   firecrawl: false,
   elevenlabs: false,
+  stripe: false,
   github: false,
   migadu: true,
+  openseo: false,
 };
 
 const KEY_PLACEHOLDERS: Record<Provider, string> = {
@@ -97,13 +107,15 @@ const KEY_PLACEHOLDERS: Record<Provider, string> = {
   exa: "exa_…",
   firecrawl: "fc-…",
   elevenlabs: "Your ElevenLabs API key",
+  stripe: "sk_live_… or sk_test_…",
   github: "github_pat_…",
   migadu: "Your Migadu API key",
+  openseo: "oseo_…",
 };
 
 /** Shown when `lastSyncedAt` is null — Linki/Bund AI/Buffer/Clay are
- * mirrored by a recurring job; Exa/Firecrawl/ElevenLabs/GitHub have none,
- * they're only ever called synchronously (a content draft, a company
+ * mirrored by a recurring job; Exa/Firecrawl/ElevenLabs/GitHub/OpenSEO have
+ * none, they're only ever called synchronously (a content draft, a company
  * research click, a UGC video generation, or a Publish click). */
 const NEVER_SYNCED: Record<Provider, string> = {
   openrouter: "not applicable — called on demand, every time an AI feature writes something",
@@ -116,8 +128,10 @@ const NEVER_SYNCED: Record<Provider, string> = {
   exa: "not applicable — used on demand when drafting content or researching a company",
   firecrawl: "not applicable — used on demand when drafting content or researching a company",
   elevenlabs: "never — used on demand each time you generate a UGC video, not on a schedule",
+  stripe: "never — the mirror job runs every 15 minutes",
   github: "not applicable — used on demand each time you click Publish on a draft",
   migadu: "not applicable — mailboxes sync individually, every 5 minutes (see Email)",
+  openseo: "not applicable — called live when drafting content and each time a property's SEO page loads",
 };
 
 const PROVIDERS: Provider[] = [
@@ -131,8 +145,10 @@ const PROVIDERS: Provider[] = [
   "exa",
   "firecrawl",
   "elevenlabs",
+  "stripe",
   "github",
   "migadu",
+  "openseo",
 ];
 
 /**

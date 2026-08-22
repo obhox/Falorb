@@ -15,6 +15,7 @@ import { registerManagementTools } from "./tools/manage";
 import { registerPeopleTools } from "./tools/people";
 import { registerProspectTools } from "./tools/prospects";
 import { registerReferralTools } from "./tools/referrals";
+import { registerSeoTools } from "./tools/seo";
 import { registerSharingTools } from "./tools/sharing";
 import { registerSignalTools } from "./tools/signals";
 import { registerSocialTools } from "./tools/social";
@@ -64,6 +65,8 @@ verify rather than guess.
 - Acquisition links and referral performance → \`list_referral_links\`, \`get_referral_leaderboard\`
 - Early-access queue → \`list_waitlist\`
 - Cached AI recommendations (what to write, who to contact, which channel, what's broken) → \`get_latest_signal\`, \`regenerate_signal\`
+- Draft a new content page → \`draft_content_page\` (grounded in visitor interest, and live keyword/SERP data when OpenSEO is connected)
+- A project's SEO standing (rankings, backlinks, Search Console) → \`get_seo_report\` (requires OpenSEO connected)
 - New project → \`create_project\`, then \`get_install_snippet\`
 - Public sharing → \`get_share_link\` / \`create_share_link\` (one project), \`get_benchmark_report\` (portfolio-wide, aggregate only)
 - Workspace membership → \`list_team\`, \`invite_member\`
@@ -173,6 +176,7 @@ export function buildServer(ctx: () => McpContext): McpServer {
   registerManagementTools(server, ctx);
   registerGoalTools(server, ctx);
   registerContentTools(server, ctx);
+  registerSeoTools(server, ctx);
   registerReferralTools(server, ctx);
   registerSignalTools(server, ctx);
   registerWaitlistTools(server, ctx);

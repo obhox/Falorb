@@ -1,7 +1,8 @@
 import "server-only";
 import { ResearchUnavailableError, search } from "@falorb/research";
+import { OpenSeoApiError } from "@falorb/openseo-client";
 import { complete } from "@/server/ai";
-import { getAiCredentials, getResearchClients } from "@/server/integrations";
+import { getAiCredentials, getOpenSeoClient, getResearchClients } from "@/server/integrations";
 
 /**
  * Turns a "rising interest, thin coverage" topic into a draft landing/content
@@ -51,14 +52,70 @@ async function researchTopic(topic: string, organizationId: string, projectId: n
   return `What already ranks for "${topic}" on the open web:\n${snippets}`;
 }
 
+/**
+ * Best-effort live SEO context from OpenSEO, or null when the org/project
+ * hasn't connected it (see `getOpenSeoClient`) or the connected server
+ * errors — an unreachable/misconfigured OpenSEO connection should never
+ * block drafting a page, the same tolerance `researchTopic` has for a
+ * missing Exa/Firecrawl connection. Two calls only: keyword difficulty for
+ * the topic itself, and (when the property has a known domain) whether it
+ * already ranks for it — enough to tell the model whether it's writing into
+ * a gap or competing with an existing page, without turning every draft
+ * into a multi-call SEO audit.
+ */
+async function seoContext(
+  topic: string,
+  organizationId: string,
+  projectId: number,
+  domain: string | null,
+): Promise<string | null> {
+  const client = await getOpenSeoClient(organizationId, projectId);
+  if (!client) return null;
+
+  try {
+    const [ideas, serp] = await Promise.all([
+      client.researchKeywords(topic, { limit: 5 }),
+      domain ? client.getSerpResults(topic) : Promise.resolve([]),
+    ]);
+
+    const lines: string[] = [];
+    const primary = ideas[0];
+    if (primary) {
+      const cpc = primary.cpc != null ? `, CPC $${primary.cpc}` : "";
+      lines.push(
+        `Search volume for "${topic}": ~${primary.volume ?? "unknown"}/month, ` +
+          `keyword difficulty ${primary.difficulty ?? "unknown"}/100${cpc}.`,
+      );
+    }
+    if (domain && serp.length) {
+      const alreadyRanking = serp.some((r) => r.domain === domain || r.url?.includes(domain));
+      const topDomains = [...new Set(serp.slice(0, 5).map((r) => r.domain ?? r.url).filter(Boolean))].join(", ");
+      lines.push(
+        alreadyRanking
+          ? `${domain} already ranks in the top results for this term.`
+          : `${domain} does not currently rank in the top results; currently ranking: ${topDomains}.`,
+      );
+    }
+
+    return lines.length ? lines.join(" ") : null;
+  } catch (error) {
+    if (error instanceof OpenSeoApiError) return null;
+    throw error;
+  }
+}
+
 export async function generateContentDraft(
   topic: string,
   contextData: unknown,
   projectName: string,
   organizationId: string,
   projectId: number,
+  projectDomain: string | null = null,
 ): Promise<ContentDraft> {
-  const research = await researchTopic(topic, organizationId, projectId);
+  const [research, seo] = await Promise.all([
+    researchTopic(topic, organizationId, projectId),
+    seoContext(topic, organizationId, projectId, projectDomain),
+  ]);
 
   const systemPrompt =
     `You are a content strategist writing a new landing/content page for ${projectName}. ` +
@@ -70,6 +127,11 @@ export async function generateContentDraft(
         "it to write something more specific and differentiated than a generic overview, " +
         "not to copy it"
       : "") +
+    (seo
+      ? ", plus live SEO data (search volume, keyword difficulty, and who currently ranks) " +
+        "— use it to judge how competitive this term is and whether to target it directly " +
+        "or go after a more specific long-tail angle instead"
+      : "") +
     ". Write a complete page for it. Respond with EXACTLY this structure and nothing else: a " +
     'first line starting with "TITLE: " followed by the page title (under 60 ' +
     'characters), a second line starting with "META: " followed by a meta description ' +
@@ -80,7 +142,13 @@ export async function generateContentDraft(
 
   const raw = await complete(
     systemPrompt,
-    { topic, projectName, interestContext: contextData, ...(research ? { research } : {}) },
+    {
+      topic,
+      projectName,
+      interestContext: contextData,
+      ...(research ? { research } : {}),
+      ...(seo ? { seo } : {}),
+    },
     {
       maxTokens: 2000,
       stripMarkdown: false,

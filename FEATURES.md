@@ -606,6 +606,7 @@ layer.
 | ✅ | `/p/[project]/paths` | Sankey + entry/exit/frustration reports |
 | ✅ | `/p/[project]/content` | Content & interest insights — needs-attention, top pages, entry/exit, project-level interest rollup with trend; "rising interest, thin coverage" rows can auto-draft a page, see §14h |
 | ✅ | `/p/[project]/content/drafts/[id]` | Viewer for an AI-drafted content page — title, meta description, markdown body; see §14h |
+| 🟡 | `/p/[project]/seo` | Live SEO snapshot from OpenSEO — domain overview, ranking keywords, backlinks, rank tracker, Search Console performance; see §14l. Typechecks, never exercised against a live OpenSEO connection |
 | ✅ | `/p/[project]/retention` | Cohort grid + stickiness distribution |
 | ✅ | `/p/[project]/events` | Event explorer with per-event filtering and session list |
 | ✅ | `/p/[project]/crawlers` | **AI & crawlers** — see §14b |
@@ -790,6 +791,27 @@ existing AI features in real web content instead of the LLM's own guesses.
 | ✅ | Content drafts research | `draftContentPage` (§14h) now calls `researchTopic` first: a web search for the topic sees what already ranks, folded into the OpenRouter prompt so the draft is differentiated rather than a generic overview. Falls back to the interest-data-only prompt if the organization has connected neither provider or both error — never blocks the draft |
 | ✅ | Company research | "Research this company" action on the person profile's Company card (`CompanyResearchCard.tsx`, `enrichCompany` action) — fills `companies.industry`/`employeeRange`/`linkedinUrl`, fields the automatic ASN-based enrichment job (§4, `apps/worker/src/jobs/enrichment.ts`) never populates since it only ever learns a network operator's registered name. A scrape of the company's own homepage feeds one short OpenRouter call that extracts only what the content actually states — told explicitly to leave a field `unknown` rather than infer it. Verified live: a Firecrawl scrape of a real homepage (anthropic.com) correctly extracted "AI research and products" as industry and left size/LinkedIn blank rather than inventing them. Gated by `writeAnalysis` (member+); connecting/revoking Exa or Firecrawl itself is gated by `manageIntegrations` (admin+), same split as every other integration. Skipped entirely for an ASN-only placeholder company (`as12345`, no real domain to research) |
 | ✅ | Graceful degradation | An organization that has connected neither provider (or whose connected one errors) gets a clean `ResearchUnavailableError`/toast rather than a blocked action — the underlying fallback logic is unit-independent of *how* a client was obtained, so this carries over unchanged from when it was verified against the both-unconfigured env-var case |
+
+## 14l. SEO — OpenSEO
+
+Keyword research, live SERP, domain/competitor data, backlinks, rank
+tracking, and Search Console reporting, live from OpenSEO — a per-project
+override on the same org-level `integrationConnections` table as every
+other provider (§13), connected from `IntegrationsPanel.tsx` (both the org
+and per-project settings pages). Unlike every other integration, OpenSEO
+exposes no REST API at all — its hosted endpoint is an MCP server, the
+protocol normally used for interactive tool-calling, not backend-to-backend
+sync. Two consumers: content drafting (§14h) is grounded in live keyword
+difficulty and who currently ranks, and each property gets its own SEO
+monitoring page.
+
+| | Feature | Notes |
+|---|---|---|
+| 🟡 | `packages/openseo-client` | Wraps `@modelcontextprotocol/sdk`'s `Client` + `StreamableHTTPClientTransport` (Bearer-token auth) instead of `fetch` — the same transport `apps/mcp`'s own server already speaks, just client-side against a hosted endpoint. OpenSEO's docs describe tool categories, not exact literal tool names, so each capability is resolved at runtime against the server's own `tools/list` against a short candidate list and cached per connection, rather than hardcoding a name that could silently be wrong. Typechecks; never connected to a live OpenSEO account |
+| 🟡 | No sync job | Rank tracking, domain keywords, and Search Console rows are queries about the current state of one domain, not a list Falorb would mirror wholesale like Linki/Bund AI/Buffer/Clay — every call is live, on demand, same reasoning as Exa/Firecrawl (§14k) |
+| 🟡 | Content drafts grounded in live SEO data | `generateContentDraft` (§14h, and `apps/mcp`'s `draft_content_page` tool independently) now also calls `seoContext`: keyword difficulty/volume for the topic, and whether the property's own domain already ranks for it — folded into the OpenRouter prompt alongside the existing interest and web-research context, so the model can judge how competitive a term is rather than write into it blind. Best-effort like the Exa/Firecrawl research call: an unconnected or errored OpenSEO connection never blocks a draft |
+| 🟡 | `/p/[project]/seo` monitoring page | Domain overview, ranking keywords, backlinks, rank tracker, and Search Console performance, fetched fresh on every load. Each panel fails independently (surfaced as a small list of what didn't load) rather than the whole page erroring — OpenSEO having rank tracking but no linked Search Console property for a domain is a normal state, not a bug |
+| 🟡 | `get_seo_report` MCP tool | Same data as the monitoring page, one call, for an agent asking about a project's SEO standing |
 
 ## 15. SDKs
 
@@ -1032,6 +1054,48 @@ Still unproven, honestly:
   only ever returned their "not connected — hand this to a human" refusal.
 
 ---
+
+## 20. Stripe billing mirror — read-only, org- or project-scoped
+
+A read-only mirror of Stripe (the operator's own payment processing account
+— the business run *through* Falorb, not Falorb's own SaaS billing for
+itself): customers, subscriptions, invoices, and charges, pulled on a
+schedule and shown at `/billing` (org-wide) and `/p/[project]/billing`
+(one property's own). There is no write path yet — no refunds, no
+subscription changes, no invoice creation from Falorb — see "Not yet built"
+below.
+
+**Multi-account, tied to a project.** `integration_connections` (§13) has
+always supported an org-level row (`projectId` null) and a project-level
+override per provider — Linki and Bund AI already used this for their own
+per-property connections. Stripe's connect form used it too, but the sync
+job and the four mirror tables did not: `stripe-sync.ts` only ever queried
+the org-level connection, and `stripeCustomers`/`stripeSubscriptions`/
+`stripeInvoices`/`stripeCharges` had no `projectId` column at all. An
+operator running more than one product under one Falorb organization — each
+billed through its own Stripe account (a different DBA) — could connect only
+one, ever: reconnecting on a second property rotated the same org-level row
+rather than adding a second account, and there was no way to keep two
+accounts' revenue apart even if the row existed.
+
+Fixed by extending the same org/project split every other mirror-backed
+provider already has:
+
+| | Feature | Notes |
+|---|---|---|
+| ✅ | `projectId` on all four mirror tables | Nullable, FK to `projects` (`onDelete: cascade`). Null means the row came from the organization's own Stripe connection; set means it came from that one project's own Stripe connection — a different Stripe account entirely |
+| ✅ | Partial unique indexes, not one loosened index | Each table's old single `(organizationId, stripeId)` unique index is now a *pair*: `..._org_stripe_uq` on `(organizationId, stripeId)` WHERE `project_id IS NULL`, and `..._project_stripe_uq` on `(organizationId, projectId, stripeId)` WHERE `project_id IS NOT NULL` — the exact pattern `integration_connections_org_provider_uq` / `..._project_provider_uq` already used (`packages/db/src/schema/integrations.ts`). A single non-partial index on all three columns would not have worked: Postgres never treats two NULLs as equal, so it would have silently accepted unlimited duplicate org-level rows for the same `stripeId`. Migration: `packages/db/drizzle/0026_stripe_multi_project.sql` — read back to confirm both partial indexes exist per table (not a single non-partial one) |
+| ✅ | `stripe-sync.ts` syncs every active connection | Was: one query for the org-level connection only. Now: every active `stripe` connection for every org — org-level and every project's own override — each synced, and health-reported (`lastSyncedAt`/`status`/`lastError`), independently. One project's revoked or bad key marks only that project's connection errored, never the org-level one or a sibling project's. Every upsert and every FK-resolution `UPDATE` (`customer_id`, `subscription_id`) is scoped by `projectId` too (`IS NOT DISTINCT FROM`, since it's nullable), so a subscription synced from Project A's Stripe account can only ever resolve its `customer_id` against Project A's (or the org-level connection's) mirrored customers — never Project B's, even though both share an `organizationId`. `ON CONFLICT` targets switch between the org-level and project-level partial index depending on which the batch is (one connection's sync is entirely one or the other) |
+| — | `linkCustomersToPersons` unchanged | Deliberately still scoped by `organizationId` alone, not further split by `projectId` — a person can legitimately be a customer of more than one of the operator's Stripe accounts, and `persons` itself has no per-project row-splitting (`projectIds` is an array, not a partition) |
+| ✅ | `getStripeClient(organizationId, projectId?)` | Now matches `getLinkiClient`/`getBundAiClient`'s shape exactly — a project's own connection first, falling back to the organization's |
+| ✅ | `apps/web/src/server/billing.ts` takes an optional `projectId` | `isStripeConnected`, `listCustomers`, `listSubscriptions`, `listInvoices`, `listCharges`, `getBillingSummary`. Omitted, every query is `projectId IS NULL` — `/billing`'s original behavior, unchanged, for an organization that only ever connects one Stripe account at the org level. Passed, every query is `projectId = <value>` — that project's own connection's data only, never blended with the org-level connection's or a sibling project's |
+| ✅ | `/p/[project]/billing` | New route, same `BillingTabsPanel`/`StatStrip` UI as the org-wide `/billing` page, reading the now-project-aware `billing.ts` functions with this project's id. Added to the property tab strip (`p/[project]/layout.tsx`) next to Settings. The per-property Settings → Integrations panel (`p/[project]/settings/IntegrationsPanel.tsx`) already let a user connect Stripe at the project level — it was wired generically across every provider when the connect UI was first built, so no change was needed there, only the read side |
+| 🟡 | Live sync unverified | No live Stripe key exists in this environment (same as before this fix). Verified: full monorepo typecheck, full test suite, a production `next build` (confirms `/p/[project]/billing` builds and is routed), and the generated migration SQL read back line-by-line to confirm both partial unique indexes exist per table. Not verified against a live Stripe account: an actual two-account sync (org-level + a second project-level account) has not been run end to end against real data |
+
+Not yet built: any write path (refunds, subscription changes, invoice
+creation), a Stripe Events/webhook consumer for incremental sync (today's
+job is a full paginated poll every run), and a UI affordance for "label this
+connection" beyond the property it's attached to.
 
 ## Backend surface not yet in the dashboard
 

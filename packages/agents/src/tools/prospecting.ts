@@ -1,7 +1,8 @@
 import { z } from "zod";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, or } from "drizzle-orm";
 import { complete } from "@falorb/ai";
 import { schema } from "@falorb/db";
+import { MIN_PROSPECT_RELEVANCE_SCORE } from "@falorb/core";
 import type { AgentContext, AnyToolDefinition } from "../types";
 import { defineTool } from "./define";
 
@@ -39,7 +40,8 @@ export const prospectingTools: AnyToolDefinition[] = [
     description:
       "People discovered off-site by social listening or job scanning, not yet a tracked " +
       "visitor. Defaults to what still needs a decision — enriched but neither contacted nor " +
-      "dismissed.",
+      "dismissed. Always filtered to matches the AI relevance pass scored as actually related " +
+      "to the product (or not yet scored) — coincidental keyword matches never show up here.",
     input: z.object({
       status: z.enum(STATUSES).optional().describe("Omit for 'enriched' — the queue awaiting a decision."),
       limit: z.number().int().min(1).max(50).default(20),
@@ -70,6 +72,7 @@ export const prospectingTools: AnyToolDefinition[] = [
           and(
             eq(schema.prospects.organizationId, ctx.organizationId),
             eq(schema.prospects.status, a.status ?? "enriched"),
+            or(isNull(schema.prospects.relevanceScore), gte(schema.prospects.relevanceScore, MIN_PROSPECT_RELEVANCE_SCORE)),
           ),
         )
         .orderBy(desc(schema.prospects.createdAt))

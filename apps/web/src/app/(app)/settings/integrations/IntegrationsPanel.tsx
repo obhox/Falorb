@@ -27,6 +27,7 @@ const LABELS: Record<Provider, string> = {
   firecrawl: "Firecrawl",
   elevenlabs: "ElevenLabs",
   stripe: "Stripe",
+  github: "GitHub",
   migadu: "Migadu",
 };
 const BLURBS: Record<Provider, string> = {
@@ -46,12 +47,14 @@ const BLURBS: Record<Provider, string> = {
   elevenlabs: "Script, voice, and talking-video generation for UGC videos (see UGC videos). Generate a key in ElevenLabs at Settings → API Keys.",
   stripe:
     "Read-only mirror of your own Stripe account — customers, subscriptions, invoices, and charges, for revenue and payment health (see Billing). Never used for Falorb's own billing. Generate a secret key in Stripe at Developers → API keys; a restricted key needs read access to Balance, Customers, Subscriptions, Invoices and Charges.",
+  github:
+    "Own your blog. Falorb commits AI-drafted posts straight to your site's git repo — your existing deploy pipeline ships them live. Generate a fine-grained PAT at github.com/settings/personal-access-tokens, scoped to Contents: Read and write on this one repo.",
   migadu:
     "Cold-outreach mailboxes — provision addresses, send, and track replies from Email. Generate an API key in Migadu at your account's API settings, and enter the admin email it belongs to.",
 };
 
-/** Buffer, Clay, Exa, Firecrawl, and ElevenLabs each have one fixed API
- * root — unlike Linki/Bund AI's self-hosted deployments, their connect
+/** Buffer, Clay, Exa, Firecrawl, ElevenLabs, and GitHub each have one fixed
+ * API root — unlike Linki/Bund AI's self-hosted deployments, their connect
  * dialogs have no Base URL field to fill in. */
 const HAS_BASE_URL: Record<Provider, boolean> = {
   openrouter: false,
@@ -65,6 +68,7 @@ const HAS_BASE_URL: Record<Provider, boolean> = {
   firecrawl: false,
   elevenlabs: false,
   stripe: false,
+  github: false,
   migadu: false,
 };
 
@@ -83,6 +87,7 @@ const HAS_USERNAME: Record<Provider, boolean> = {
   firecrawl: false,
   elevenlabs: false,
   stripe: false,
+  github: false,
   migadu: true,
 };
 
@@ -98,13 +103,14 @@ const KEY_PLACEHOLDERS: Record<Provider, string> = {
   firecrawl: "fc-…",
   elevenlabs: "Your ElevenLabs API key",
   stripe: "sk_live_… or sk_test_…",
+  github: "github_pat_…",
   migadu: "Your Migadu API key",
 };
 
 /** Shown when `lastSyncedAt` is null — Linki/Bund AI/Buffer/Clay are
- * mirrored by a recurring job; Exa/Firecrawl/ElevenLabs have none, they're
- * only ever called synchronously (a content draft, a company research
- * click, or a UGC video generation). */
+ * mirrored by a recurring job; Exa/Firecrawl/ElevenLabs/GitHub have none,
+ * they're only ever called synchronously (a content draft, a company
+ * research click, a UGC video generation, or a Publish click). */
 const NEVER_SYNCED: Record<Provider, string> = {
   openrouter: "not applicable — called on demand, every time an AI feature writes something",
   router: "not applicable — called on demand, every time an AI feature writes something",
@@ -117,6 +123,7 @@ const NEVER_SYNCED: Record<Provider, string> = {
   firecrawl: "not applicable — used on demand when drafting content or researching a company",
   elevenlabs: "never — used on demand each time you generate a UGC video, not on a schedule",
   stripe: "never — the mirror job runs every 15 minutes",
+  github: "not applicable — used on demand each time you click Publish on a draft",
   migadu: "not applicable — mailboxes sync individually, every 5 minutes (see Email)",
 };
 
@@ -132,6 +139,7 @@ const PROVIDERS: Provider[] = [
   "firecrawl",
   "elevenlabs",
   "stripe",
+  "github",
   "migadu",
 ];
 
@@ -200,6 +208,10 @@ function ProviderCard({
   const [username, setUsername] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
+  const [owner, setOwner] = useState(connection?.repoConfig?.owner ?? "");
+  const [repo, setRepo] = useState(connection?.repoConfig?.repo ?? "");
+  const [branch, setBranch] = useState(connection?.repoConfig?.branch ?? "");
+  const [pathTemplate, setPathTemplate] = useState(connection?.repoConfig?.pathTemplate ?? "");
 
   const connected = connection?.status === "active";
   const errored = connection?.status === "error";
@@ -207,6 +219,7 @@ function ProviderCard({
   const needsBaseUrl = HAS_BASE_URL[provider];
   const needsUsername = HAS_USERNAME[provider];
   const isAi = isAiProvider(provider);
+  const isGithub = provider === "github";
   const defaultModel = isAi ? AI_DEFAULT_MODELS[provider] ?? null : null;
 
   async function submit() {
@@ -215,6 +228,12 @@ function ProviderCard({
     if (needsUsername) data.set("username", username);
     data.set("apiKey", apiKey);
     if (isAi) data.set("model", model);
+    if (isGithub) {
+      data.set("owner", owner);
+      data.set("repo", repo);
+      if (branch.trim()) data.set("branch", branch);
+      if (pathTemplate.trim()) data.set("pathTemplate", pathTemplate);
+    }
     const result = await run(() => connectIntegration(provider, data));
     if (result?.ok) {
       setOpen(false);
@@ -291,6 +310,17 @@ function ProviderCard({
                   {connection.baseUrl}
                 </span>
               )}
+              {isGithub && connection.repoConfig && (
+                <span
+                  style={{
+                    fontFamily: "var(--font-mono)",
+                    fontSize: "var(--size-micro)",
+                    color: "var(--text-secondary)",
+                  }}
+                >
+                  {connection.repoConfig.owner}/{connection.repoConfig.repo}@{connection.repoConfig.branch}
+                </span>
+              )}
             </div>
             <div style={{ fontSize: "var(--size-micro)", color: "var(--text-muted)", lineHeight: 1.7 }}>
               <div>
@@ -348,7 +378,11 @@ function ProviderCard({
               variant="primary"
               onClick={submit}
               disabled={
-                pending || (needsBaseUrl && !baseUrl.trim()) || (needsUsername && !username.trim()) || !apiKey.trim()
+                pending ||
+                (needsBaseUrl && !baseUrl.trim()) ||
+                (needsUsername && !username.trim()) ||
+                !apiKey.trim() ||
+                (isGithub && (!owner.trim() || !repo.trim()))
               }
             >
               {pending ? "Connecting…" : "Connect"}
@@ -383,6 +417,37 @@ function ProviderCard({
             placeholder={KEY_PLACEHOLDERS[provider]}
             hint="Stored encrypted (AES-256-GCM). Never shown again after this."
           />
+          {isGithub && (
+            <>
+              <Input
+                label="Repo owner"
+                value={owner}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setOwner(e.target.value)}
+                placeholder="your-org-or-username"
+              />
+              <Input
+                label="Repo name"
+                value={repo}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRepo(e.target.value)}
+                placeholder="your-blog"
+              />
+              <Input
+                label="Branch (optional)"
+                value={branch}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBranch(e.target.value)}
+                placeholder="main"
+                hint="Leave blank for main."
+              />
+              <Input
+                label="Path template (optional)"
+                mono
+                value={pathTemplate}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPathTemplate(e.target.value)}
+                placeholder="content/blog/{slug}.md"
+                hint="{slug} becomes the post title, kebab-cased. Leave blank for content/blog/{slug}.md."
+              />
+            </>
+          )}
           {isAi && (
             <Input
               label="Model (optional)"

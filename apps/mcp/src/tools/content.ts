@@ -38,6 +38,7 @@ export function registerContentTools(server: McpServer, ctx: () => McpContext): 
             topic: schema.contentDrafts.topic,
             title: schema.contentDrafts.title,
             generatedAt: schema.contentDrafts.generatedAt,
+            publishStatus: schema.contentDrafts.publishStatus,
           })
           .from(schema.contentDrafts)
           .where(eq(schema.contentDrafts.projectId, id!))
@@ -51,6 +52,7 @@ export function registerContentTools(server: McpServer, ctx: () => McpContext): 
               { header: "Topic", get: (r) => r.topic },
               { header: "Title", get: (r) => r.title },
               { header: "Drafted", get: (r) => ago(r.generatedAt.toISOString()) },
+              { header: "Published", get: (r) => r.publishStatus },
             ],
             "No drafts yet — see the Content page's \"rising interest, thin coverage\" topics, then call draft_content_page.",
           ),
@@ -84,8 +86,15 @@ export function registerContentTools(server: McpServer, ctx: () => McpContext): 
 
         if (!row) return failure("No such draft.");
 
+        const publishLine =
+          row.publishStatus === "published"
+            ? `Published: ${row.publishedUrl ?? "yes"}${row.publishCommitSha ? ` (commit ${row.publishCommitSha.slice(0, 7)})` : ""}`
+            : row.publishStatus === "failed"
+              ? `Publish failed: ${row.publishError ?? "unknown error"}`
+              : "Not published yet.";
+
         return text(
-          `# ${row.title}\n\n*${row.metaDescription}*\n\nTopic: \`${row.topic}\` · Drafted ${ago(row.generatedAt.toISOString())}\n\n---\n\n${row.body}`,
+          `# ${row.title}\n\n*${row.metaDescription}*\n\nTopic: \`${row.topic}\` · Drafted ${ago(row.generatedAt.toISOString())} · ${publishLine}\n\n---\n\n${row.body}`,
         );
       } catch (error) {
         return failure(message(error));

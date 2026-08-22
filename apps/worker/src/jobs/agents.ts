@@ -96,6 +96,7 @@ export async function enqueueAgentTasks(context: WorkerContext): Promise<void> {
       title: schema.tasks.title,
       organizationId: schema.tasks.organizationId,
       agentId: schema.tasks.assigneeAgentId,
+      creatorType: schema.tasks.creatorType,
     })
     .from(schema.tasks)
     .innerJoin(schema.agents, eq(schema.tasks.assigneeAgentId, schema.agents.id))
@@ -119,15 +120,21 @@ export async function enqueueAgentTasks(context: WorkerContext): Promise<void> {
       .returning({ id: schema.tasks.id });
     if (!claimed.length) continue;
 
+    // A human assigning work to an agent and an agent delegating to another
+    // agent both land here as the same kind of row (`assigneeType: "agent"`,
+    // `status: "todo"`) — `creatorType` is what tells them apart, and it is
+    // what makes the two distinguishable afterward in `agent_runs`.
+    const trigger = task.creatorType === "agent" ? "delegation" : "task";
+
     await context.db.insert(schema.agentRuns).values({
       organizationId: task.organizationId,
       agentId: task.agentId,
-      trigger: "task",
+      trigger,
       triggerRef: task.id,
       taskId: task.id,
       objective: `Work the task you have been assigned: "${task.title}".`,
     });
-    console.log(`[agents] queued task run: ${task.title}`);
+    console.log(`[agents] queued ${trigger} run: ${task.title}`);
   }
 }
 

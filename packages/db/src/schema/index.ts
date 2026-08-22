@@ -10,3 +10,4 @@ export * from "./social";
 export * from "./prospecting";
 export * from "./ugc";
 export * from "./agents";
+export * from "./email";

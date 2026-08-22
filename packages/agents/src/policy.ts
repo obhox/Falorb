@@ -56,7 +56,7 @@ export function autonomyOf(agent: Pick<AgentRecord, "autonomy">): Autonomy {
 
 export function decide(
   agent: Pick<AgentRecord, "role" | "autonomy" | "autoApproveTools">,
-  tool: Pick<ToolDefinition, "name" | "capability" | "effect">,
+  tool: Pick<ToolDefinition, "name" | "capability" | "effect" | "toolkit">,
 ): Decision {
   if (!can[tool.capability](agent.role)) {
     return {
@@ -81,7 +81,9 @@ export function decide(
   if (ACTS_FREELY_ON[autonomy].includes(tool.effect)) return { kind: "allow" };
 
   const waived =
-    agent.autoApproveTools.includes("*") || agent.autoApproveTools.includes(tool.name);
+    agent.autoApproveTools.includes("*") ||
+    agent.autoApproveTools.includes(tool.name) ||
+    agent.autoApproveTools.includes(`toolkit:${tool.toolkit}`);
   if (waived) return { kind: "allow" };
 
   return {

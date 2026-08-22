@@ -1,15 +1,24 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { decryptCredential, schema } from "@falorb/db";
 import { BufferClient, type BufferChannel, type BufferPost } from "@falorb/buffer-client";
+import { isSyncStale } from "@falorb/core";
 import type { WorkerContext } from "../context";
 
 /**
  * Mirrors Buffer (social post scheduling/publishing) into Falorb's own
  * Postgres, per org.
  *
- * Same overall shape as `linki-sync.ts`/`bund-ai-sync.ts` — a full poll every
- * run (Buffer has no incremental event stream Falorb consumes), upsert on
- * `(organizationId, bufferId)`, one try/catch per connection so one org's
+ * Demand-driven, not a blind sweep: `context.syncDemand` is flagged by
+ * `apps/web/src/server/social.ts` (a page load) and `.../actions/integrations.ts`
+ * (a fresh connect), and this only calls Buffer for orgs flagged since the
+ * last tick — see `context.ts` for why (Buffer's 24h rate limit does not
+ * forgive polling every connected org on a fixed timer regardless of whether
+ * anyone's looking). `SYNC_COOLDOWN_MS` further guards against a burst of
+ * requests for the same org causing a burst of Buffer calls.
+ *
+ * Same overall shape as `linki-sync.ts`/`bund-ai-sync.ts` — a full poll per
+ * synced org (Buffer has no incremental event stream Falorb consumes), upsert
+ * on `(organizationId, bufferId)`, one try/catch per connection so one org's
  * failure doesn't abort the rest. The one structural difference:
  * `BufferClient.listPosts` cursor-walks Buffer's Relay-style pagination
  * internally rather than this job driving `limit`/`offset` pages itself, so
@@ -23,7 +32,12 @@ import type { WorkerContext } from "../context";
  * degrades to null here instead of failing the sync.
  */
 
+const SYNC_COOLDOWN_MS = 5 * 60_000;
+
 export async function syncBuffer(context: WorkerContext): Promise<void> {
+  const requestedOrgIds = await context.syncDemand.drain("buffer");
+  if (!requestedOrgIds.length) return;
+
   // Org-level connections only. `socialChannels`/`socialPosts` are keyed by
   // `organizationId` alone, with no property scope to mirror a property's
   // own Buffer override into — that override is only ever read on demand
@@ -36,18 +50,28 @@ export async function syncBuffer(context: WorkerContext): Promise<void> {
         isNull(schema.integrationConnections.projectId),
         eq(schema.integrationConnections.provider, "buffer"),
         eq(schema.integrationConnections.status, "active"),
+        inArray(schema.integrationConnections.organizationId, requestedOrgIds),
       ),
     );
 
   for (const connection of connections) {
+    if (!isSyncStale(connection.lastSyncedAt, SYNC_COOLDOWN_MS)) continue;
     try {
       await syncOrg(context, connection);
     } catch (error) {
       console.error(`[buffer-sync] org ${connection.organizationId} failed:`, String(error));
-      await context.db
-        .update(schema.integrationConnections)
-        .set({ status: "error", lastError: String(error), updatedAt: new Date() })
-        .where(eq(schema.integrationConnections.id, connection.id));
+      // A rate limit means "try again after the cooldown," not "this
+      // connection is broken" — don't force a manual reconnect over a
+      // transient 429.
+      const status = (error as { status?: number })?.status;
+      if (status === 429) {
+        console.warn(`[buffer-sync] org ${connection.organizationId} rate-limited, will retry later`);
+      } else {
+        await context.db
+          .update(schema.integrationConnections)
+          .set({ status: "error", lastError: String(error), updatedAt: new Date() })
+          .where(eq(schema.integrationConnections.id, connection.id));
+      }
     }
   }
 }

@@ -2,6 +2,7 @@ import type { ClickHouseClient } from "@clickhouse/client";
 import Redis from "ioredis";
 import { createClickHouse, createDatabase, schema } from "@falorb/db";
 import type { Database } from "@falorb/db";
+import { type SyncDemandBackend } from "@falorb/core";
 
 export { schema };
 export type { Database };
@@ -11,6 +12,9 @@ export interface WorkerContext {
   db: Database;
   clickhouse: ClickHouseClient;
   redis: Redis;
+  /** Which orgs' integration mirrors (buffer/linki/bund_ai/stripe/migadu) a
+   * request has flagged as wanting a fresh sync — see `jobs/*-sync.ts`. */
+  syncDemand: SyncDemandBackend;
   /** project id -> organization id. */
   projectOrgs: Map<number, string>;
   /** Projects that unify identity across the organization's portfolio. */
@@ -18,6 +22,22 @@ export interface WorkerContext {
   /** Per-project retention in days. */
   retentionDays: Map<number, number>;
   projectIds: number[];
+}
+
+/** Redis-backed `SyncDemandBackend`: a set per provider, drained (read + cleared) each tick. */
+function createRedisSyncDemand(redis: Redis): SyncDemandBackend {
+  const key = (provider: string) => `falorb:sync:requested:${provider}`;
+  return {
+    async request(provider, orgId) {
+      await redis.sadd(key(provider), orgId);
+    },
+    async drain(provider) {
+      const k = key(provider);
+      const orgIds = await redis.smembers(k);
+      if (orgIds.length) await redis.del(k);
+      return orgIds;
+    },
+  };
 }
 
 export function chDateTime(epochMs: number): string {
@@ -40,6 +60,7 @@ export async function createContext(): Promise<WorkerContext> {
     db,
     clickhouse,
     redis,
+    syncDemand: createRedisSyncDemand(redis),
     projectOrgs: new Map(),
     orgScopedProjects: new Set(),
     retentionDays: new Map(),

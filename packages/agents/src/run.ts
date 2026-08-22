@@ -1,5 +1,5 @@
 import type { ClickHouseClient } from "@clickhouse/client";
-import { and, desc, eq, gte, sql } from "drizzle-orm";
+import { and, desc, eq, gt, gte, inArray, sql } from "drizzle-orm";
 import { chat, stripMarkdown, type ChatMessage, type ToolCall } from "@falorb/ai";
 import {
   AUDIT_ACTIONS,
@@ -10,7 +10,13 @@ import {
   type Database,
 } from "@falorb/db";
 import { decide } from "./policy";
-import { buildSystemPrompt, buildUserPrompt, loadMemories, loadRecentRuns } from "./prompt";
+import {
+  buildSystemPrompt,
+  buildUserPrompt,
+  loadDecisionFeedback,
+  loadMemories,
+  loadRecentRuns,
+} from "./prompt";
 import { getTool, toolsForAgent, toSpecs } from "./tools/index";
 import type { AgentContext, AgentProject, AgentRecord, AnyToolDefinition } from "./types";
 
@@ -45,7 +51,13 @@ export interface RunDeps {
 }
 
 export interface RunOutcome {
-  status: "succeeded" | "failed" | "waiting_approval";
+  /**
+   * `deferred` is not a failure: the agent was paused, or the whole
+   * workspace's automation was, between this run being queued and a worker
+   * picking it up (or mid-shift). The run is put back to `queued` with its
+   * transcript intact and resumes when the pause is lifted.
+   */
+  status: "succeeded" | "failed" | "waiting_approval" | "deferred";
   summary: string | null;
   steps: number;
   approvalsRaised: number;
@@ -72,6 +84,17 @@ export async function executeRun(deps: RunDeps, runId: string): Promise<RunOutco
     deps.onLog?.(runId, message);
   };
 
+  // The worker filters paused agents and paused workspaces out before it
+  // claims a run, but this is the one function every path — worker, verify
+  // script, MCP — goes through, so the stop is enforced here as well. A
+  // kill switch that only works from one entry point is not a kill switch.
+  const halt = await haltReason(db, agent);
+  if (halt) {
+    log(`Deferred: ${halt}`);
+    await defer(db, runId);
+    return { status: "deferred", summary: null, steps: 0, approvalsRaised: 0 };
+  }
+
   const budgetRefusal = await checkBudget(db, agent);
   if (budgetRefusal) {
     await finish(db, runId, "failed", null, budgetRefusal);
@@ -92,9 +115,11 @@ export async function executeRun(deps: RunDeps, runId: string): Promise<RunOutco
     .set({ status: "running", startedAt: run.startedAt ?? new Date(), heartbeatAt: new Date() })
     .where(eq(schema.agentRuns.id, runId));
 
-  const [memories, recentRuns, task, credentials] = await Promise.all([
+  const [memories, recentRuns, decisions, activeGrants, task, credentials] = await Promise.all([
     loadMemories(db, agent.id),
     loadRecentRuns(db, agent.id),
+    loadDecisionFeedback(db, agent.id),
+    loadActiveGrants(db, agent.id),
     loadTask(db, run.taskId),
     // `@falorb/db`'s shared resolver, not a copy: the dashboard, the worker
     // and this runtime must agree on which gateway an org's AI runs against,
@@ -113,8 +138,25 @@ export async function executeRun(deps: RunDeps, runId: string): Promise<RunOutco
     projects,
     projectIds: projects.map((p) => p.id),
     credentials,
+    activeGrants,
     log,
   };
+
+  // The outcomes of its earlier requests are in this briefing; record that
+  // so the next shift is not told the same thing again. Done here, after
+  // the deferral checks, so a run that never actually starts does not
+  // consume the feedback.
+  if (decisions.length) {
+    await db
+      .update(schema.agentApprovals)
+      .set({ feedbackDeliveredAt: new Date() })
+      .where(
+        inArray(
+          schema.agentApprovals.id,
+          decisions.map((d) => d.id),
+        ),
+      );
+  }
 
   const tools = toolsForAgent(agent, (capability, role) => {
     const check = can[capability as keyof typeof can];
@@ -123,7 +165,15 @@ export async function executeRun(deps: RunDeps, runId: string): Promise<RunOutco
   const specs = toSpecs(tools);
   const byName = new Map(tools.map((t) => [t.name, t]));
 
-  const briefing = { agent, projects, objective: run.objective, task, memories, recentRuns };
+  const briefing = {
+    agent,
+    projects,
+    objective: run.objective,
+    task,
+    memories,
+    recentRuns,
+    decisions,
+  };
   const seed: ChatMessage[] = [
     { role: "system", content: buildSystemPrompt(briefing) },
     { role: "user", content: buildUserPrompt(briefing) },
@@ -144,6 +194,19 @@ export async function executeRun(deps: RunDeps, runId: string): Promise<RunOutco
 
   try {
     for (let turn = 0; turn < maxTurns; turn++) {
+      // Re-checked every turn, not just at the start: "stop everything" has
+      // to mean now, not after the next 39 model calls. The transcript so
+      // far is already persisted, so the shift picks up where it left off
+      // when the pause is lifted.
+      if (turn > 0) {
+        const halt = await haltReason(db, agent);
+        if (halt) {
+          log(`Paused mid-shift: ${halt}`);
+          await defer(db, runId, { promptTokens, completionTokens, costUsd, stepCount: position });
+          return { status: "deferred", summary: null, steps: position, approvalsRaised };
+        }
+      }
+
       const result = await chat(messages, {
         tools: specs,
         model: agent.model,
@@ -361,7 +424,7 @@ async function performCall(
     durationMs: null,
   });
 
-  const decision = decide(ctx.agent, tool);
+  const decision = decide(ctx.agent, tool, ctx.activeGrants);
 
   if (decision.kind === "deny") {
     const payload = refusal(decision.reason);
@@ -498,6 +561,21 @@ export async function executeApproval(
     return { ok: false, detail: "Agent deleted." };
   }
 
+  // A paused agent, or a paused workspace, does not get to carry out an
+  // action just because it was approved before the pause. The approval is
+  // left as `approved` — not failed — so it fires when the pause lifts,
+  // unless it has meanwhile expired. (Expiry is checked against the
+  // original deadline on purpose: the human's "yes" was about a moment,
+  // and a week-old yes is not a yes.)
+  const halt = await haltReason(db, agent);
+  if (halt) {
+    if (approval.expiresAt.getTime() < Date.now()) {
+      await failApproval(db, approvalId, `Approved, but automation was paused and it expired: ${halt}`);
+      return { ok: false, detail: "Expired while paused." };
+    }
+    return { ok: false, detail: `Deferred: ${halt}` };
+  }
+
   // Re-check the agent's own role at execution time. An approval sitting in
   // the queue while somebody demoted the agent must not still fire — the
   // human approved this agent taking this action, and it is no longer that
@@ -518,6 +596,8 @@ export async function executeApproval(
     projects,
     projectIds: projects.map((p) => p.id),
     credentials: await resolveAiCredentials(db, approval.organizationId),
+    // Grants are irrelevant here — this action was explicitly decided.
+    activeGrants: [],
     log: (message) => deps.onLog?.(approval.runId, message),
   };
 
@@ -548,6 +628,75 @@ export async function executeApproval(
     await failApproval(db, approvalId, detail);
     return { ok: false, detail };
   }
+}
+
+/**
+ * Why this agent must not act right now, or null if it may.
+ *
+ * Two independent stops, checked in the order a person would reach for
+ * them: the workspace-wide kill switch (`organizations.automationPausedAt`)
+ * and the agent's own status. Exported so the worker's sweeps can skip the
+ * same work before claiming it, rather than claiming and then deferring.
+ */
+export async function haltReason(
+  db: Database,
+  agent: Pick<AgentRecord, "id" | "status" | "organizationId" | "name">,
+): Promise<string | null> {
+  const [org] = await db
+    .select({ pausedAt: schema.organizations.automationPausedAt })
+    .from(schema.organizations)
+    .where(eq(schema.organizations.id, agent.organizationId))
+    .limit(1);
+  if (org?.pausedAt) {
+    return `all automation in this workspace has been paused since ${org.pausedAt.toISOString()}.`;
+  }
+
+  // Re-read rather than trusting the row the caller holds: a shift can run
+  // for minutes, and the question is whether the agent is paused *now*.
+  const [current] = await db
+    .select({ status: schema.agents.status })
+    .from(schema.agents)
+    .where(eq(schema.agents.id, agent.id))
+    .limit(1);
+  if (!current) return "the agent no longer exists.";
+  if (current.status !== "active") return `${agent.name} is ${current.status}.`;
+  return null;
+}
+
+/** Put a run back in the queue, transcript intact, to resume later. */
+async function defer(
+  db: Database,
+  runId: string,
+  usage?: { promptTokens: number; completionTokens: number; costUsd: number; stepCount: number },
+): Promise<void> {
+  await db
+    .update(schema.agentRuns)
+    .set({
+      status: "queued",
+      heartbeatAt: null,
+      ...(usage
+        ? {
+            promptTokens: usage.promptTokens,
+            completionTokens: usage.completionTokens,
+            costUsd: usage.costUsd.toFixed(6),
+            stepCount: usage.stepCount,
+          }
+        : {}),
+    })
+    .where(eq(schema.agentRuns.id, runId));
+}
+
+async function loadActiveGrants(db: Database, agentId: string): Promise<string[]> {
+  const rows = await db
+    .select({ toolName: schema.agentApprovalGrants.toolName })
+    .from(schema.agentApprovalGrants)
+    .where(
+      and(
+        eq(schema.agentApprovalGrants.agentId, agentId),
+        gt(schema.agentApprovalGrants.expiresAt, new Date()),
+      ),
+    );
+  return [...new Set(rows.map((r) => r.toolName))];
 }
 
 async function failApproval(db: Database, approvalId: string, error: string): Promise<void> {

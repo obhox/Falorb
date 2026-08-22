@@ -45,6 +45,28 @@ export const organizations = pgTable(
     slug: text("slug").notNull(),
     /** Weekly summary of all four AI signals, emailed by the digest worker job. */
     weeklyDigestEnabled: boolean("weekly_digest_enabled").notNull().default(true),
+    /**
+     * The workspace-wide kill switch for AI employees. Non-null means paused:
+     * no agent shift is enqueued or executed and no approved action is
+     * carried out until it is cleared. Queued work stays queued rather than
+     * being dropped — pausing is "stop the line", not "throw away the shift".
+     *
+     * A timestamp rather than a boolean so the dashboard can say *how long*
+     * automation has been stopped; a workspace that was paused for a quick
+     * look and forgotten for a month is its own kind of outage.
+     */
+    automationPausedAt: timestamp("automation_paused_at", { withTimezone: true }),
+    automationPausedBy: text("automation_paused_by").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    /**
+     * Where to tell people an agent is waiting on a decision, in addition to
+     * the owners' and admins' email. Points at an `alert_channels` row
+     * (Slack, webhook or email); null means email only. Not a foreign key —
+     * `ops.ts` imports this file, so the reference would be circular — and
+     * checked at use, where a deleted channel simply means "email only".
+     */
+    approvalNotifyChannelId: uuid("approval_notify_channel_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

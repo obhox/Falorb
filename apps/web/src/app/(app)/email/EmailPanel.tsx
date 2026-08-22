@@ -389,7 +389,7 @@ function ComposeCard({
 
 function NewMailboxDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { run, pending } = useAction();
-  const [domains, setDomains] = useState<string[]>([]);
+  const [domains, setDomains] = useState<string[] | null>(null);
   const [domain, setDomain] = useState("");
   const [localPart, setLocalPart] = useState("");
   const [name, setName] = useState("");
@@ -397,14 +397,26 @@ function NewMailboxDialog({ open, onClose }: { open: boolean; onClose: () => voi
 
   useEffect(() => {
     if (!open) return;
+    setDomains(null);
+    setLoadError(null);
     void (async () => {
-      const result = await listMigaduDomains();
-      if (result.ok) {
-        setDomains(result.domains);
-        setDomain((prev) => prev || result.domains[0] || "");
-        setLoadError(null);
-      } else {
-        setLoadError(result.message);
+      try {
+        const result = await listMigaduDomains();
+        if (result.ok) {
+          setDomains(result.domains);
+          setDomain((prev) => prev || result.domains[0] || "");
+        } else {
+          setDomains([]);
+          setLoadError(result.message);
+        }
+      } catch (error) {
+        // `listMigaduDomains` already turns provider/decrypt errors into a
+        // structured `{ ok: false }`, so reaching here means something
+        // outside that (a network drop, a server-action transport failure) —
+        // still worth surfacing rather than leaving the domain field
+        // silently empty with no explanation.
+        setDomains([]);
+        setLoadError(error instanceof Error ? error.message : String(error));
       }
     })();
   }, [open]);
@@ -440,13 +452,21 @@ function NewMailboxDialog({ open, onClose }: { open: boolean; onClose: () => voi
     >
       <div style={{ display: "grid", gap: "var(--space-6)" }}>
         {loadError && <span style={{ fontSize: "var(--size-body-sm)", color: "var(--signal-down)" }}>{loadError}</span>}
-        {domains.length > 0 && (
+        {domains === null ? (
+          <span style={{ fontSize: "var(--size-body-sm)", color: "var(--text-muted)" }}>Loading domains…</span>
+        ) : domains.length > 0 ? (
           <div style={{ display: "grid", gap: 6 }}>
             <span style={{ fontSize: "var(--size-label)", color: "var(--text-secondary)", fontWeight: "var(--wt-medium)" }}>
               Domain
             </span>
             <Select size="sm" value={domain} options={domains} onChange={(v: string) => setDomain(v)} />
           </div>
+        ) : (
+          !loadError && (
+            <span style={{ fontSize: "var(--size-body-sm)", color: "var(--text-muted)" }}>
+              No domains on this Migadu account yet — add one in your Migadu dashboard first.
+            </span>
+          )
         )}
         <Input
           label="Mailbox name"

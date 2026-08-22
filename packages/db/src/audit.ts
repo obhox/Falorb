@@ -58,6 +58,10 @@ export const AUDIT_ACTIONS = {
   agentActionApproved: "agent.action_approved",
   agentActionRejected: "agent.action_rejected",
   agentActionExecuted: "agent.action_executed",
+  agentActionGranted: "agent.action_granted",
+  agentActionGrantRevoked: "agent.action_grant_revoked",
+  automationPaused: "automation.paused",
+  automationResumed: "automation.resumed",
   taskAssigned: "task.assigned",
   taskCompleted: "task.completed",
 } as const;

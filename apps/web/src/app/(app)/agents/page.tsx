@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { AGENT_PRESETS, TOOLKIT_DESCRIPTIONS, TOOLKIT_LABELS, TOOLKITS } from "@falorb/agents";
 import { can } from "@falorb/db";
 import { requireSession } from "@/server/session";
-import { countPendingApprovals, listAgents } from "@/server/agents";
+import { countPendingApprovals, countRecentErrors, getAutomationState, listAgents } from "@/server/agents";
 import { PageBody, PageHeader } from "@/components/shell/PageHeader";
 import { AgentRoster } from "./AgentRoster";
 
@@ -23,9 +23,11 @@ export default async function AgentsPage() {
   const session = await requireSession();
   const orgId = session.workspace.organizationId;
 
-  const [agents, pendingApprovals] = await Promise.all([
+  const [agents, pendingApprovals, automation, recentErrors] = await Promise.all([
     listAgents(orgId),
     countPendingApprovals(orgId),
+    getAutomationState(orgId),
+    countRecentErrors(orgId),
   ]);
 
   const active = agents.filter((a) => a.status === "active").length;
@@ -36,7 +38,9 @@ export default async function AgentsPage() {
         title="Agents"
         meta={
           agents.length
-            ? `${active} on shift · ${agents.length - active} paused`
+            ? automation.paused
+              ? "all automation paused"
+              : `${active} on shift · ${agents.length - active} paused`
             : session.workspace.organizationName
         }
       />
@@ -78,6 +82,10 @@ export default async function AgentsPage() {
           projects={session.projects.map((p) => ({ id: p.id, slug: p.slug }))}
           canManage={can.manageAgents(session.workspace.role)}
           pendingApprovals={pendingApprovals}
+          automationPaused={automation.paused}
+          automationPausedAt={automation.pausedAt?.toISOString() ?? null}
+          automationPausedBy={automation.pausedByName}
+          recentErrors={recentErrors}
           now={Date.now()}
         />
       </PageBody>

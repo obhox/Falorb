@@ -5,7 +5,12 @@ import Link from "next/link";
 import { Badge, Button, Card, Checkbox, Dialog, Icon, Input, Select } from "@falorb/ui";
 import { Empty } from "@/components/Empty";
 import { useAction } from "@/lib/use-action";
-import { hireAgentAction, runAgentNowAction, setAgentStatusAction } from "@/server/actions/agents";
+import {
+  hireAgentAction,
+  runAgentNowAction,
+  setAgentStatusAction,
+  setAutomationPausedAction,
+} from "@/server/actions/agents";
 import { relative } from "@/lib/format";
 
 export interface RosterAgent {
@@ -65,6 +70,10 @@ export function AgentRoster({
   projects,
   canManage,
   pendingApprovals,
+  automationPaused,
+  automationPausedAt,
+  automationPausedBy,
+  recentErrors,
   now,
 }: {
   agents: RosterAgent[];
@@ -73,6 +82,10 @@ export function AgentRoster({
   projects: { id: number; slug: string }[];
   canManage: boolean;
   pendingApprovals: number;
+  automationPaused: boolean;
+  automationPausedAt: string | null;
+  automationPausedBy: string | null;
+  recentErrors: number;
   now: number;
 }) {
   const [hiring, setHiring] = useState(false);
@@ -80,6 +93,32 @@ export function AgentRoster({
 
   return (
     <div style={{ display: "grid", gap: "var(--space-5)" }}>
+      {automationPaused && (
+        <Card tone="inset" padding={14}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <Icon name="pause" size={15} />
+            <span style={{ fontSize: 13, color: "var(--text-primary)" }}>
+              All automation is paused
+              {automationPausedAt ? ` (${relative(automationPausedAt, now)}` : ""}
+              {automationPausedBy ? `${automationPausedAt ? ", " : " ("}by ${automationPausedBy}` : ""}
+              {automationPausedAt || automationPausedBy ? ")" : ""}. No agent will run and
+              approved actions will not be carried out until it is resumed.
+            </span>
+            {canManage && (
+              <Button
+                size="sm"
+                variant="accent"
+                disabled={pending}
+                style={{ marginLeft: "auto" }}
+                onClick={() => void run(() => setAutomationPausedAction(false))}
+              >
+                Resume automation
+              </Button>
+            )}
+          </div>
+        </Card>
+      )}
+
       {pendingApprovals > 0 && (
         <Card tone="inset" padding={14}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
@@ -91,6 +130,22 @@ export function AgentRoster({
             <Link href="/agents/approvals" style={{ marginLeft: "auto", textDecoration: "none" }}>
               <Button size="sm" variant="accent">
                 Review
+              </Button>
+            </Link>
+          </div>
+        </Card>
+      )}
+
+      {recentErrors > 0 && (
+        <Card tone="inset" padding={14}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <Icon name="triangle-alert" size={15} />
+            <span style={{ fontSize: 13, color: "var(--text-primary)" }}>
+              {recentErrors} error{recentErrors === 1 ? "" : "s"} in the last 24 hours.
+            </span>
+            <Link href="/agents/errors" style={{ marginLeft: "auto", textDecoration: "none" }}>
+              <Button size="sm" variant="ghost">
+                See errors
               </Button>
             </Link>
           </div>

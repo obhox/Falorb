@@ -22,7 +22,10 @@ import type { AgentRecord, Autonomy, ToolDefinition, ToolEffect } from "./types"
  *
  *   2. Does the agent's *autonomy* permit acting without asking?
  *
- *   3. Has this specific tool been granted a standing waiver?
+ *   3. Has this specific tool been granted a standing waiver — either the
+ *      permanent `autoApproveTools` list on the agent, or a time-boxed grant
+ *      a reviewer made from the approval queue (`agent_approval_grants`,
+ *      passed in as `activeGrants` by whoever loaded the agent)?
  *
  * Note the asymmetry between 1 and 2/3: role can only forbid, autonomy and
  * waivers can only downgrade "ask" to "act". Nothing can upgrade past role.
@@ -57,6 +60,8 @@ export function autonomyOf(agent: Pick<AgentRecord, "autonomy">): Autonomy {
 export function decide(
   agent: Pick<AgentRecord, "role" | "autonomy" | "autoApproveTools">,
   tool: Pick<ToolDefinition, "name" | "capability" | "effect" | "toolkit">,
+  /** Tool names with an unexpired `agent_approval_grants` row for this agent. */
+  activeGrants: readonly string[] = [],
 ): Decision {
   if (!can[tool.capability](agent.role)) {
     return {
@@ -83,7 +88,8 @@ export function decide(
   const waived =
     agent.autoApproveTools.includes("*") ||
     agent.autoApproveTools.includes(tool.name) ||
-    agent.autoApproveTools.includes(`toolkit:${tool.toolkit}`);
+    agent.autoApproveTools.includes(`toolkit:${tool.toolkit}`) ||
+    activeGrants.includes(tool.name);
   if (waived) return { kind: "allow" };
 
   return {

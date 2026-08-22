@@ -1,7 +1,8 @@
-ALTER TYPE "public"."integration_provider" ADD VALUE 'stripe' BEFORE 'openrouter';--> statement-breakpoint
+ALTER TYPE "public"."integration_provider" ADD VALUE 'stripe' BEFORE 'migadu';--> statement-breakpoint
 CREATE TABLE "stripe_charges" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
+	"project_id" integer,
 	"stripe_id" text NOT NULL,
 	"customer_stripe_id" text,
 	"customer_id" uuid,
@@ -23,6 +24,7 @@ CREATE TABLE "stripe_charges" (
 CREATE TABLE "stripe_customers" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
+	"project_id" integer,
 	"stripe_id" text NOT NULL,
 	"person_id" uuid,
 	"email" text,
@@ -37,6 +39,7 @@ CREATE TABLE "stripe_customers" (
 CREATE TABLE "stripe_invoices" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
+	"project_id" integer,
 	"stripe_id" text NOT NULL,
 	"customer_stripe_id" text,
 	"customer_id" uuid,
@@ -59,6 +62,7 @@ CREATE TABLE "stripe_invoices" (
 CREATE TABLE "stripe_subscriptions" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"organization_id" uuid NOT NULL,
+	"project_id" integer,
 	"stripe_id" text NOT NULL,
 	"customer_stripe_id" text NOT NULL,
 	"customer_id" uuid,
@@ -77,23 +81,35 @@ CREATE TABLE "stripe_subscriptions" (
 );
 --> statement-breakpoint
 ALTER TABLE "stripe_charges" ADD CONSTRAINT "stripe_charges_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "stripe_charges" ADD CONSTRAINT "stripe_charges_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "stripe_charges" ADD CONSTRAINT "stripe_charges_customer_id_stripe_customers_id_fk" FOREIGN KEY ("customer_id") REFERENCES "public"."stripe_customers"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "stripe_customers" ADD CONSTRAINT "stripe_customers_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "stripe_customers" ADD CONSTRAINT "stripe_customers_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "stripe_customers" ADD CONSTRAINT "stripe_customers_person_id_persons_id_fk" FOREIGN KEY ("person_id") REFERENCES "public"."persons"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "stripe_invoices" ADD CONSTRAINT "stripe_invoices_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "stripe_invoices" ADD CONSTRAINT "stripe_invoices_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "stripe_invoices" ADD CONSTRAINT "stripe_invoices_customer_id_stripe_customers_id_fk" FOREIGN KEY ("customer_id") REFERENCES "public"."stripe_customers"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "stripe_invoices" ADD CONSTRAINT "stripe_invoices_subscription_id_stripe_subscriptions_id_fk" FOREIGN KEY ("subscription_id") REFERENCES "public"."stripe_subscriptions"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "stripe_subscriptions" ADD CONSTRAINT "stripe_subscriptions_organization_id_organizations_id_fk" FOREIGN KEY ("organization_id") REFERENCES "public"."organizations"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "stripe_subscriptions" ADD CONSTRAINT "stripe_subscriptions_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "stripe_subscriptions" ADD CONSTRAINT "stripe_subscriptions_customer_id_stripe_customers_id_fk" FOREIGN KEY ("customer_id") REFERENCES "public"."stripe_customers"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-CREATE UNIQUE INDEX "stripe_charges_org_stripe_uq" ON "stripe_charges" USING btree ("organization_id","stripe_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "stripe_charges_org_stripe_uq" ON "stripe_charges" USING btree ("organization_id","stripe_id") WHERE "stripe_charges"."project_id" is null;--> statement-breakpoint
+CREATE UNIQUE INDEX "stripe_charges_project_stripe_uq" ON "stripe_charges" USING btree ("organization_id","project_id","stripe_id") WHERE "stripe_charges"."project_id" is not null;--> statement-breakpoint
 CREATE INDEX "stripe_charges_customer_idx" ON "stripe_charges" USING btree ("customer_id");--> statement-breakpoint
 CREATE INDEX "stripe_charges_org_status_idx" ON "stripe_charges" USING btree ("organization_id","status");--> statement-breakpoint
-CREATE UNIQUE INDEX "stripe_customers_org_stripe_uq" ON "stripe_customers" USING btree ("organization_id","stripe_id");--> statement-breakpoint
+CREATE INDEX "stripe_charges_project_idx" ON "stripe_charges" USING btree ("project_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "stripe_customers_org_stripe_uq" ON "stripe_customers" USING btree ("organization_id","stripe_id") WHERE "stripe_customers"."project_id" is null;--> statement-breakpoint
+CREATE UNIQUE INDEX "stripe_customers_project_stripe_uq" ON "stripe_customers" USING btree ("organization_id","project_id","stripe_id") WHERE "stripe_customers"."project_id" is not null;--> statement-breakpoint
 CREATE INDEX "stripe_customers_org_email_idx" ON "stripe_customers" USING btree ("organization_id","email");--> statement-breakpoint
 CREATE INDEX "stripe_customers_person_idx" ON "stripe_customers" USING btree ("person_id");--> statement-breakpoint
-CREATE UNIQUE INDEX "stripe_invoices_org_stripe_uq" ON "stripe_invoices" USING btree ("organization_id","stripe_id");--> statement-breakpoint
+CREATE INDEX "stripe_customers_project_idx" ON "stripe_customers" USING btree ("project_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "stripe_invoices_org_stripe_uq" ON "stripe_invoices" USING btree ("organization_id","stripe_id") WHERE "stripe_invoices"."project_id" is null;--> statement-breakpoint
+CREATE UNIQUE INDEX "stripe_invoices_project_stripe_uq" ON "stripe_invoices" USING btree ("organization_id","project_id","stripe_id") WHERE "stripe_invoices"."project_id" is not null;--> statement-breakpoint
 CREATE INDEX "stripe_invoices_customer_idx" ON "stripe_invoices" USING btree ("customer_id");--> statement-breakpoint
 CREATE INDEX "stripe_invoices_org_status_idx" ON "stripe_invoices" USING btree ("organization_id","status");--> statement-breakpoint
-CREATE UNIQUE INDEX "stripe_subscriptions_org_stripe_uq" ON "stripe_subscriptions" USING btree ("organization_id","stripe_id");--> statement-breakpoint
+CREATE INDEX "stripe_invoices_project_idx" ON "stripe_invoices" USING btree ("project_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "stripe_subscriptions_org_stripe_uq" ON "stripe_subscriptions" USING btree ("organization_id","stripe_id") WHERE "stripe_subscriptions"."project_id" is null;--> statement-breakpoint
+CREATE UNIQUE INDEX "stripe_subscriptions_project_stripe_uq" ON "stripe_subscriptions" USING btree ("organization_id","project_id","stripe_id") WHERE "stripe_subscriptions"."project_id" is not null;--> statement-breakpoint
 CREATE INDEX "stripe_subscriptions_customer_idx" ON "stripe_subscriptions" USING btree ("customer_id");--> statement-breakpoint
-CREATE INDEX "stripe_subscriptions_org_status_idx" ON "stripe_subscriptions" USING btree ("organization_id","status");
+CREATE INDEX "stripe_subscriptions_org_status_idx" ON "stripe_subscriptions" USING btree ("organization_id","status");--> statement-breakpoint
+CREATE INDEX "stripe_subscriptions_project_idx" ON "stripe_subscriptions" USING btree ("project_id");

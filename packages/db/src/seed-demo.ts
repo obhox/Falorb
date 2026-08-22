@@ -5,6 +5,7 @@ import { createClickHouse } from "./clickhouse/client";
 import { toEventRow } from "./clickhouse/rows";
 import * as schema from "./schema/index";
 import { loadRootEnv } from "./load-env";
+import { encryptCredential } from "./crypto";
 import type { Channel, DeviceType, FalorbEvent } from "@falorb/core";
 
 loadRootEnv();
@@ -54,8 +55,14 @@ const DAYS = 120;
 
 /** Fixed token so the shared-dashboard screenshot has a stable URL. */
 const SHARE_TOKEN = "fx8Qm2LbVn4pTwRe6YsKdH";
-/** Same, for the invitation-acceptance screen. */
-const INVITE_TOKEN = "hZ3vQpLmR7dNwT2sKfB9xC";
+/**
+ * Same, for the invitation-acceptance screen.
+ *
+ * Suffixed with ORG_SLUG: `invitations.token_hash` is unique across the whole
+ * table, not per organization, so a bare literal here collides the moment
+ * this script seeds a second organization into the same database.
+ */
+const INVITE_TOKEN = `hZ3vQpLmR7dNwT2sKfB9xC-${ORG_SLUG}`;
 
 // ---------------------------------------------------------------------------
 // Deterministic randomness
@@ -1454,6 +1461,7 @@ async function main(): Promise<void> {
   await seedAnalysis(db, org!.id, projectRows);
   await seedOps(db, org!.id, projectRows);
   await attachOwner(db, org!.id, clientOrg!.id, projectRows);
+  await seedRunTheBusiness(db, org!.id, projectRows, personValues);
 
   await ch.close();
   console.log("\ndone.\n");
@@ -1861,7 +1869,10 @@ async function seedOps(
       organizationId,
       projectId: null,
       name: "Reporting export",
-      keyHash: sha256("demo-key-reporting"),
+      // Scoped by ORG_SLUG: key_hash is unique across the whole table, not
+      // per organization, so a literal hash here would collide the moment
+      // this script seeds a second organization into the same database.
+      keyHash: sha256(`demo-key-reporting:${ORG_SLUG}`),
       keyPrefix: "flb_rp_8Kd2",
       scopes: ["read:events", "read:persons"],
       lastUsedAt: new Date(now - 3 * 3_600_000),
@@ -1870,7 +1881,7 @@ async function seedOps(
       organizationId,
       projectId: beacon.id,
       name: "Beacon server SDK",
-      keyHash: sha256("demo-key-beacon"),
+      keyHash: sha256(`demo-key-beacon:${ORG_SLUG}`),
       keyPrefix: "flb_sk_Qm71",
       scopes: ["write:events"],
       lastUsedAt: new Date(now - 9 * 60_000),
@@ -1879,7 +1890,7 @@ async function seedOps(
       organizationId,
       projectId: null,
       name: "Retired CI key",
-      keyHash: sha256("demo-key-ci"),
+      keyHash: sha256(`demo-key-ci:${ORG_SLUG}`),
       keyPrefix: "flb_sk_Zx40",
       scopes: ["write:events"],
       revokedAt: new Date(now - 21 * 86_400_000),
@@ -1888,6 +1899,808 @@ async function seedOps(
   ]);
 
   console.log("  alert rules with firing history, webhooks and API keys");
+}
+
+// ---------------------------------------------------------------------------
+// "Run the business": CRM, support, social, tasks, agents, UGC video, email
+// ---------------------------------------------------------------------------
+
+type PersonValue = { id: string; email: string | null; name: string | null; organizationId: string };
+
+/** Same formula `attachOwner`'s TEAM uses — recomputed rather than threaded through, since it's deterministic. */
+function teamUserId(email: string): string {
+  return sha256(`demo-user:${email}`).slice(0, 32);
+}
+
+const TEAM_EMAILS = ["daniel@acme.example", "amara@acme.example", "priya@acme.example", "jonas@acme.example"];
+
+/** A connected integration, with a throwaway encrypted credential — good enough to light up `isXConnected()`, never a real key. */
+function fakeConnection(
+  organizationId: string,
+  provider: (typeof schema.integrationProviderEnum.enumValues)[number],
+  baseUrl: string,
+  now: number,
+) {
+  const cred = encryptCredential(`demo-${provider}-key`);
+  return {
+    organizationId,
+    projectId: null,
+    provider,
+    baseUrl,
+    encryptedApiKey: cred.ciphertext,
+    iv: cred.iv,
+    authTag: cred.authTag,
+    status: "active" as const,
+    lastVerifiedAt: new Date(now - int(1, 6) * 3_600_000),
+    lastSyncedAt: new Date(now - int(5, 40) * 60_000),
+  };
+}
+
+async function seedRunTheBusiness(
+  db: ReturnType<typeof createDatabase>,
+  organizationId: string,
+  projects: ProjectRow[],
+  personValues: PersonValue[],
+): Promise<void> {
+  const now = Date.now();
+  const bySlug = new Map(projects.map((p) => [p.slug, p]));
+  const beacon = bySlug.get("beacon")!;
+  const owners = TEAM_EMAILS.map(teamUserId);
+  const contactPool = personValues.filter((p) => p.organizationId === organizationId && p.email);
+
+  // -- Integration connections, one per mirrored product ---------------------
+  await db.insert(schema.integrationConnections).values([
+    fakeConnection(organizationId, "linki", "https://linki.acme.example", now),
+    fakeConnection(organizationId, "bund_ai", "https://support.acme.example", now),
+    fakeConnection(organizationId, "buffer", "https://api.buffer.com", now),
+    fakeConnection(organizationId, "migadu", "https://api.migadu.com", now),
+    fakeConnection(organizationId, "elevenlabs", "https://api.elevenlabs.io", now),
+  ]);
+
+  // -- CRM: Falorb-native pipeline -------------------------------------------
+  const STAGE_SPECS = [
+    { name: "New", position: 0, probability: 10 },
+    { name: "Qualified", position: 1, probability: 25 },
+    { name: "Demo scheduled", position: 2, probability: 45 },
+    { name: "Proposal sent", position: 3, probability: 65 },
+    { name: "Won", position: 4, probability: 100, isWon: true },
+    { name: "Lost", position: 5, probability: 0, isLost: true },
+  ];
+  const stageRows = await db
+    .insert(schema.crmDealStages)
+    .values(STAGE_SPECS.map((s) => ({ organizationId, ...s })))
+    .returning();
+  const stageByName = new Map(stageRows.map((s) => [s.name, s]));
+
+  const crmPeople = contactPool.slice(0, 18);
+  const CRM_STATUSES = ["lead", "lead", "prospect", "prospect", "customer", "churned"];
+  await db.insert(schema.crmProfiles).values(
+    crmPeople.map((p, i) => ({
+      organizationId,
+      personId: p.id,
+      title: pick(["VP Marketing", "Head of Growth", "Founder", "Product Lead", "Ops Manager", "Director of Sales"]),
+      phone: null,
+      linkedinUrl: `https://www.linkedin.com/in/${(p.name ?? "demo-contact").toLowerCase().replace(/[^a-z]+/g, "-")}`,
+      status: CRM_STATUSES[i % CRM_STATUSES.length]!,
+      ownerId: pick(owners),
+      notes: chance(0.3) ? "Responded well to the last outreach round." : null,
+      createdBy: pick(owners),
+      createdAt: new Date(now - int(5, 300) * 86_400_000),
+    })),
+  );
+
+  const DEAL_NAMES = [
+    "Acme ↔ Northwind — annual plan",
+    "Beacon rollout — Q3",
+    "Ledgerly self-hosted quote",
+    "Fintra managed hosting",
+    "Notewell upgrade to Pro",
+    "Kestrel Bioworks pilot",
+    "Referral: Ashcroft & Partners",
+    "Inbound: Harrow Digital",
+    "Expansion — additional seats",
+    "Renewal — annual to multi-year",
+  ];
+  await db.insert(schema.crmDeals).values(
+    DEAL_NAMES.map((name, i) => {
+      const stage = pick(stageRows);
+      return {
+        organizationId,
+        personId: crmPeople[i % crmPeople.length]?.id ?? null,
+        stageId: stage.id,
+        ownerId: pick(owners),
+        name,
+        amount: String(int(8, 60) * 100),
+        currency: "USD",
+        expectedCloseDate: new Date(now + int(-10, 45) * 86_400_000),
+        source: pick(["linki_signal", "inbound", "referral", "outbound"]),
+        notes: null,
+        createdBy: pick(owners),
+        createdAt: new Date(now - int(5, 200) * 86_400_000),
+        closedAt: stage.isWon || stage.isLost ? new Date(now - int(1, 30) * 86_400_000) : null,
+      };
+    }),
+  );
+
+  // -- CRM: Linki mirror -------------------------------------------------------
+  const listRows = await db
+    .insert(schema.crmLists)
+    .values(
+      [
+        { name: "Q3 outbound — SaaS founders", description: "Cold list, sourced from Apollo", purpose: "outbound" },
+        { name: "Warm inbound — demo requests", description: "Booked a demo from the site", purpose: "inbound" },
+        { name: "Champions", description: "Existing customers who refer well", purpose: "advocacy" },
+      ].map((l) => ({
+        organizationId,
+        linkiId: `list_${sha256(l.name).slice(0, 10)}`,
+        ...l,
+        linkiCreatedAt: new Date(now - int(30, 200) * 86_400_000),
+      })),
+    )
+    .returning();
+
+  const workflowRows = await db
+    .insert(schema.crmWorkflows)
+    .values(
+      ["Cold outreach — SaaS founders", "Re-engagement — gone quiet", "Demo follow-up"].map((name) => ({
+        organizationId,
+        linkiId: `wf_${sha256(name).slice(0, 10)}`,
+        name,
+        description: `Sequence: ${name.toLowerCase()}`,
+        linkiCreatedAt: new Date(now - int(40, 250) * 86_400_000),
+      })),
+    )
+    .returning();
+
+  await db.insert(schema.crmRuns).values(
+    workflowRows.map((wf, i) => ({
+      organizationId,
+      linkiId: `run_${sha256(wf.name).slice(0, 10)}`,
+      workflowLinkiId: wf.linkiId,
+      listLinkiId: listRows[i % listRows.length]!.linkiId,
+      workflowId: wf.id,
+      listId: listRows[i % listRows.length]!.id,
+      status: pick(["completed", "running", "paused"]),
+      linkiCreatedAt: new Date(now - int(20, 90) * 86_400_000),
+      startedAt: new Date(now - int(10, 80) * 86_400_000),
+      completedAt: chance(0.5) ? new Date(now - int(1, 9) * 86_400_000) : null,
+    })),
+  );
+
+  const linkiOnlyNames = [
+    ["Rowan Fitzgerald", "Halcyon Ventures"],
+    ["Marisol Dupree", "Ashcroft & Partners"],
+    ["Desmond Okonkwo", "Harrow Digital"],
+    ["Yelena Marchetti", "Silverline Labs"],
+  ];
+  const contactRows = await db
+    .insert(schema.crmContacts)
+    .values([
+      ...crmPeople.slice(0, 8).map((p) => ({
+        organizationId,
+        linkiId: `contact_${sha256(p.id).slice(0, 10)}`,
+        personId: p.id,
+        fullName: p.name,
+        firstName: p.name?.split(" ")[0] ?? null,
+        lastName: p.name?.split(" ").slice(1).join(" ") || null,
+        email: p.email,
+        phone: null,
+        title: pick(["Founder", "VP Marketing", "Head of Growth"]),
+        company: pick(["Northwind", "Ashcroft & Partners", "Harrow Digital", "Silverline Labs"]),
+        companyLinkiId: null,
+        location: pick(["Austin, TX", "London, UK", "Toronto, ON", "Berlin, DE"]),
+        linkedinUrl: `https://www.linkedin.com/in/${(p.name ?? "contact").toLowerCase().replace(/[^a-z]+/g, "-")}`,
+        ownerLinkiId: pick(owners),
+        linkiCreatedAt: new Date(now - int(10, 180) * 86_400_000),
+      })),
+      ...linkiOnlyNames.map(([name, company]) => ({
+        organizationId,
+        linkiId: `contact_${sha256(String(name)).slice(0, 10)}`,
+        personId: null,
+        fullName: name,
+        firstName: String(name).split(" ")[0] ?? null,
+        lastName: String(name).split(" ").slice(1).join(" ") || null,
+        email: `${String(name).toLowerCase().replace(/[^a-z]+/g, ".")}@${String(company).toLowerCase().replace(/[^a-z]+/g, "")}.example`,
+        phone: null,
+        title: pick(["Founder", "Operations Lead", "Marketing Manager"]),
+        company,
+        companyLinkiId: null,
+        location: pick(["Austin, TX", "London, UK", "Toronto, ON"]),
+        linkedinUrl: `https://www.linkedin.com/in/${String(name).toLowerCase().replace(/[^a-z]+/g, "-")}`,
+        ownerLinkiId: pick(owners),
+        linkiCreatedAt: new Date(now - int(10, 180) * 86_400_000),
+      })),
+    ])
+    .returning();
+
+  await db.insert(schema.crmSignalRules).values(
+    [
+      { name: "High lead score", signalType: "lead_score", minScore: "70" },
+      { name: "AI signal: pricing viewed twice", signalType: "ai_signal", minScore: "0" },
+      { name: "Strong interest in integrations", signalType: "interest_score", minScore: "0.6" },
+    ].map((s) => ({
+      organizationId,
+      linkiId: `rule_${sha256(s.name).slice(0, 10)}`,
+      ...s,
+      listLinkiId: pick(listRows).linkiId,
+      workflowLinkiId: pick(workflowRows).linkiId,
+      enabled: true,
+      autoStart: chance(0.5),
+      syncedAt: new Date(now - int(1, 6) * 3_600_000),
+    })),
+  );
+
+  await db.insert(schema.crmSentMessages).values(
+    contactRows.slice(0, 8).map((c) => ({
+      organizationId,
+      linkiId: `msg_${sha256(c.id).slice(0, 10)}`,
+      targetLinkiId: c.linkiId,
+      runLinkiId: pick(workflowRows).linkiId,
+      contactId: c.id,
+      recipient: c.email,
+      subject: pick(["Quick question about your analytics stack", "Following up", "A faster way to run outreach"]),
+      status: pick(["delivered", "opened", "bounced", "delivered"]),
+      acceptedAt: new Date(now - int(1, 20) * 86_400_000),
+      deliveredAt: new Date(now - int(1, 20) * 86_400_000),
+      bouncedAt: null,
+      complainedAt: null,
+    })),
+  );
+
+  await db.insert(schema.crmSuppressions).values([
+    { kind: "email", value: "unsubscribed@example.com", reason: "unsubscribed" },
+    { kind: "email", value: "bounced@example.com", reason: "hard_bounce" },
+  ].map((s) => ({ organizationId, linkiId: `sup_${sha256(s.value).slice(0, 10)}`, ...s, linkiCreatedAt: new Date(now - int(5, 60) * 86_400_000) })));
+
+  // -- Support: Bund AI mirror -------------------------------------------------
+  const [business] = await db
+    .insert(schema.supportBusinesses)
+    .values({ organizationId, bundAiId: "biz_acme", name: "Acme" })
+    .returning();
+
+  const supportPeople = contactPool.slice(10, 20);
+  const conversationRows = await db
+    .insert(schema.supportConversations)
+    .values(
+      Array.from({ length: 10 }, (_, i) => {
+        const p = supportPeople[i % supportPeople.length];
+        return {
+          organizationId,
+          bundAiId: `conv_${i}_${business!.id.slice(0, 6)}`,
+          personId: p?.id ?? null,
+          channel: pick(["web_chat", "email"]),
+          externalUserRef: p?.email ?? null,
+          status: pick(["open", "resolved", "resolved", "escalated"]),
+          startedAt: new Date(now - int(1, 30) * 86_400_000),
+          lastActivityAt: new Date(now - int(0, 5) * 86_400_000),
+        };
+      }),
+    )
+    .returning();
+
+  await db.insert(schema.supportEscalations).values(
+    conversationRows.slice(0, 5).map((c, i) => ({
+      organizationId,
+      bundAiId: `esc_${i}_${c.id.slice(0, 6)}`,
+      conversationBundAiId: c.bundAiId,
+      conversationId: c.id,
+      personId: c.personId,
+      reason: pick(["billing_dispute", "cannot_reach_human", "angry_customer", "complex_technical"]),
+      summary: pick([
+        "Wants a refund for last month's overage.",
+        "Bot couldn't answer a self-hosting question, asked for a human.",
+        "Frustrated after three back-and-forths with no resolution.",
+        "Needs help migrating from Google Analytics — out of scope for the bot.",
+      ]),
+      status: i < 3 ? "resolved" : "open",
+      customerContact: "support@customer.example",
+      bundAiCreatedAt: new Date(now - int(1, 20) * 86_400_000),
+      resolvedAt: i < 3 ? new Date(now - int(0, 10) * 86_400_000) : null,
+    })),
+  );
+
+  await db.insert(schema.supportLeads).values(
+    conversationRows.slice(5, 10).map((c, i) => ({
+      organizationId,
+      bundAiId: `lead_${i}_${c.id.slice(0, 6)}`,
+      conversationBundAiId: c.bundAiId,
+      conversationId: c.id,
+      personId: c.personId,
+      name: pick(["Priya Chandra", "Tomas Vega", "Ingrid Sorensen", "Femi Adeyemi", "Clara Wu"]),
+      email: `lead${i}@prospect.example`,
+      phone: null,
+      intent: pick(["pricing", "self-hosting question", "wants a demo", "comparing to competitor"]),
+      notes: null,
+      status: pick(["new", "contacted", "qualified"]),
+      bundAiCreatedAt: new Date(now - int(1, 15) * 86_400_000),
+      bundAiUpdatedAt: new Date(now - int(0, 5) * 86_400_000),
+    })),
+  );
+
+  await db.insert(schema.supportTickets).values(
+    conversationRows.slice(0, 6).map((c, i) => ({
+      organizationId,
+      bundAiId: `ticket_${i}_${c.id.slice(0, 6)}`,
+      conversationBundAiId: c.bundAiId,
+      conversationId: c.id,
+      personId: c.personId,
+      subject: pick(["Webhook not firing", "Can't verify domain", "Retention setting reverted", "Slow dashboard load", "Export missing rows", "SSO question"]),
+      description: "Full description carried over from the chat transcript.",
+      category: pick(["bug", "question", "billing"]),
+      priority: pick(["low", "normal", "high", "urgent"]),
+      status: pick(["open", "in_progress", "resolved", "resolved"]),
+      customerName: pick(["Priya Chandra", "Tomas Vega", "Ingrid Sorensen"]),
+      customerContact: "support@customer.example",
+      createdBy: "bot",
+      bundAiCreatedAt: new Date(now - int(1, 25) * 86_400_000),
+      bundAiUpdatedAt: new Date(now - int(0, 4) * 86_400_000),
+      resolvedAt: chance(0.5) ? new Date(now - int(0, 4) * 86_400_000) : null,
+    })),
+  );
+
+  // -- Social: Buffer mirror ----------------------------------------------------
+  const channelRows = await db
+    .insert(schema.socialChannels)
+    .values(
+      [
+        { service: "linkedin", name: "Falorb", displayName: "Falorb" },
+        { service: "twitter", name: "falorb_hq", displayName: "@falorb_hq" },
+        { service: "instagram", name: "falorb.app", displayName: "Falorb" },
+      ].map((c) => ({
+        organizationId,
+        bufferId: `chan_${sha256(c.name).slice(0, 10)}`,
+        bufferOrganizationId: "buf_org_acme",
+        ...c,
+        avatar: null,
+        timezone: "UTC",
+        isDisconnected: false,
+        isQueuePaused: false,
+        weeklyPostingLimit: 21,
+        allowedActions: ["publish"],
+      })),
+    )
+    .returning();
+
+  const POST_TEXTS = [
+    "Falorb now mirrors your CRM, support and social data alongside analytics — one place to see all of it.",
+    "New: AI employees that read your analytics and act on the CRM queue, with a human approving anything that reaches a customer.",
+    "Person-level analytics across your whole portfolio, still self-hosted, still MIT licensed.",
+    "Shipped: UGC-style AI video generation — script, voice and a lip-synced talking video from one brief.",
+    "A funnel with per-step drop-off, and now a CRM deal attached to the person who fell out of it.",
+    "Cross-project identity resolution, explained in under two minutes.",
+    "Support escalations now show up next to the analytics for the person who filed them.",
+    "Self-hosted doesn't have to mean disconnected — Falorb now talks to the tools you already run.",
+  ];
+  await db.insert(schema.socialPosts).values(
+    POST_TEXTS.map((text, i) => {
+      const channel = pick(channelRows);
+      const status = i < 4 ? "sent" : i < 6 ? "scheduled" : i === 6 ? "draft" : "failed";
+      return {
+        organizationId,
+        bufferId: `post_${sha256(text).slice(0, 10)}`,
+        channelBufferId: channel.bufferId,
+        channelId: channel.id,
+        text,
+        status,
+        shareMode: "next_free_slot",
+        schedulingType: status === "scheduled" ? "custom" : "queue",
+        dueAt: status === "scheduled" ? new Date(now + int(1, 5) * 86_400_000) : null,
+        sentAt: status === "sent" ? new Date(now - int(1, 20) * 86_400_000) : null,
+        tags: ["product"],
+        metrics: status === "sent" ? [{ type: "reactions", value: int(4, 80) }] : null,
+        metricsUpdatedAt: status === "sent" ? new Date(now - int(0, 3) * 86_400_000) : null,
+        errorMessage: status === "failed" ? "Channel disconnected mid-publish — reconnect and retry." : null,
+      };
+    }),
+  );
+
+  // -- Email: Migadu-provisioned mailbox ----------------------------------------
+  const pw = encryptCredential("demo-mailbox-password");
+  const [mailbox] = await db
+    .insert(schema.emailAccounts)
+    .values({
+      organizationId,
+      projectId: beacon.id,
+      domain: "acme.example",
+      localPart: "outreach",
+      address: "outreach@acme.example",
+      name: "Acme Outreach",
+      encryptedPassword: pw.ciphertext,
+      passwordIv: pw.iv,
+      passwordAuthTag: pw.authTag,
+      imapUidValidity: 1,
+      imapLastUid: 42,
+      status: "active",
+      lastSyncedAt: new Date(now - int(1, 10) * 60_000),
+    })
+    .returning();
+
+  const threadId = `<thread-${sha256("acme-outreach").slice(0, 10)}@acme.example>`;
+  await db.insert(schema.emailMessages).values([
+    {
+      organizationId,
+      emailAccountId: mailbox!.id,
+      direction: "outbound",
+      messageId: `<msg-1-${threadId}`,
+      inReplyTo: null,
+      fromAddress: "outreach@acme.example",
+      fromName: "Acme Outreach",
+      toAddresses: ["rowan@halcyon.example"],
+      ccAddresses: [],
+      subject: "Quick question about your analytics stack",
+      textBody: "Hi Rowan — noticed Halcyon runs a handful of properties. Worth a look at one dashboard for all of them?",
+      htmlBody: null,
+      receivedAt: new Date(now - 4 * 86_400_000),
+    },
+    {
+      organizationId,
+      emailAccountId: mailbox!.id,
+      direction: "inbound",
+      imapUid: 41,
+      messageId: `<msg-2-${threadId}`,
+      inReplyTo: `<msg-1-${threadId}`,
+      fromAddress: "rowan@halcyon.example",
+      fromName: "Rowan Fitzgerald",
+      toAddresses: ["outreach@acme.example"],
+      ccAddresses: [],
+      subject: "Re: Quick question about your analytics stack",
+      textBody: "Interesting — can you send more detail on self-hosting requirements?",
+      htmlBody: null,
+      receivedAt: new Date(now - 3 * 86_400_000),
+    },
+    {
+      organizationId,
+      emailAccountId: mailbox!.id,
+      direction: "outbound",
+      imapUid: null,
+      messageId: `<msg-3-${threadId}`,
+      inReplyTo: `<msg-2-${threadId}`,
+      fromAddress: "outreach@acme.example",
+      fromName: "Acme Outreach",
+      toAddresses: ["rowan@halcyon.example"],
+      ccAddresses: [],
+      subject: "Re: Quick question about your analytics stack",
+      textBody: "Docker Compose, Postgres and ClickHouse — happy to walk through it on a call this week.",
+      htmlBody: null,
+      receivedAt: new Date(now - 2 * 86_400_000),
+    },
+  ]);
+
+  // -- Prospecting ----------------------------------------------------------
+  await db.insert(schema.prospectKeywords).values(
+    ["self-hosted analytics", "google analytics alternative", "product analytics tool"].map((keyword) => ({
+      projectId: beacon.id,
+      keyword,
+      active: true,
+      createdBy: pick(owners),
+    })),
+  );
+
+  const PROSPECT_SPECS = [
+    { source: "reddit", sourceType: "post", title: "Anyone using a self-hosted GA alternative?", excerpt: "Looking to move off GA4 before the free tier gets worse. Anything solid that's actually self-hosted?" },
+    { source: "reddit", sourceType: "comment", title: null, excerpt: "+1 for self-hosted — I don't want a third party holding my customer data." },
+    { source: "hackernews", sourceType: "post", title: "Show HN: a lighter product analytics stack", excerpt: "Built this after getting tired of paying per-event for a SaaS analytics tool." },
+    { source: "hackernews", sourceType: "comment", title: null, excerpt: "Curious how this compares to Plausible/Umami on the person-level side." },
+    { source: "job_search", sourceType: "posting", title: "Growth Engineer — own our analytics stack", excerpt: "Looking for someone to migrate us off our current SaaS analytics vendor." },
+  ];
+  await db.insert(schema.prospects).values(
+    Array.from({ length: 10 }, (_, i) => {
+      const spec = PROSPECT_SPECS[i % PROSPECT_SPECS.length]!;
+      const status = pick(["new", "new", "enriched", "contacted", "dismissed"]);
+      return {
+        organizationId,
+        projectId: beacon.id,
+        source: spec.source,
+        sourceId: `src_${i}_${sha256(spec.excerpt).slice(0, 8)}`,
+        sourceUrl: `https://${spec.source === "reddit" ? "reddit.com/r/webdev" : spec.source === "hackernews" ? "news.ycombinator.com" : "example.com/jobs"}/${i}`,
+        sourceType: spec.sourceType,
+        authorHandle: pick(["u/dev_throwaway", "u/foundertype", "hn_reader42", null]),
+        title: spec.title,
+        excerpt: spec.excerpt,
+        matchedKeywords: ["self-hosted analytics"],
+        postedAt: new Date(now - int(1, 30) * 86_400_000),
+        relevanceScore: int(40, 95),
+        relevanceRationale: "Explicit mention of self-hosting and dissatisfaction with a SaaS analytics vendor.",
+        contactName: status === "enriched" || status === "contacted" ? "Jordan Askew" : null,
+        contactEmail: status === "enriched" || status === "contacted" ? "jordan@prospect.example" : null,
+        contactTitle: status === "enriched" || status === "contacted" ? "Founding Engineer" : null,
+        status,
+        contactedAt: status === "contacted" ? new Date(now - int(1, 5) * 86_400_000) : null,
+        contactedBy: status === "contacted" ? pick(owners) : null,
+        dismissedAt: status === "dismissed" ? new Date(now - int(1, 5) * 86_400_000) : null,
+      };
+    }),
+  );
+
+  // -- AI employees -----------------------------------------------------------
+  const AGENT_SPECS = [
+    {
+      name: "Nova",
+      roleTitle: "Growth analyst",
+      avatar: "📈",
+      role: "member" as const,
+      autonomy: "assisted",
+      toolkits: ["analytics", "content"],
+      scheduleMinutes: 720,
+      scheduleObjective: "Review the portfolio's overnight numbers, flag anything unusual, and draft a content idea for whichever property is underperforming.",
+      instructions: "You are Nova, Acme's growth analyst. Read the analytics daily, watch for drop-off and traffic anomalies, and propose content or funnel fixes. Never publish anything yourself — hand drafts to a human.",
+    },
+    {
+      name: "Milo",
+      roleTitle: "SDR",
+      avatar: "📇",
+      role: "member" as const,
+      autonomy: "autonomous",
+      toolkits: ["crm", "research"],
+      scheduleMinutes: 240,
+      scheduleObjective: "Work the CRM queue: qualify new leads, enrich contacts missing a title or company, and push high-score signals to Linki.",
+      instructions: "You are Milo, Acme's SDR. Qualify inbound leads, keep the CRM contact records complete, and push qualified signals to Linki. Anything that reaches a customer directly (an email, a LinkedIn message) needs approval.",
+    },
+    {
+      name: "Sage",
+      roleTitle: "Support lead",
+      avatar: "🎧",
+      role: "member" as const,
+      autonomy: "assisted",
+      toolkits: ["support"],
+      scheduleMinutes: 60,
+      scheduleObjective: "Triage open escalations, draft a resolution for the straightforward ones, and hand anything requiring a refund or judgement call to a human.",
+      instructions: "You are Sage, Acme's support lead. Review open escalations and tickets, resolve what's clearly within policy, and open a task for a human on anything involving money or a judgement call.",
+    },
+    {
+      name: "Ivy",
+      roleTitle: "Social manager",
+      avatar: "📣",
+      role: "viewer" as const,
+      autonomy: "observer",
+      toolkits: ["social", "content"],
+      scheduleMinutes: 1440,
+      scheduleObjective: "Read what performed well this week and draft three post ideas for next week's queue.",
+      instructions: "You are Ivy, Acme's social manager. Read engagement on recent posts and draft ideas for the next queue. You do not have publish access — every draft goes to a human.",
+    },
+  ];
+  const agentRows = await db
+    .insert(schema.agents)
+    .values(
+      AGENT_SPECS.map((a) => ({
+        organizationId,
+        name: a.name,
+        roleTitle: a.roleTitle,
+        avatar: a.avatar,
+        preset: "custom",
+        instructions: a.instructions,
+        role: a.role,
+        autonomy: a.autonomy,
+        toolkits: a.toolkits,
+        autoApproveTools: [],
+        projectIds: [],
+        status: "active",
+        scheduleMinutes: a.scheduleMinutes,
+        nextRunAt: new Date(now + int(10, 90) * 60_000),
+        lastRunAt: new Date(now - int(5, 300) * 60_000),
+        scheduleObjective: a.scheduleObjective,
+        maxStepsPerRun: 12,
+        dailyRunLimit: 24,
+        createdBy: pick(owners),
+      })),
+    )
+    .returning();
+
+  for (const agent of agentRows) {
+    const runRows = await db
+      .insert(schema.agentRuns)
+      .values(
+        Array.from({ length: 3 }, (_, i) => {
+          const status = i === 0 ? "succeeded" : i === 1 ? (agent.autonomy === "autonomous" ? "waiting_approval" : "succeeded") : "succeeded";
+          return {
+            organizationId,
+            agentId: agent.id,
+            trigger: pick(["schedule", "manual", "task"]),
+            triggerRef: null,
+            objective: agent.scheduleObjective ?? "Standing shift.",
+            status,
+            summary: `Reviewed ${int(3, 12)} items and ${status === "waiting_approval" ? "queued one action for approval." : "wrapped up with nothing blocking."}`,
+            stepCount: int(4, 10),
+            promptTokens: int(2000, 9000),
+            completionTokens: int(400, 1800),
+            costUsd: (int(3, 40) / 100).toFixed(6),
+            startedBy: null,
+            startedAt: new Date(now - (i + 1) * int(3, 20) * 3_600_000),
+            finishedAt: new Date(now - (i + 1) * int(3, 20) * 3_600_000 + int(2, 8) * 60_000),
+            createdAt: new Date(now - (i + 1) * int(3, 20) * 3_600_000),
+          };
+        }),
+      )
+      .returning();
+
+    // A transcript for the most recent run, so the run detail page has something to show.
+    const latest = runRows[0]!;
+    await db.insert(schema.agentSteps).values([
+      { runId: latest.id, position: 0, kind: "assistant", content: `Starting shift: ${latest.objective}` },
+      { runId: latest.id, position: 1, kind: "tool_call", toolName: "list_people", toolCallId: "call_1", arguments: { limit: 20 } },
+      { runId: latest.id, position: 2, kind: "tool_result", toolCallId: "call_1", result: { count: 14 }, ok: true, durationMs: int(80, 400) },
+      { runId: latest.id, position: 3, kind: "assistant", content: "Found a few items worth acting on. Writing up a summary." },
+    ]);
+
+    // Not necessarily `latest` — only the second of the three runs is ever
+    // assigned "waiting_approval" above, so search rather than assume order.
+    const awaitingRun = runRows.find((run) => run.status === "waiting_approval");
+    if (awaitingRun) {
+      await db.insert(schema.agentApprovals).values({
+        organizationId,
+        agentId: agent.id,
+        runId: awaitingRun.id,
+        toolName: "push_crm_signal",
+        toolCallId: "call_approval_1",
+        arguments: { signalType: "high_intent", note: "Pricing page viewed 3x this week" },
+        title: `Push a high-intent signal to Linki for a contact ${agent.name} flagged`,
+        rationale: "This contact viewed the pricing page three times in the last week and matches the ICP.",
+        risk: "medium",
+        requiredCapability: "actOnIntegrations",
+        status: "pending",
+        expiresAt: new Date(now + int(1, 3) * 86_400_000),
+      });
+    }
+
+    await db.insert(schema.agentMemories).values([
+      {
+        organizationId,
+        agentId: agent.id,
+        key: "preferred-tone",
+        scope: "preference",
+        content: "Acme's team prefers short, direct drafts over long ones — keep summaries to 3-4 sentences.",
+        importance: 3,
+      },
+      {
+        organizationId,
+        agentId: agent.id,
+        key: "last-notable-finding",
+        scope: "outcome",
+        content: "Beacon's checkout funnel drop-off improved after the last content push.",
+        importance: 4,
+      },
+    ]);
+  }
+
+  // -- Tasks: the shared board -------------------------------------------------
+  const TASK_SPECS = [
+    { title: "Draft a follow-up sequence for the Q3 outbound list", status: "todo", assigneeType: "agent", agent: "Milo" },
+    { title: "Investigate the drop in Beacon's signup funnel", status: "in_progress", assigneeType: "agent", agent: "Nova" },
+    { title: "Resolve the billing dispute from Ashcroft & Partners", status: "review", assigneeType: "agent", agent: "Sage", handoffReason: "Refund requires a human decision — outside my authority." },
+    { title: "Approve Milo's proposed signal push to Linki", status: "blocked", assigneeType: "human" },
+    { title: "Write next week's LinkedIn post queue", status: "done", assigneeType: "agent", agent: "Ivy" },
+    { title: "Set up the demo environment for the Kestrel pilot call", status: "todo", assigneeType: "human" },
+    { title: "Migrate the last self-hosted customer off the old retention default", status: "in_progress", assigneeType: "human" },
+    { title: "Review Nova's content draft for the AI-crawler feature page", status: "review", assigneeType: "human" },
+    { title: "Reply to the HN thread asking about person-level analytics", status: "todo", assigneeType: "unassigned" },
+    { title: "Tag the newly enriched prospects and route the warm ones to Milo", status: "done", assigneeType: "agent", agent: "Milo" },
+    { title: "Confirm the UGC video script for the September launch", status: "todo", assigneeType: "human" },
+    { title: "Escalation follow-up: confirm the customer's issue actually resolved", status: "todo", assigneeType: "agent", agent: "Sage", handoffReason: null },
+  ];
+  const agentByName = new Map(agentRows.map((a) => [a.name, a]));
+  const taskRows = await db
+    .insert(schema.tasks)
+    .values(
+      TASK_SPECS.map((t, i) => {
+        const agent = t.agent ? agentByName.get(t.agent) : undefined;
+        return {
+          organizationId,
+          projectId: null,
+          title: t.title,
+          body: null,
+          status: t.status,
+          priority: pick(["normal", "normal", "high", "low"]),
+          assigneeType: t.assigneeType,
+          assigneeUserId: t.assigneeType === "human" ? pick(owners) : null,
+          assigneeAgentId: t.assigneeType === "agent" ? (agent?.id ?? null) : null,
+          creatorType: t.assigneeType === "agent" && chance(0.3) ? "agent" : "human",
+          creatorUserId: pick(owners),
+          creatorAgentId: null,
+          handoffReason: t.handoffReason ?? null,
+          result: t.status === "done" ? "Completed and posted for review." : null,
+          dueAt: new Date(now + int(-2, 7) * 86_400_000),
+          startedAt: t.status !== "todo" ? new Date(now - int(1, 5) * 86_400_000) : null,
+          completedAt: t.status === "done" ? new Date(now - int(0, 3) * 86_400_000) : null,
+          createdAt: new Date(now - int(1, 20) * 86_400_000 - i * 3_600_000),
+        };
+      }),
+    )
+    .returning();
+
+  await db.insert(schema.taskComments).values([
+    { taskId: taskRows[2]!.id, authorType: "agent", authorAgentId: agentByName.get("Sage")!.id, body: "Customer wants a full refund for last month. I can't approve that — needs a human call." },
+    { taskId: taskRows[2]!.id, authorType: "human", authorUserId: owners[0]!, body: "Approved a partial credit instead of a full refund — replying now." },
+    { taskId: taskRows[1]!.id, authorType: "agent", authorAgentId: agentByName.get("Nova")!.id, body: "Traced it to a broken redirect after the last deploy — flagging to engineering." },
+  ]);
+
+  // -- UGC video ---------------------------------------------------------------
+  await db.insert(schema.ugcVideos).values([
+    {
+      organizationId,
+      projectId: beacon.id,
+      mode: "avatar",
+      brief: "A 30-second testimonial about switching from Google Analytics to a self-hosted tool.",
+      script: "I was tired of not owning my own data. Falorb runs on my own server, and I can actually see who's using my product.",
+      voiceId: "voice_demo_1",
+      voiceName: "Clara — Warm, conversational",
+      voiceProvider: "elevenlabs",
+      videoModel: "elevenlabs-avatar-v1",
+      requestedDurationSecs: 30,
+      generateAudio: true,
+      videoUrl: "https://videos.elevenlabs.io/demo/falorb-testimonial-1.mp4",
+      durationSeconds: 31,
+      status: "ready",
+      createdBy: pick(owners),
+    },
+    {
+      organizationId,
+      projectId: beacon.id,
+      mode: "prompt",
+      brief: "A quick product-cut showing the portfolio dashboard, no presenter.",
+      videoPrompt: "Smooth screen-capture-style pan across a dark-mode analytics dashboard, KPI cards animating in, then a cut to a funnel chart.",
+      videoModel: "veo-3",
+      aspectRatio: "9:16",
+      resolution: "1080p",
+      requestedDurationSecs: 15,
+      generateAudio: true,
+      videoUrl: "https://videos.elevenlabs.io/demo/falorb-product-cut-1.mp4",
+      durationSeconds: 15,
+      status: "ready",
+      createdBy: pick(owners),
+    },
+    {
+      organizationId,
+      projectId: beacon.id,
+      mode: "avatar",
+      brief: "A short 'why we built this' founder-style clip.",
+      script: "I run a lot of small projects, and I got tired of eight different analytics logins telling me nothing about the whole picture.",
+      voiceId: "voice_demo_2",
+      voiceName: "Marcus — Confident, direct",
+      voiceProvider: "elevenlabs",
+      videoModel: "elevenlabs-avatar-v1",
+      requestedDurationSecs: 25,
+      generateAudio: true,
+      status: "video_processing",
+      processingStartedAt: new Date(now - int(1, 5) * 60_000),
+      createdBy: pick(owners),
+    },
+    {
+      organizationId,
+      projectId: beacon.id,
+      mode: "avatar",
+      brief: "A quick feature callout for AI-employee approvals.",
+      script: "Every action that reaches a customer waits for a human. That's the whole safety model.",
+      voiceId: "voice_demo_1",
+      voiceName: "Clara — Warm, conversational",
+      voiceProvider: "elevenlabs",
+      videoModel: "elevenlabs-avatar-v1",
+      requestedDurationSecs: 20,
+      generateAudio: true,
+      status: "failed",
+      lastError: "ElevenLabs returned a rate-limit error after 3 retries.",
+      createdBy: pick(owners),
+    },
+  ]);
+
+  const videoRows = await db
+    .select({ id: schema.ugcVideos.id, status: schema.ugcVideos.status })
+    .from(schema.ugcVideos)
+    .where(eq(schema.ugcVideos.organizationId, organizationId));
+  const readyVideos = videoRows.filter((v) => v.status === "ready");
+  if (readyVideos.length > 0) {
+    await db.insert(schema.ugcVideoPostQueue).values(
+      readyVideos.map((v, i) => ({
+        organizationId,
+        videoId: v.id,
+        platform: pick(["tiktok", "instagram_reels", "linkedin"]),
+        caption: "Self-hosted, and still this easy. #buildinpublic",
+        scheduledAt: new Date(now + int(1, 6) * 86_400_000),
+        status: i === 0 ? "queued" : "queued",
+      })),
+    );
+  }
+
+  console.log("  CRM, support, social, tasks, AI employees, UGC video and email");
 }
 
 // ---------------------------------------------------------------------------

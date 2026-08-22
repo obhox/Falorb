@@ -37,7 +37,8 @@ if (!EMAIL || !PASSWORD) {
 }
 const OUT = resolve(import.meta.dirname, "../../../shots");
 const SHARE_TOKEN = "fx8Qm2LbVn4pTwRe6YsKdH";
-const INVITE_TOKEN = "hZ3vQpLmR7dNwT2sKfB9xC";
+// Suffixed with the demo org's slug — see the matching note in seed-demo.ts.
+const INVITE_TOKEN = "hZ3vQpLmR7dNwT2sKfB9xC-acme-demo";
 
 const WIDTH = 1600;
 const VIEWPORT_HEIGHT = 1000;
@@ -82,13 +83,24 @@ const PAGES = [
   { name: "16-team", path: "/settings/team", wait: "text=Pending invitations" },
   { name: "17-mcp-and-keys", path: "/settings/mcp", wait: "text=Connect an assistant" },
   { name: "18-add-property", path: "/settings/new", wait: "text=Add property" },
-  { name: "19-invitation", path: `/invite/${INVITE_TOKEN}`, wait: "text=Invitation" },
+  { name: "19-invitation", path: `/invite/${INVITE_TOKEN}`, wait: "text=Invitation", isNew: true },
   // A second property, so the portfolio does not look like one site with tabs.
   { name: "20-ledgerly-summary", path: "/p/ledgerly", wait: "text=Visitors and sessions" },
   { name: "21-ledgerly-funnels", path: "/p/ledgerly/funnels", wait: "text=Saved funnels" },
   { name: "22-fintra-crawlers", path: "/p/fintra/crawlers", wait: "text=AI assistants" },
   { name: "23-notewell-summary", path: "/p/notewell", wait: "text=Visitors and sessions" },
   { name: "24-acme-summary", path: "/p/acme", wait: "text=Visitors and sessions" },
+  // "Run the business": CRM, support, social, tasks, AI employees, UGC video, email.
+  { name: "31-crm", path: "/crm", wait: "text=deliberately added", isNew: true },
+  { name: "31b-crm-pipeline", path: "/crm", wait: "text=deliberately added", tab: "Pipeline", tabWait: "text=Falorb-owned deals", isNew: true },
+  { name: "32-support", path: "/support", wait: "text=Resolve directly", isNew: true },
+  { name: "33-social", path: "/social", wait: "text=Publishes through Buffer", isNew: true },
+  { name: "34-tasks", path: "/tasks", wait: "text=Draft a follow-up sequence", isNew: true },
+  { name: "35-agents", path: "/agents", wait: "text=Nova", isNew: true },
+  { name: "36-agent-approvals", path: "/agents/approvals", wait: "text=flagged", isNew: true },
+  { name: "37-ugc-videos", path: "/ugc-videos", wait: "text=Generate a video", isNew: true },
+  { name: "38-prospecting", path: "/prospecting", wait: "text=self-hosted analytics", isNew: true },
+  { name: "39-email", path: "/email", wait: "text=Threads", isNew: true },
 ];
 
 /** Screens that must be shot signed out. */
@@ -159,6 +171,17 @@ const CARDS = [
   { page: "/settings/mcp", name: "mcp-keys", title: "API keys" },
   { page: "/p/beacon/settings", name: "install-snippet", title: "Install" },
   { page: "/p/beacon/settings", name: "public-link", title: "Public link" },
+
+  { page: "/crm", name: "crm-contacts", title: "Contacts", isNew: true },
+
+  { page: "/support", name: "support-escalations", title: "Escalations", isNew: true },
+
+  { page: "/social", name: "social-compose", title: "Compose", isNew: true },
+  { page: "/social", name: "social-recent-posts", title: "Recent posts", isNew: true },
+
+  { page: "/ugc-videos", name: "ugc-composer", title: "Generate a video", isNew: true },
+
+  { page: "/email", name: "email-threads", title: "Threads", isNew: true },
 ];
 
 /** Panels on the person profile, whose URL is discovered at runtime. */
@@ -303,6 +326,13 @@ async function shootPages(context, theme, pages, dir) {
       if (spec.workspace === "client") await selectWorkspace(page, 1);
       await page.goto(`${BASE}${spec.path}`, { waitUntil: "domcontentloaded" });
       await settle(page, spec.wait);
+      // Some pages (CRM's Contacts/Pipeline/etc.) are client-side tabs whose
+      // inactive panels are unmounted, not just hidden — the wanted content
+      // only exists once its tab has been clicked.
+      if (spec.tab) {
+        await page.locator(`text="${spec.tab}"`).first().click();
+        await settle(page, spec.tabWait ?? spec.wait);
+      }
       await fitViewport(page);
       await page.screenshot({ path: file });
       console.log(`  ${theme}/${spec.name}`);
@@ -341,13 +371,13 @@ async function selectWorkspace(page, index) {
   await page.waitForTimeout(1_500);
 }
 
-async function shootCards(context, theme) {
+async function shootCards(context, theme, cards = CARDS) {
   const page = await context.newPage();
   await page.setViewportSize({ width: WIDTH, height: 1400 });
 
   // Group by page so each route is loaded once rather than once per card.
   const byPage = new Map();
-  for (const card of CARDS) {
+  for (const card of cards) {
     const list = byPage.get(card.page) ?? [];
     list.push(card);
     byPage.set(card.page, list);
@@ -523,12 +553,71 @@ async function shootPerson(context, theme) {
   await page.close();
 }
 
+/** Panels on an agent's detail page. */
+const AGENT_CARDS = [
+  { name: "agent-brief", title: "Brief" },
+  { name: "agent-shift-history", title: "Shift history" },
+  { name: "agent-memory", title: "What it has learned" },
+  { name: "agent-mailbox", title: "Mailbox" },
+  { name: "agent-permissions", title: "Permissions" },
+  { name: "agent-skills", title: "Skills" },
+  { name: "agent-scope-budget", title: "Scope and budget" },
+];
+
+/** Nova's detail page — the fullest illustration of one AI employee, named in the seed. */
+async function shootAgent(context, theme) {
+  const page = await context.newPage();
+  await page.setViewportSize({ width: WIDTH, height: 1400 });
+
+  try {
+    await page.goto(`${BASE}/agents`, { waitUntil: "domcontentloaded" });
+    await settle(page, "text=Nova");
+
+    const row = page.locator('a[href^="/agents/"]').filter({ hasText: "Nova" }).first();
+    await row.waitFor({ state: "visible", timeout: 15_000 });
+    await row.click();
+    await page.waitForURL(/\/agents\//, { timeout: 15_000 });
+    await settle(page, "text=Brief");
+    await fitViewport(page);
+
+    const full = `${OUT}/full/${theme}/40-agent-detail.png`;
+    ensureDir(full);
+    await page.screenshot({ path: full });
+    console.log(`  ${theme}/40-agent-detail`);
+
+    for (const card of AGENT_CARDS) {
+      const file = `${OUT}/cards/${theme}/${card.name}.png`;
+      ensureDir(file);
+      try {
+        const target = panel(page, card.title);
+        await target.waitFor({ state: "visible", timeout: 6_000 });
+        await target.scrollIntoViewIfNeeded();
+        await page.waitForTimeout(200);
+        await target.screenshot({ path: file });
+        console.log(`  ${theme}/cards/${card.name}`);
+      } catch (error) {
+        console.warn(`  ! ${theme}/cards/${card.name}: ${error.message.split("\n")[0]}`);
+      }
+    }
+  } catch (error) {
+    console.warn(`  ! ${theme} agent detail: ${error.message.split("\n")[0]}`);
+  }
+
+  await page.close();
+}
+
 async function main() {
   // `SHOTS_ONLY=live` retakes just the live screen — the one capture that
   // depends on traffic generated while the page is open, and so the one most
   // likely to need a second attempt.
   const onlyLive = process.env.SHOTS_ONLY === "live";
-  if (!onlyLive && existsSync(OUT)) rmSync(OUT, { recursive: true, force: true });
+  // `SHOTS_ONLY=new` retakes only the entries marked `isNew` — additions
+  // made after the main sweep already ran, cheaper than a full re-run and
+  // additive rather than wiping what's already in OUT.
+  const onlyNew = process.env.SHOTS_ONLY === "new";
+  const pages = onlyNew ? PAGES.filter((p) => p.isNew) : PAGES;
+  const cards = onlyNew ? CARDS.filter((c) => c.isNew) : CARDS;
+  if (!onlyLive && !onlyNew && existsSync(OUT)) rmSync(OUT, { recursive: true, force: true });
 
   const browser = await chromium.launch();
   const origin = new URL(BASE).origin;
@@ -564,26 +653,29 @@ async function main() {
     console.log(`\n${theme}:`);
 
     const context = await signedIn(theme);
-    await shootPages(context, theme, PAGES, "full");
-    await shootSwitcher(context, theme);
-    await shootPerson(context, theme);
-    await shootCards(context, theme);
+    await shootPages(context, theme, pages, "full");
+    if (!onlyNew) await shootSwitcher(context, theme);
+    if (!onlyNew) await shootPerson(context, theme);
+    await shootAgent(context, theme);
+    await shootCards(context, theme, cards);
     await context.close();
 
-    // Signed out, same theme.
-    const anon = await browser.newContext({
-      viewport: { width: WIDTH, height: VIEWPORT_HEIGHT },
-      deviceScaleFactor: 2,
-      colorScheme: theme,
-    });
-    await anon.addCookies([{ name: "falorb-theme", value: theme, url: origin }]);
-    await hideDevChrome(anon);
-    await shootPages(anon, theme, PUBLIC_PAGES, "full");
-    await anon.close();
+    if (!onlyNew) {
+      // Signed out, same theme.
+      const anon = await browser.newContext({
+        viewport: { width: WIDTH, height: VIEWPORT_HEIGHT },
+        deviceScaleFactor: 2,
+        colorScheme: theme,
+      });
+      await anon.addCookies([{ name: "falorb-theme", value: theme, url: origin }]);
+      await hideDevChrome(anon);
+      await shootPages(anon, theme, PUBLIC_PAGES, "full");
+      await anon.close();
+    }
   }
 
   // Live last, for both themes — see the note on shootLive.
-  for (const theme of THEMES) {
+  for (const theme of onlyNew ? [] : THEMES) {
     console.log(`\n${theme} (live):`);
     const context = await signedIn(theme);
     await shootLive(context, theme);

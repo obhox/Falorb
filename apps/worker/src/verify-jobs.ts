@@ -13,6 +13,7 @@ import { enforceRetention, processDataRequests, pruneOrphanedPersons } from "./j
 import { syncLinki } from "./jobs/linki-sync";
 import { syncBundAi } from "./jobs/bund-ai-sync";
 import { syncBuffer } from "./jobs/buffer-sync";
+import { syncStripe } from "./jobs/stripe-sync";
 
 /**
  * Runs every scheduled job once, in dependency order.
@@ -73,6 +74,7 @@ await run("data-requests", () => processDataRequests(context));
 await run("linki-sync", () => syncLinki(context));
 await run("bund-ai-sync", () => syncBundAi(context));
 await run("buffer-sync", () => syncBuffer(context));
+await run("stripe-sync", () => syncStripe(context));
 // ugc-video-gen deliberately excluded, same reasoning as clay-enrichment
 // above it: a live run spends a connected org's own paid ElevenLabs
 // credits, unlike every other job here.

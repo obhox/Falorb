@@ -26,6 +26,7 @@
     "@falorb/openseo-client": "workspace:*",
     "@falorb/queries": "workspace:*",
     "@falorb/research": "workspace:*",
+    "@falorb/stripe-client": "workspace:*",
     "@hono/node-server": "^1.13.7",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.6.16",

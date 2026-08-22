@@ -12,6 +12,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { user } from "./auth";
+import { emailAccounts } from "./email";
 import { memberRoleEnum, organizations, projects } from "./tenancy";
 
 /**
@@ -83,6 +84,17 @@ export const agents = pgTable(
     roleTitle: text("role_title").notNull(),
     /** A single emoji, stored as text — the roster's stand-in for a face. */
     avatar: text("avatar").notNull().default("🤖"),
+    /**
+     * The agent's own mailbox — a Migadu-provisioned `email_accounts` row
+     * it alone sends from. An agent with one has a real address a customer
+     * can reply to, and the `email` toolkit's `send_email` refuses to send
+     * from anything else: it is *its* mailbox the way a person's is theirs,
+     * not a pool it picks from. Null until a manager provisions one (at hire,
+     * or later from the agent's page); `set null` rather than cascade so
+     * archiving a mailbox leaves the agent standing.
+     */
+    emailAccountId: uuid("email_account_id").references(() => emailAccounts.id, { onDelete: "set null" }),
+
     /** Preset key from `@falorb/agents`' roster, or "custom". Kept for
      * provenance: it explains where the starting instructions came from
      * after a user has edited them beyond recognition. */

@@ -12,6 +12,7 @@ import {
 } from "@falorb/agents";
 import { AUDIT_ACTIONS, audit, db, isMemberRole, schema, type MemberRole } from "@falorb/db";
 import { requireSession } from "@/server/session";
+import { archiveMailbox, mailboxLocalPart, provisionMailbox } from "@/server/email";
 import type { ActionResult } from "./project";
 import { deny } from "./guard";
 
@@ -145,8 +146,118 @@ export async function hireAgentAction(formData: FormData): Promise<ActionResult>
     metadata: { name, role: roleRaw, autonomy, preset: preset?.key ?? "custom" },
   });
 
+  /**
+   * Its own address, if asked for. Provisioned *after* the agent row exists
+   * and reported separately: a mailbox is infrastructure on the org's
+   * Migadu plan and can fail for reasons that have nothing to do with the
+   * hire (domain not on the account, Migadu down), and a hire that rolled
+   * back because of that would teach people to skip the mailbox. Gated
+   * `manageIntegrations` like every other mailbox creation — an admin who
+   * may hire but not provision simply gets the agent without one.
+   */
+  const emailDomain = String(formData.get("emailDomain") ?? "").trim();
+  if (emailDomain) {
+    const mailbox = await attachMailbox(session, created!.id, name, roleTitle, emailDomain);
+    if (!mailbox.ok) {
+      revalidatePath("/agents");
+      return { ok: true, message: `${name} hired, but no mailbox was created: ${mailbox.message}` };
+    }
+    revalidatePath("/agents");
+    return { ok: true, message: `${name} hired — ${mailbox.address}.` };
+  }
+
   revalidatePath("/agents");
   return { ok: true, message: `${name} hired.` };
+}
+
+/**
+ * Provision a mailbox named after the agent and link it. The local part
+ * comes from the agent's personal name (`zoe@…`), not its job title —
+ * "sales-development-rep@" is a form, "zoe@" is someone a customer writes
+ * back to, and the From name carries the title so they still know who Zoe
+ * is. The `manageIntegrations` gate is the same one the Email page applies:
+ * this spends the org's Migadu plan, the same trust level as connecting it.
+ */
+async function attachMailbox(
+  session: Awaited<ReturnType<typeof requireSession>>,
+  agentId: string,
+  name: string,
+  roleTitle: string,
+  domain: string,
+): Promise<{ ok: true; address: string } | { ok: false; message: string }> {
+  const refusal = deny(session.workspace.role, "manageIntegrations", "give an agent a mailbox");
+  if (refusal) return { ok: false, message: refusal.message ?? "You do not have permission to do that." };
+
+  const orgId = session.workspace.organizationId;
+  const localPart = await mailboxLocalPart(orgId, name, domain);
+  const result = await provisionMailbox({
+    organizationId: orgId,
+    domain,
+    localPart,
+    name: `${name} (${roleTitle})`,
+    createdBy: session.user.id,
+  });
+  if (!result.ok) return result;
+
+  await db()
+    .update(schema.agents)
+    .set({ emailAccountId: result.account.id, updatedAt: new Date() })
+    .where(and(eq(schema.agents.id, agentId), eq(schema.agents.organizationId, orgId)));
+
+  return { ok: true, address: result.account.address };
+}
+
+export async function provisionAgentMailboxAction(agentId: string, domain: string): Promise<ActionResult> {
+  const session = await requireSession();
+  const refusal = deny(session.workspace.role, "manageAgents", "give an agent a mailbox");
+  if (refusal) return refusal;
+
+  const orgId = session.workspace.organizationId;
+  const [agent] = await db()
+    .select({ name: schema.agents.name, roleTitle: schema.agents.roleTitle, emailAccountId: schema.agents.emailAccountId })
+    .from(schema.agents)
+    .where(and(eq(schema.agents.id, agentId), eq(schema.agents.organizationId, orgId)))
+    .limit(1);
+  if (!agent) return { ok: false, message: "No such agent." };
+  if (agent.emailAccountId) return { ok: false, message: `${agent.name} already has a mailbox.` };
+
+  const result = await attachMailbox(session, agentId, agent.name, agent.roleTitle, domain.trim());
+  if (!result.ok) return result;
+
+  revalidatePath(`/agents/${agentId}`);
+  revalidatePath("/agents");
+  revalidatePath("/email");
+  return { ok: true, message: `${agent.name} is now ${result.address}.` };
+}
+
+export async function removeAgentMailboxAction(agentId: string): Promise<ActionResult> {
+  const session = await requireSession();
+  const refusal =
+    deny(session.workspace.role, "manageAgents", "take an agent's mailbox away") ??
+    deny(session.workspace.role, "manageIntegrations", "delete a mailbox");
+  if (refusal) return refusal;
+
+  const orgId = session.workspace.organizationId;
+  const [agent] = await db()
+    .select({ name: schema.agents.name, emailAccountId: schema.agents.emailAccountId })
+    .from(schema.agents)
+    .where(and(eq(schema.agents.id, agentId), eq(schema.agents.organizationId, orgId)))
+    .limit(1);
+  if (!agent) return { ok: false, message: "No such agent." };
+  if (!agent.emailAccountId) return { ok: false, message: `${agent.name} has no mailbox.` };
+
+  const result = await archiveMailbox(orgId, agent.emailAccountId, session.user.id);
+  if (!result.ok) return result;
+
+  await db()
+    .update(schema.agents)
+    .set({ emailAccountId: null, updatedAt: new Date() })
+    .where(eq(schema.agents.id, agentId));
+
+  revalidatePath(`/agents/${agentId}`);
+  revalidatePath("/agents");
+  revalidatePath("/email");
+  return { ok: true, message: `${result.address} archived.` };
 }
 
 export async function updateAgentAction(
@@ -341,11 +452,20 @@ export async function retireAgentAction(agentId: string): Promise<ActionResult> 
 
   const orgId = session.workspace.organizationId;
   const [agent] = await db()
-    .select({ name: schema.agents.name })
+    .select({ name: schema.agents.name, emailAccountId: schema.agents.emailAccountId })
     .from(schema.agents)
     .where(and(eq(schema.agents.id, agentId), eq(schema.agents.organizationId, orgId)))
     .limit(1);
   if (!agent) return { ok: false, message: "No such agent." };
+
+  // A retired colleague's address stops receiving mail. The link is kept on
+  // the agent row so "what address did it send from" still answers; the
+  // mailbox row itself is archived, which is what makes the runtime refuse
+  // to send from it should anyone ever resume the agent.
+  if (agent.emailAccountId) {
+    const closed = await archiveMailbox(orgId, agent.emailAccountId, session.user.id);
+    if (!closed.ok) return { ok: false, message: `Could not close its mailbox: ${closed.message}` };
+  }
 
   /**
    * Archive, never delete.

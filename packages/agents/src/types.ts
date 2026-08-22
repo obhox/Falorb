@@ -38,6 +38,7 @@ export const TOOLKITS = [
   "prospecting",
   "ugc",
   "growth",
+  "email",
 ] as const;
 
 export type Toolkit = (typeof TOOLKITS)[number];
@@ -54,6 +55,7 @@ export const TOOLKIT_LABELS: Record<Toolkit, string> = {
   prospecting: "Prospecting",
   ugc: "UGC video",
   growth: "Referrals & signals",
+  email: "Own mailbox",
 };
 
 export const TOOLKIT_DESCRIPTIONS: Record<Toolkit, string> = {
@@ -68,6 +70,7 @@ export const TOOLKIT_DESCRIPTIONS: Record<Toolkit, string> = {
   prospecting: "Review people discovered off-site, qualify them, and draft the approach.",
   ugc: "Generate a UGC video from a brief and queue a finished one for posting.",
   growth: "Referral links, the AI growth-signal cache, and the waitlist queue.",
+  email: "Read and send from its own mailbox — a real address a customer can reply to.",
 };
 
 /**

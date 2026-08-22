@@ -1,16 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Badge, Button, Card, Checkbox, DataTable, Input, Select, Tabs } from "@falorb/ui";
 import { Empty } from "@/components/Empty";
 import { useAction } from "@/lib/use-action";
 import {
+  provisionAgentMailboxAction,
+  removeAgentMailboxAction,
   retireAgentAction,
   runAgentNowAction,
   setAgentStatusAction,
   updateAgentAction,
 } from "@/server/actions/agents";
+import { listMigaduDomains } from "@/server/actions/email";
 import { money, relative } from "@/lib/format";
 
 export interface DetailAgent {
@@ -32,6 +35,8 @@ export interface DetailAgent {
   autoApproveToolkits: string[];
   nextRunAt: string | null;
   lastRunAt: string | null;
+  /** Its own address, or null when it has no live mailbox. */
+  email: string | null;
 }
 
 export interface RunSummary {
@@ -92,6 +97,7 @@ export function AgentDetail({
   roles,
   canManage,
   canRun,
+  canProvisionMailbox,
   viewerIsOwner,
   now,
 }: {
@@ -103,6 +109,8 @@ export function AgentDetail({
   roles: string[];
   canManage: boolean;
   canRun: boolean;
+  /** `manageIntegrations` — creating a mailbox spends the org's Migadu plan. */
+  canProvisionMailbox: boolean;
   viewerIsOwner: boolean;
   now: number;
 }) {
@@ -236,16 +244,25 @@ export function AgentDetail({
       )}
 
       {tab === "powers" && (
-        <PowersEditor
-          agent={agent}
-          projects={projects}
-          toolkits={toolkits}
-          roles={roles}
-          canManage={canManage}
-          viewerIsOwner={viewerIsOwner}
-          pending={pending}
-          run={run}
-        />
+        <>
+          <MailboxCard
+            agent={agent}
+            canManage={canManage}
+            canProvision={canProvisionMailbox}
+            pending={pending}
+            run={run}
+          />
+          <PowersEditor
+            agent={agent}
+            projects={projects}
+            toolkits={toolkits}
+            roles={roles}
+            canManage={canManage}
+            viewerIsOwner={viewerIsOwner}
+            pending={pending}
+            run={run}
+          />
+        </>
       )}
 
       {tab === "memory" && (
@@ -403,6 +420,107 @@ function BriefEditor({
           </div>
         )}
       </div>
+    </Card>
+  );
+}
+
+/**
+ * The agent's own address. One mailbox per agent, named after it, and the
+ * only address its `send_email` can ever use — so giving it one is the act
+ * that makes it reachable, and taking it away is what stops it writing to
+ * anyone. Provisioning needs `manageIntegrations` (it spends the Migadu
+ * plan), so a manager without that sees the address but not the button.
+ */
+function MailboxCard({
+  agent,
+  canManage,
+  canProvision,
+  pending,
+  run,
+}: {
+  agent: DetailAgent;
+  canManage: boolean;
+  canProvision: boolean;
+  pending: boolean;
+  run: ReturnType<typeof useAction>["run"];
+}) {
+  const [domains, setDomains] = useState<string[] | null>(null);
+  const [domain, setDomain] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (agent.email || !canProvision) return;
+    let cancelled = false;
+    void listMigaduDomains().then((result) => {
+      if (cancelled) return;
+      if (result.ok) {
+        setDomains(result.domains);
+        setDomain(result.domains[0] ?? "");
+      } else {
+        setDomains([]);
+        setError(result.message);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [agent.email, canProvision]);
+
+  return (
+    <Card
+      title="Mailbox"
+      subtitle={
+        agent.email
+          ? "Its own address. Anything it sends goes out as this, and replies land in its inbox."
+          : "Give it an address of its own so it can write to people as itself, not through a shared mailbox."
+      }
+    >
+      {agent.email ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <span style={{ fontFamily: "var(--font-mono)", fontSize: 13 }}>{agent.email}</span>
+          <Link href="/email" data-plain style={{ fontSize: 12, color: "var(--text-muted)" }}>
+            Open inbox
+          </Link>
+          {canManage && canProvision && (
+            <Button
+              size="sm"
+              variant="ghost"
+              disabled={pending}
+              style={{ marginLeft: "auto" }}
+              onClick={() => {
+                if (!window.confirm(`Archive ${agent.email}? Mail to it will stop being delivered.`)) return;
+                void run(() => removeAgentMailboxAction(agent.id));
+              }}
+            >
+              Take mailbox away
+            </Button>
+          )}
+        </div>
+      ) : !canProvision ? (
+        <p style={{ fontSize: 12, color: "var(--text-muted)" }}>
+          No mailbox. An owner or admin can give it one — it needs the connected Migadu account.
+        </p>
+      ) : domains === null ? (
+        <p style={{ fontSize: 12, color: "var(--text-muted)" }}>Checking Migadu domains…</p>
+      ) : error ? (
+        <p style={{ fontSize: 12, color: "var(--text-muted)" }}>{error}</p>
+      ) : domains.length === 0 ? (
+        <p style={{ fontSize: 12, color: "var(--text-muted)" }}>
+          The connected Migadu account has no domains yet.
+        </p>
+      ) : (
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 10, flexWrap: "wrap" }}>
+          <Select label="Domain" value={domain} options={domains} onChange={setDomain} style={{ maxWidth: 260 }} />
+          <Button
+            size="sm"
+            variant="primary"
+            disabled={pending || !domain || !canManage}
+            onClick={() => void run(() => provisionAgentMailboxAction(agent.id, domain))}
+          >
+            Create {agent.name.toLowerCase().replace(/[^a-z0-9]+/g, "") || "agent"}@{domain}
+          </Button>
+        </div>
+      )}
     </Card>
   );
 }

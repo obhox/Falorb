@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Badge, Button, Card, Checkbox, Dialog, Icon, Input, Select } from "@falorb/ui";
 import { Empty } from "@/components/Empty";
 import { useAction } from "@/lib/use-action";
 import { hireAgentAction, runAgentNowAction, setAgentStatusAction } from "@/server/actions/agents";
+import { listMigaduDomains } from "@/server/actions/email";
 import { relative } from "@/lib/format";
 
 export interface RosterAgent {
@@ -27,6 +28,8 @@ export interface RosterAgent {
   pendingApprovals: number;
   /** Every approval gate waived — worth saying out loud on the card. */
   unattended: boolean;
+  /** Its own address, when it has one. */
+  email: string | null;
 }
 
 export interface PresetOption {
@@ -64,6 +67,7 @@ export function AgentRoster({
   toolkits,
   projects,
   canManage,
+  canProvisionMailbox,
   pendingApprovals,
   recentErrors,
   now,
@@ -73,6 +77,8 @@ export function AgentRoster({
   toolkits: ToolkitOption[];
   projects: { id: number; slug: string }[];
   canManage: boolean;
+  /** `manageIntegrations` — whether the hire dialog may offer a mailbox. */
+  canProvisionMailbox: boolean;
   pendingApprovals: number;
   recentErrors: number;
   now: number;
@@ -177,6 +183,20 @@ export function AgentRoster({
                       </span>
                     </Link>
                     <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{agent.roleTitle}</div>
+                    {agent.email && (
+                      <div
+                        style={{
+                          fontSize: 11,
+                          fontFamily: "var(--font-mono)",
+                          color: "var(--text-muted)",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        {agent.email}
+                      </div>
+                    )}
                   </div>
                   <Badge tone={agent.status === "active" ? "up" : "neutral"} dot>
                     {agent.status === "active" ? "on shift" : agent.status}
@@ -281,6 +301,7 @@ export function AgentRoster({
           presets={presets}
           toolkits={toolkits}
           projects={projects}
+          canProvisionMailbox={canProvisionMailbox}
           pending={pending}
           onClose={() => setHiring(false)}
           onSubmit={async (formData) => {
@@ -316,6 +337,7 @@ function HireDialog({
   presets,
   toolkits,
   projects,
+  canProvisionMailbox,
   pending,
   onClose,
   onSubmit,
@@ -323,6 +345,7 @@ function HireDialog({
   presets: PresetOption[];
   toolkits: ToolkitOption[];
   projects: { id: number; slug: string }[];
+  canProvisionMailbox: boolean;
   pending: boolean;
   onClose: () => void;
   onSubmit: (formData: FormData) => void | Promise<void>;
@@ -340,7 +363,31 @@ function HireDialog({
 
   const [scope, setScope] = useState<number[]>([]);
 
+  /**
+   * A mailbox of its own, offered only when Migadu is connected and the
+   * hirer may provision one. `null` while the domain list loads, `[]` when
+   * there is nothing to offer — in both cases the section simply doesn't
+   * render, so a workspace without Migadu never sees a dead control.
+   */
+  const [domains, setDomains] = useState<string[] | null>(null);
+  const [emailDomain, setEmailDomain] = useState("");
+  useEffect(() => {
+    if (!canProvisionMailbox) return;
+    let cancelled = false;
+    void listMigaduDomains().then((result) => {
+      if (cancelled) return;
+      setDomains(result.ok ? result.domains : []);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [canProvisionMailbox]);
+
   const preset = presets.find((p) => p.key === presetKey);
+  const hireName = mode === "preset" ? name : scratchName;
+  const localPart = hireName.trim().toLowerCase().replace(/[^a-z0-9]+/g, "") || "agent";
+  const mailboxOptions = ["No mailbox", ...(domains ?? []).map((d) => `${localPart}@${d}`)];
+  const mailboxValue = emailDomain ? `${localPart}@${emailDomain}` : "No mailbox";
 
   const choose = (label: string) => {
     const next = presets.find((p) => `${p.avatar}  ${p.name} — ${p.roleTitle}` === label);
@@ -396,6 +443,7 @@ function HireDialog({
                 for (const key of scratchToolkits) formData.append("toolkits", key);
               }
               for (const id of scope) formData.append("projectIds", String(id));
+              if (emailDomain) formData.set("emailDomain", emailDomain);
               void onSubmit(formData);
             }}
           >
@@ -551,6 +599,20 @@ function HireDialog({
             })}
           </div>
         </div>
+
+        {domains && domains.length > 0 && (
+          <div style={{ display: "grid", gap: 6 }}>
+            <Select
+              label="Email address"
+              value={mailboxValue}
+              options={mailboxOptions}
+              onChange={(v) => setEmailDomain(v === "No mailbox" ? "" : v.slice(v.indexOf("@") + 1))}
+            />
+            <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+              Its own address, so it can write to people as itself. Sends wait for approval like everything else.
+            </span>
+          </div>
+        )}
 
         <Card tone="inset" padding={12}>
           <p style={{ fontSize: 12, lineHeight: 1.55, color: "var(--text-secondary)" }}>

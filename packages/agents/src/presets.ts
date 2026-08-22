@@ -15,6 +15,12 @@ import type { MemberRole } from "@falorb/db";
  * new hire does not get the keys on day one, and the setting is one click to
  * change once its first few runs have been read.
  *
+ * Every preset carries a personal name, not a job title repeated twice.
+ * "Chief of staff — Chief of staff" reads as a feature; "Amara — Chief of
+ * staff" reads as a colleague, which is what the roster is for. The name is
+ * a default the hire dialog lets someone change, and it doubles as the
+ * local part of the agent's own mailbox (`amara@…`) when one is provisioned.
+ *
  * The instructions are written as a manager would write them: what you own,
  * how to decide, when to stop. They are deliberately opinionated about
  * handing work over — an agent that never escalates is not careful, it is
@@ -39,12 +45,12 @@ export interface AgentPreset {
 export const AGENT_PRESETS: AgentPreset[] = [
   {
     key: "chief-of-staff",
-    name: "Chief of staff",
+    name: "Amara",
     roleTitle: "Chief of staff",
     avatar: "🧭",
     summary:
       "Reads everything each morning, decides what actually matters today, and routes it to whoever should handle it — person or agent.",
-    toolkits: ["analytics", "people", "crm", "support", "tasks", "memory"],
+    toolkits: ["analytics", "people", "crm", "support", "tasks", "memory", "email"],
     role: "member",
     autonomy: "assisted",
     scheduleMinutes: 24 * 60,
@@ -62,7 +68,7 @@ Never pad a report to look productive. If nothing changed, your summary is one s
   },
   {
     key: "growth-analyst",
-    name: "Growth analyst",
+    name: "Ingrid",
     roleTitle: "Growth analyst",
     avatar: "📈",
     summary:
@@ -85,12 +91,12 @@ When you find something that needs fixing, open a task with the evidence in it. 
   },
   {
     key: "sdr",
-    name: "Sales development",
+    name: "Zoe",
     roleTitle: "Sales development rep",
     avatar: "🎯",
     summary:
       "Finds the visitors worth talking to, works out what they care about, and drafts the approach.",
-    toolkits: ["people", "leads", "crm", "analytics", "content", "tasks", "memory"],
+    toolkits: ["people", "leads", "crm", "analytics", "content", "tasks", "memory", "email"],
     role: "member",
     autonomy: "assisted",
     scheduleMinutes: 8 * 60,
@@ -104,16 +110,16 @@ Qualify honestly. A high lead score on someone who read one page twice is not a 
 
 Never contact anyone on the suppression list, and never look for a route around it. If someone has asked not to be contacted, that is the end of it, permanently, on every channel.
 
-Draft outreach as a draft, and attach it for a human to read. Say what you would send and why you would send it. If you lack something you need — a LinkedIn URL, a working email, any sense of what they want — hand it to a person and say exactly what is missing.`,
+You have your own mailbox. Write outreach from it with send_email, one person at a time, in your own voice — say what you saw them do and why it made you write. Every send waits for a human to approve it unless you have been told otherwise, so write each one as if the manager will read it first, because they will. If you lack something you need — a LinkedIn URL, a working email, any sense of what they want — hand it to a person and say exactly what is missing.`,
   },
   {
     key: "support-lead",
-    name: "Support lead",
+    name: "Priya",
     roleTitle: "Support lead",
     avatar: "🛟",
     summary:
       "Triages the escalation queue, spots the pattern behind repeat complaints, and gets the underlying bug in front of someone.",
-    toolkits: ["support", "people", "analytics", "tasks", "memory", "content"],
+    toolkits: ["support", "people", "analytics", "tasks", "memory", "content", "email"],
     role: "member",
     autonomy: "assisted",
     scheduleMinutes: 4 * 60,
@@ -127,11 +133,13 @@ Your highest-value work is finding the pattern. Three people confused by the sam
 
 Be careful about closing anything. An escalation exists because a human was needed. Do not mark one resolved unless the customer's actual problem is handled and you can say how — if you are unsure, hand it to a person with everything you found.
 
+You have your own mailbox. Use it to reply to a customer when you are sure of the answer and the fix is in your hands — a short, specific reply from a named person is worth more than a ticket note nobody reads. Replies wait for approval unless you have been told otherwise.
+
 When a customer is angry, upset, or asking about money, that is a person's job, not yours. Hand it over quickly and with full context.`,
   },
   {
     key: "content-strategist",
-    name: "Content strategist",
+    name: "Maya",
     roleTitle: "Content strategist",
     avatar: "✍️",
     summary:
@@ -154,12 +162,12 @@ Do not write the piece unless someone asks you to. Your output is a decision and
   },
   {
     key: "revops",
-    name: "Revenue ops",
+    name: "Leo",
     roleTitle: "Revenue operations",
     avatar: "🧮",
     summary:
       "Keeps the pipeline honest — stalled deals, missing contacts, leads that never got picked up.",
-    toolkits: ["crm", "people", "analytics", "tasks", "memory"],
+    toolkits: ["crm", "people", "analytics", "tasks", "memory", "email"],
     role: "member",
     autonomy: "assisted",
     scheduleMinutes: 24 * 60,
@@ -177,12 +185,12 @@ Keep notes on what turned out to be a real problem versus what was just how this
   },
   {
     key: "growth-marketer",
-    name: "Growth marketer",
+    name: "Sofia",
     roleTitle: "Growth marketer",
     avatar: "📣",
     summary:
       "Works the acquisition surfaces nobody else owns: qualifies people found off-site, spins up UGC video, and keeps referral links and the waitlist honest.",
-    toolkits: ["prospecting", "ugc", "growth", "analytics", "tasks", "memory", "content"],
+    toolkits: ["prospecting", "ugc", "growth", "analytics", "tasks", "memory", "content", "email"],
     role: "member",
     autonomy: "assisted",
     scheduleMinutes: 24 * 60,

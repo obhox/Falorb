@@ -5,6 +5,7 @@ import { TOOLKITS } from "../types";
 import { analyticsTools } from "./analytics";
 import { contentTools } from "./content";
 import { crmTools } from "./crm";
+import { emailTools } from "./email";
 import { growthTools } from "./growth";
 import { leadsTools } from "./leads";
 import { memoryTools } from "./memory";
@@ -37,6 +38,7 @@ export const ALL_TOOLS: AnyToolDefinition[] = [
   ...prospectingTools,
   ...ugcTools,
   ...growthTools,
+  ...emailTools,
 ];
 
 const BY_NAME = new Map(ALL_TOOLS.map((t) => [t.name, t]));

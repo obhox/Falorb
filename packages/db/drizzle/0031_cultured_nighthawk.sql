@@ -1,0 +1,2 @@
+ALTER TABLE "agents" ADD COLUMN "email_account_id" uuid;--> statement-breakpoint
+ALTER TABLE "agents" ADD CONSTRAINT "agents_email_account_id_email_accounts_id_fk" FOREIGN KEY ("email_account_id") REFERENCES "public"."email_accounts"("id") ON DELETE set null ON UPDATE no action;

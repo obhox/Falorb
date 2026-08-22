@@ -61,6 +61,7 @@ export default async function AgentsPage() {
             openTasks: a.openTasks,
             pendingApprovals: a.pendingApprovals,
             unattended: a.autoApproveTools.includes("*"),
+            email: a.email,
           }))}
           presets={AGENT_PRESETS.map((p) => ({
             key: p.key,
@@ -78,6 +79,7 @@ export default async function AgentsPage() {
           }))}
           projects={session.projects.map((p) => ({ id: p.id, slug: p.slug }))}
           canManage={can.manageAgents(session.workspace.role)}
+          canProvisionMailbox={can.manageIntegrations(session.workspace.role)}
           pendingApprovals={pendingApprovals}
           recentErrors={recentErrors}
           now={Date.now()}

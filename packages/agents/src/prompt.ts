@@ -45,6 +45,8 @@ export interface BriefingInput {
     comments: { authorType: string; body: string; createdAt: Date }[];
   } | null;
   memories: { key: string; scope: string; content: string }[];
+  /** The agent's own address, when a mailbox has been provisioned for it. */
+  emailAddress?: string | null;
   recentRuns: { objective: string; summary: string | null; finishedAt: Date | null }[];
 }
 
@@ -60,6 +62,17 @@ export async function loadMemories(db: Database, agentId: string) {
     .where(eq(schema.agentMemories.agentId, agentId))
     .orderBy(desc(schema.agentMemories.importance), desc(schema.agentMemories.updatedAt))
     .limit(MEMORY_BUDGET);
+}
+
+/** The agent's own address, if it has been given a mailbox that is still live. */
+export async function loadEmailAddress(db: Database, emailAccountId: string | null): Promise<string | null> {
+  if (!emailAccountId) return null;
+  const [row] = await db
+    .select({ address: schema.emailAccounts.address, status: schema.emailAccounts.status })
+    .from(schema.emailAccounts)
+    .where(eq(schema.emailAccounts.id, emailAccountId))
+    .limit(1);
+  return row && row.status === "active" ? row.address : null;
 }
 
 export async function loadRecentRuns(db: Database, agentId: string, limit = 3) {
@@ -95,6 +108,9 @@ export function buildSystemPrompt(input: BriefingInput): string {
       (projects.length
         ? `Properties: ${projects.map((p) => `${p.slug} (${p.domains[0] ?? p.name})`).join(", ")}.`
         : "No properties are in scope for this run.") +
+      (input.emailAddress
+        ? `\nYour own email address is ${input.emailAddress}. Anything you send from it is signed as you, and replies land in your inbox (read_inbox).`
+        : "") +
       `\nYour permission level is "${agent.role}", the same role vocabulary human members use. ` +
       "Tools you are not permitted to use are not offered to you at all, so anything in your " +
       "tool list is something you may attempt.",

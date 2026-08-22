@@ -10,7 +10,7 @@ import {
   type Database,
 } from "@falorb/db";
 import { decide } from "./policy";
-import { buildSystemPrompt, buildUserPrompt, loadMemories, loadRecentRuns } from "./prompt";
+import { buildSystemPrompt, buildUserPrompt, loadEmailAddress, loadMemories, loadRecentRuns } from "./prompt";
 import { getTool, toolsForAgent, toSpecs } from "./tools/index";
 import type { AgentContext, AgentProject, AgentRecord, AnyToolDefinition } from "./types";
 
@@ -92,10 +92,11 @@ export async function executeRun(deps: RunDeps, runId: string): Promise<RunOutco
     .set({ status: "running", startedAt: run.startedAt ?? new Date(), heartbeatAt: new Date() })
     .where(eq(schema.agentRuns.id, runId));
 
-  const [memories, recentRuns, task, credentials] = await Promise.all([
+  const [memories, recentRuns, task, emailAddress, credentials] = await Promise.all([
     loadMemories(db, agent.id),
     loadRecentRuns(db, agent.id),
     loadTask(db, run.taskId),
+    loadEmailAddress(db, agent.emailAccountId),
     // `@falorb/db`'s shared resolver, not a copy: the dashboard, the worker
     // and this runtime must agree on which gateway an org's AI runs against,
     // and two implementations of that eventually disagree. Resolved once per
@@ -123,7 +124,7 @@ export async function executeRun(deps: RunDeps, runId: string): Promise<RunOutco
   const specs = toSpecs(tools);
   const byName = new Map(tools.map((t) => [t.name, t]));
 
-  const briefing = { agent, projects, objective: run.objective, task, memories, recentRuns };
+  const briefing = { agent, projects, objective: run.objective, task, memories, emailAddress, recentRuns };
   const seed: ChatMessage[] = [
     { role: "system", content: buildSystemPrompt(briefing) },
     { role: "user", content: buildUserPrompt(briefing) },

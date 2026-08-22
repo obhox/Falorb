@@ -45,11 +45,14 @@ export function registerAgentTools(server: McpServer, ctx: () => McpContext): vo
     async ({ include_archived }) => {
       const { db, scope } = ctx();
       try {
-        const rows = await db
-          .select()
-          .from(schema.agents)
-          .where(eq(schema.agents.organizationId, scope.organizationId))
-          .orderBy(desc(schema.agents.createdAt));
+        const rows = (
+          await db
+            .select({ agent: schema.agents, email: schema.emailAccounts.address, emailStatus: schema.emailAccounts.status })
+            .from(schema.agents)
+            .leftJoin(schema.emailAccounts, eq(schema.emailAccounts.id, schema.agents.emailAccountId))
+            .where(eq(schema.agents.organizationId, scope.organizationId))
+            .orderBy(desc(schema.agents.createdAt))
+        ).map((r) => ({ ...r.agent, email: r.emailStatus === "active" ? r.email : null }));
 
         const visible = include_archived ? rows : rows.filter((r) => r.status !== "archived");
 
@@ -60,6 +63,7 @@ export function registerAgentTools(server: McpServer, ctx: () => McpContext): vo
               { header: "Id", get: (r) => r.id },
               { header: "Name", get: (r) => `${r.avatar} ${r.name}` },
               { header: "Title", get: (r) => r.roleTitle },
+              { header: "Email", get: (r) => r.email ?? "—" },
               { header: "Role", get: (r) => r.role },
               { header: "Autonomy", get: (r) => r.autonomy },
               { header: "Status", get: (r) => r.status },
@@ -86,15 +90,19 @@ export function registerAgentTools(server: McpServer, ctx: () => McpContext): vo
     async ({ agent_id }) => {
       const { db, scope } = ctx();
       try {
-        const [agent] = await db
-          .select()
+        const [row] = await db
+          .select({ agent: schema.agents, email: schema.emailAccounts.address, emailStatus: schema.emailAccounts.status })
           .from(schema.agents)
+          .leftJoin(schema.emailAccounts, eq(schema.emailAccounts.id, schema.agents.emailAccountId))
           .where(and(eq(schema.agents.id, agent_id), eq(schema.agents.organizationId, scope.organizationId)))
           .limit(1);
-        if (!agent) return failure("No such agent in this workspace.");
+        if (!row) return failure("No such agent in this workspace.");
+        const agent = row.agent;
+        const email = row.emailStatus === "active" ? row.email : null;
 
         return text(
           `# ${agent.avatar} ${agent.name} — ${agent.roleTitle}\n\n` +
+            (email ? `Email: ${email}\n` : "") +
             `Role: **${agent.role}**  ·  Autonomy: **${agent.autonomy}**  ·  Status: **${agent.status}**\n` +
             `Toolkits: ${agent.toolkits.join(", ") || "none"}\n` +
             `Auto-approved tools: ${agent.autoApproveTools.join(", ") || "none"}\n` +

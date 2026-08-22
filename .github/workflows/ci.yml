@@ -8,6 +8,14 @@ on:
   # base image, or recovering from a failed publish.
   workflow_dispatch:
 
+# Read-only by default. Only the publish job below needs more, and it asks for
+# exactly one extra scope. Without this line every job inherits whatever the
+# repository default happens to be — which for older repositories is write
+# access to contents, packages, issues and pull requests, handed to every step
+# including third-party actions and any `pnpm install` lifecycle script.
+permissions:
+  contents: read
+
 concurrency:
   # A newer push supersedes an in-flight run on the same branch.
   group: ${{ github.workflow }}-${{ github.ref }}

@@ -3,7 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { and, desc, eq, isNull, ne, or } from "drizzle-orm";
 import { schema } from "@falorb/db";
 import type { McpContext } from "../context";
-import { requireScope } from "../context";
+import { requireCapability, requireScope } from "../context";
 import { getBundAiClient } from "../clients";
 import { ago, failure, table, text } from "../format";
 
@@ -238,6 +238,7 @@ export function registerSupportTools(server: McpServer, ctx: () => McpContext): 
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "actOnIntegrations", "resolve a support escalation");
 
         const [escalation] = await db
           .select()

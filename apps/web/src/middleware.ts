@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { isNotNull } from "drizzle-orm";
 import { db, schema } from "@falorb/db";
+import { clientKey, LIMITS, rateLimiter } from "@/server/rate-limit";
 
 // Needs real Postgres access (the `postgres` driver uses raw TCP sockets),
 // which the default Edge runtime cannot provide — see `isConfiguredLinkDomain`.
@@ -117,8 +118,45 @@ async function isConfiguredLinkDomain(host: string): Promise<boolean> {
   return linkDomainCache.domains.has(host.toLowerCase());
 }
 
+/**
+ * The unauthenticated, token-addressed surface.
+ *
+ * Everything else in the dashboard is behind a session. These five are
+ * deliberately public — a shared report, an embeddable badge, a benchmark
+ * page, a waitlist form, a referral redirect — and each runs real ClickHouse
+ * or Postgres work per request. Guessing a 32-byte token is not the threat;
+ * exhausting the query budget that serves every tenant with a loop against one
+ * known link is, and until now nothing bounded that.
+ */
+const PUBLIC_PREFIXES = ["/share/", "/badge/", "/benchmark/", "/waitlist/", "/r/"];
+
+function isPublicSurface(pathname: string): boolean {
+  return PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+}
+
 export async function middleware(request: NextRequest) {
   const host = request.headers.get("host")?.split(":")[0] ?? "";
+
+  if (isPublicSurface(request.nextUrl.pathname)) {
+    const verdict = await rateLimiter().check(
+      "public",
+      clientKey(request.headers),
+      LIMITS.publicRead,
+    );
+    if (!verdict.allowed) {
+      // Plain text, not the app shell: this is served to something in a loop,
+      // and rendering a styled error page for it would spend exactly the work
+      // the limit exists to avoid.
+      return new NextResponse("Too many requests. Try again shortly.\n", {
+        status: 429,
+        headers: {
+          "Retry-After": String(verdict.retryAfterSeconds),
+          "Content-Type": "text/plain; charset=utf-8",
+          "Cache-Control": "no-store",
+        },
+      });
+    }
+  }
 
   // A branded link domain's whole purpose is `<domain>/<code>` reading as a
   // short link, so a non-root path on a configured host is treated as a
@@ -130,6 +168,21 @@ export async function middleware(request: NextRequest) {
     const url = request.nextUrl.clone();
     url.pathname = `/r${request.nextUrl.pathname}`;
     return NextResponse.rewrite(url);
+  }
+
+  /**
+   * The badge gets the rate limit above but not the policy below.
+   *
+   * It is a public widget whose entire purpose is to render inside an
+   * <iframe> on a property owner's own site, and this policy sets
+   * `frame-ancestors 'none'`. It used to be excluded from the matcher
+   * altogether to achieve that — which also excluded it from anything else
+   * middleware might ever need to do, and the rate limit is the first such
+   * thing. Handled here instead: in the matcher, out of the CSP. The route
+   * sets its own, lighter headers.
+   */
+  if (request.nextUrl.pathname.startsWith("/badge/")) {
+    return NextResponse.next();
   }
 
   const nonce = crypto.randomUUID().replace(/-/g, "");
@@ -157,12 +210,10 @@ export const config = {
      * layer that can buffer it.
      */
     {
-      // `badge/` is excluded too: it sets `frame-ancestors 'none'` below,
-      // which would stop the public embeddable badge (see
-      // `src/app/badge/[token]/route.ts`) from ever rendering inside the
-      // <iframe> on a property owner's own site that is the entire point of
-      // it. That route sets its own, lighter headers instead.
-      source: "/((?!api/live|badge/|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|woff2?)$).*)",
+      // `badge/` *is* matched, and opts out of the CSP inside the handler
+      // rather than by being invisible to middleware — it still needs the
+      // rate limit, being one of the public token routes.
+      source: "/((?!api/live|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|woff2?)$).*)",
       missing: [
         { type: "header", key: "next-router-prefetch" },
         { type: "header", key: "purpose", value: "prefetch" },

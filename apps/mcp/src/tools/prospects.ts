@@ -5,7 +5,7 @@ import { schema, resolveAiCredentials } from "@falorb/db";
 import { AiSignalError, complete } from "@falorb/ai";
 import { MIN_PROSPECT_RELEVANCE_SCORE, PROSPECT_SOURCES } from "@falorb/core";
 import type { McpContext, Scope } from "../context";
-import { requireScope, resolveProjects, ScopeError } from "../context";
+import { requireCapability, requireScope, resolveProjects, ScopeError } from "../context";
 import { ago, failure, table, text } from "../format";
 
 /**
@@ -183,6 +183,7 @@ export function registerProspectTools(server: McpServer, ctx: () => McpContext):
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "writeAnalysis", "mark a prospect as contacted");
 
         const [updated] = await db
           .update(schema.prospects)
@@ -214,6 +215,7 @@ export function registerProspectTools(server: McpServer, ctx: () => McpContext):
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "writeAnalysis", "dismiss a prospect");
 
         const [updated] = await db
           .update(schema.prospects)
@@ -245,6 +247,7 @@ export function registerProspectTools(server: McpServer, ctx: () => McpContext):
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "writeAnalysis", "draft an outreach message");
 
         const [row] = await db
           .select()
@@ -305,6 +308,7 @@ export function registerProspectTools(server: McpServer, ctx: () => McpContext):
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "writeAnalysis", "add a listening keyword");
         const projectId = resolveOneProject(scope, project);
 
         await db
@@ -333,6 +337,7 @@ export function registerProspectTools(server: McpServer, ctx: () => McpContext):
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "writeAnalysis", "remove a listening keyword");
         const projectId = resolveOneProject(scope, project);
 
         await db

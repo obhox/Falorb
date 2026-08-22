@@ -2,9 +2,18 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { AUDIT_ACTIONS, audit, schema } from "@falorb/db";
-import { AGENT_PRESETS, AUTONOMY_LEVELS, TOOLKITS, getPreset, isAutonomy, isToolkit } from "@falorb/agents";
+import {
+  AGENT_PRESETS,
+  AUTONOMY_LEVELS,
+  TOOLKITS,
+  canDecideApproval,
+  canGrantAgentRole,
+  getPreset,
+  isAutonomy,
+  isToolkit,
+} from "@falorb/agents";
 import type { McpContext } from "../context";
-import { requireScope } from "../context";
+import { requireCapability, requireScope } from "../context";
 import { ago, failure, num, table, text } from "../format";
 
 /**
@@ -12,24 +21,28 @@ import { ago, failure, num, table, text } from "../format";
  * queue. Same tables `apps/web/src/server/actions/agents.ts` drives from the
  * dashboard.
  *
- * `role` is capped at "member" through this server, never "admin" or
- * "owner" — the dashboard's own `canGrantAgentRole` stops a granter from
- * creating an agent above their own role specifically so an admin cannot
- * mint an `owner` agent and get owner powers by proxy. An MCP write-scope
- * key carries no per-human role to compare against, so the safe substitute
- * is a flat ceiling rather than trusting the caller's own claim: an MCP
- * client can hire and run agents, but never one with admin/owner-tier
- * permissions (team management, integration credentials, project
- * archival). Use the dashboard to grant a higher role.
+ * An agent's `role` is capped by `canGrantAgentRole` against the calling
+ * key's own role, exactly as the dashboard caps it against the granting
+ * human's: an actor cannot delegate authority they do not hold, or an admin
+ * mints an `owner` agent and has owner powers by proxy.
  *
- * `decide_agent_approval` similarly has no per-human capability to check the
- * reviewer against (`canDecideApproval` in the dashboard requires the
- * reviewer hold the same capability as the gated tool) — an MCP write-scope
- * key is treated as sufficient on its own, since it already has unilateral
- * write access to everything else this server exposes.
+ * This used to be a flat "never above member" ceiling, justified on the
+ * grounds that "an MCP write-scope key carries no per-human role to compare
+ * against". That is no longer true — `api_keys.role` exists and travels with
+ * the key — and the flat ceiling was both too loose and too tight: a
+ * viewer-role key could mint a `member` agent and drive it (an escalation the
+ * ceiling did not see), while an owner could not use this server to hire the
+ * admin-tier agent they were entitled to. The real rule is strictly better on
+ * both counts.
+ *
+ * `decide_agent_approval` gets the same treatment via `canDecideApproval`:
+ * approving is exercising, so the reviewer must hold the capability the queued
+ * tool itself declares. Waving something through that you could not do
+ * yourself would make the approval queue the escalation route it exists to
+ * close.
  */
 
-const MCP_AGENT_ROLES = ["viewer", "member"] as const;
+const MCP_AGENT_ROLES = ["viewer", "member", "admin", "owner"] as const;
 const AGENT_STATUSES = ["active", "paused"] as const;
 const MAX_INSTRUCTIONS = 8000;
 
@@ -125,9 +138,9 @@ export function registerAgentTools(server: McpServer, ctx: () => McpContext): vo
       title: "Hire an AI employee",
       description:
         "Create an agent from a preset or from scratch: a name, job title, brief, role, autonomy, " +
-        "toolkits, and optionally a recurring shift. `role` is capped at \"member\" through this " +
-        "server (see this toolset's own notes) — use the dashboard to grant admin/owner. A new hire " +
-        "does not run until assigned a task or its first shift is due. Requires the write scope.",
+        "toolkits, and optionally a recurring shift. An agent never holds more authority than the key " +
+        "creating it, so `role` is capped at this key's own role. A new hire does not run until " +
+        "assigned a task or its first shift is due. Requires the write scope and an admin-or-above key.",
       inputSchema: {
         preset: z.string().optional().describe(`One of: ${AGENT_PRESETS.map((p) => p.key).join(", ")}. Fields you also pass override the preset.`),
         name: z.string().max(60).optional(),
@@ -146,6 +159,7 @@ export function registerAgentTools(server: McpServer, ctx: () => McpContext): vo
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "manageAgents", "hire an agent");
         const preset = presetKey ? getPreset(presetKey) : undefined;
         if (presetKey && !preset) return failure(`Unknown preset "${presetKey}". Options: ${AGENT_PRESETS.map((p) => p.key).join(", ")}.`);
 
@@ -159,8 +173,11 @@ export function registerAgentTools(server: McpServer, ctx: () => McpContext): vo
         if (finalInstructions.length < 20) return failure("The brief must be at least 20 characters, or come from a preset.");
 
         const finalRole = role ?? (preset && MCP_AGENT_ROLES.includes(preset.role as (typeof MCP_AGENT_ROLES)[number]) ? preset.role : "viewer");
-        if (!MCP_AGENT_ROLES.includes(finalRole as (typeof MCP_AGENT_ROLES)[number])) {
-          return failure(`Through this server, an agent's role is capped at "member". Use the dashboard for admin/owner.`);
+        if (!canGrantAgentRole(scope.role, finalRole as (typeof MCP_AGENT_ROLES)[number])) {
+          return failure(
+            `This key's role is "${scope.role}", so it cannot create an agent with the role ` +
+              `"${finalRole}" — an agent never holds more authority than whoever created it.`,
+          );
         }
 
         const finalAutonomy = autonomy ?? (preset && isAutonomy(preset.autonomy) ? preset.autonomy : "assisted");
@@ -202,7 +219,9 @@ export function registerAgentTools(server: McpServer, ctx: () => McpContext): vo
     "update_agent",
     {
       title: "Change an agent",
-      description: "Edit an existing agent's brief, role (capped at \"member\"), autonomy, toolkits, or schedule. Only the fields you pass change. Requires the write scope.",
+      description:
+        "Edit an existing agent's brief, role (never above this key's own), autonomy, toolkits, or " +
+        "schedule. Only the fields you pass change. Requires the write scope and an admin-or-above key.",
       inputSchema: {
         agent_id: z.string().uuid(),
         instructions: z.string().min(20).max(MAX_INSTRUCTIONS).optional(),
@@ -219,6 +238,7 @@ export function registerAgentTools(server: McpServer, ctx: () => McpContext): vo
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "manageAgents", "change an agent");
         const [agent] = await db
           .select({ id: schema.agents.id })
           .from(schema.agents)
@@ -229,7 +249,17 @@ export function registerAgentTools(server: McpServer, ctx: () => McpContext): vo
         const patch: Partial<typeof schema.agents.$inferInsert> = { updatedAt: new Date() };
         if (instructions !== undefined) patch.instructions = instructions;
         if (role_title !== undefined) patch.roleTitle = role_title;
-        if (role !== undefined) patch.role = role;
+        if (role !== undefined) {
+          // Same cap on the edit path as on hire. Without it, hiring a viewer
+          // agent and immediately promoting it would route straight around the
+          // check above.
+          if (!canGrantAgentRole(scope.role, role)) {
+            return failure(
+              `This key's role is "${scope.role}", so it cannot give an agent the role "${role}".`,
+            );
+          }
+          patch.role = role;
+        }
         if (autonomy !== undefined) patch.autonomy = autonomy;
         if (toolkits !== undefined) patch.toolkits = toolkits;
         if (schedule_minutes !== undefined) {
@@ -258,6 +288,7 @@ export function registerAgentTools(server: McpServer, ctx: () => McpContext): vo
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "manageAgents", "pause or resume an agent");
         const updated = await db
           .update(schema.agents)
           .set({
@@ -290,6 +321,12 @@ export function registerAgentTools(server: McpServer, ctx: () => McpContext): vo
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        // Same tier as its dashboard twin (`setAutomationPausedAction` gates on
+        // `manageAgents`). This tool arrived on main while this branch was open
+        // and, like every write tool here before it, checked only the scope —
+        // which is the gap this branch exists to close, so it gets the check
+        // rather than an exception.
+        requireCapability(scope, "manageAgents", "pause or resume all automation");
         await db
           .update(schema.organizations)
           .set(
@@ -335,6 +372,7 @@ export function registerAgentTools(server: McpServer, ctx: () => McpContext): vo
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "manageAgents", "retire an agent");
         const updated = await db
           .update(schema.agents)
           .set({ status: "archived", nextRunAt: null, updatedAt: new Date() })
@@ -365,6 +403,7 @@ export function registerAgentTools(server: McpServer, ctx: () => McpContext): vo
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "runAgents", "start an agent's shift");
         const [agent] = await db
           .select()
           .from(schema.agents)
@@ -516,7 +555,7 @@ export function registerAgentTools(server: McpServer, ctx: () => McpContext): vo
       description:
         "Decide a pending approval. Approving does not execute it immediately — the worker carries " +
         "it out within a minute, through the same code path the agent would have used. Requires the " +
-        "write scope.",
+        "write scope, and a role that could have performed the queued action itself.",
       inputSchema: {
         approval_id: z.string().uuid(),
         decision: z.enum(["approve", "reject"]),
@@ -528,6 +567,7 @@ export function registerAgentTools(server: McpServer, ctx: () => McpContext): vo
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "reviewAgentWork", "decide an agent's request");
         const [approval] = await db
           .select()
           .from(schema.agentApprovals)
@@ -537,6 +577,16 @@ export function registerAgentTools(server: McpServer, ctx: () => McpContext): vo
         if (approval.status !== "pending") return failure(`That request is already ${approval.status}.`);
         if (approval.expiresAt.getTime() < Date.now()) {
           return failure("That request has expired. Ask the agent to propose it again.");
+        }
+        // The second half of the check: the reviewer must also hold the
+        // capability the queued tool declares. `reviewAgentWork` above is only
+        // the floor — it varies per approval and cannot be expressed as a rank.
+        if (!canDecideApproval(scope.role, approval.requiredCapability)) {
+          return failure(
+            `Deciding this request needs the "${approval.requiredCapability}" capability, which ` +
+              `this key's role ("${scope.role}") does not have. Approving is exercising: you cannot ` +
+              "wave through an action you could not perform yourself.",
+          );
         }
 
         await db

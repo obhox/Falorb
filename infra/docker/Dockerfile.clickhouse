@@ -19,6 +19,17 @@
 # Baking the config in removes the dependency on how any particular platform treats
 # bind mounts. users.d stays writable in the image layer, because the entrypoint
 # generates default-user.xml there at start-up.
+#
+# That last sentence is also why users.d must contain no user definitions of its own.
+# A copy of the entrypoint's generated default-user.xml was once checked in, carrying
+# the password `falorb` for a user reachable from ::/0 with access_management enabled,
+# and this COPY baked it into every published image. It was inert in any deployment
+# that sets CLICKHOUSE_USER/CLICKHOUSE_PASSWORD -- the entrypoint rewrites the file
+# on every start, which is verifiable by running this image with a password set and
+# watching `falorb:falorb` get a 403 -- and it was a working admin account, GRANT
+# OPTION and all, in any deployment that did not. A credential whose safety depends
+# on an environment variable being present is a credential waiting for the one deploy
+# that forgets. users.d now holds profiles and quotas only.
 FROM clickhouse/clickhouse-server:25.3-alpine
 
 COPY infra/clickhouse/config.d/ /etc/clickhouse-server/config.d/

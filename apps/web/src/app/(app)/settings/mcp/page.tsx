@@ -37,6 +37,7 @@ export default async function McpSettingsPage() {
     name: key.name,
     prefix: key.prefix,
     scopes: key.scopes,
+    role: key.role,
     project: key.projectId ? (projectsById.get(key.projectId) ?? `#${key.projectId}`) : null,
     lastUsedAt: key.lastUsedAt?.toISOString() ?? null,
     expiresAt: key.expiresAt?.toISOString() ?? null,
@@ -127,6 +128,7 @@ export default async function McpSettingsPage() {
           keys={views}
           projects={session.projects.map((p) => ({ slug: p.slug, name: p.name }))}
           canManage={can.manageTeam(session.workspace.role)}
+          viewerRole={session.workspace.role}
           mcpUrl={mcpUrl}
           stdioCommand={stdioCommand}
           now={now}

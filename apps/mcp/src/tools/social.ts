@@ -4,7 +4,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { schema } from "@falorb/db";
 import { BufferApiError, type CreatePostMode } from "@falorb/buffer-client";
 import type { McpContext } from "../context";
-import { requireScope } from "../context";
+import { requireCapability, requireScope } from "../context";
 import { getBufferClient } from "../clients";
 import { ago, failure, table, text } from "../format";
 
@@ -149,6 +149,7 @@ export function registerSocialTools(server: McpServer, ctx: () => McpContext): v
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "actOnIntegrations", "publish to Buffer");
         if (mode === "schedule" && !due_at) {
           return failure('due_at is required when mode is "schedule".');
         }
@@ -234,6 +235,7 @@ export function registerSocialTools(server: McpServer, ctx: () => McpContext): v
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "actOnIntegrations", "remove a queued Buffer post");
 
         const client = await getBufferClient(db, scope.organizationId);
         if (!client) return failure("Buffer isn't connected. Connect it in Settings → Integrations.");

@@ -16,6 +16,8 @@ export interface ApiKeyView {
   name: string;
   prefix: string;
   scopes: string[];
+  /** The membership role the key acts with — see `api_keys.role`. */
+  role: string;
   projectId: number | null;
   lastUsedAt: Date | null;
   expiresAt: Date | null;
@@ -35,6 +37,7 @@ export async function listKeys(organizationId: string): Promise<ApiKeyView[]> {
     name: key.name,
     prefix: key.keyPrefix,
     scopes: key.scopes,
+    role: key.role,
     projectId: key.projectId,
     lastUsedAt: key.lastUsedAt,
     expiresAt: key.expiresAt,

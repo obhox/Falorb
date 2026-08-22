@@ -4,7 +4,7 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import { schema } from "@falorb/db";
 import { VIDEO_MODELS, getVideoModel, type VideoModelSpec } from "@falorb/elevenlabs-client";
 import type { McpContext } from "../context";
-import { requireScope } from "../context";
+import { requireCapability, requireScope } from "../context";
 import { ago, failure, table, text } from "../format";
 
 const MAX_PRESENTER_IMAGE_BYTES = 8 * 1024 * 1024;
@@ -192,6 +192,7 @@ export function registerUgcVideoTools(server: McpServer, ctx: () => McpContext):
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "manageUgcVideos", "generate a UGC video");
 
         const model = getVideoModel(video_model);
         if (!model) return failure(`Unknown video model "${video_model}". Call list_ugc_video_models to see valid ids.`);
@@ -302,6 +303,7 @@ export function registerUgcVideoTools(server: McpServer, ctx: () => McpContext):
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "manageUgcVideos", "queue a video for posting");
 
         const [video] = await db
           .select({ id: schema.ugcVideos.id, status: schema.ugcVideos.status })
@@ -351,6 +353,7 @@ export function registerUgcVideoTools(server: McpServer, ctx: () => McpContext):
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "manageUgcVideos", "update the posting queue");
 
         const [updated] = await db
           .update(schema.ugcVideoPostQueue)

@@ -14,7 +14,7 @@ import {
   type DateRange,
 } from "@falorb/queries";
 import type { McpContext } from "../context";
-import { requireScope, resolveProjects } from "../context";
+import { requireCapability, requireScope, resolveProjects } from "../context";
 import { ago, failure, text } from "../format";
 import { hotLeads } from "./leads";
 
@@ -107,6 +107,7 @@ export function registerSignalTools(server: McpServer, ctx: () => McpContext): v
       const { db, clickhouse, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "writeAnalysis", "regenerate a recommendation");
 
         const isPortfolioSales = kind === "sales" && sigScope === "portfolio";
         if (!isPortfolioSales && !project) {

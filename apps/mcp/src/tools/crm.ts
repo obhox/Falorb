@@ -4,7 +4,7 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import { schema } from "@falorb/db";
 import { LinkiApiError, type LinkiSignalType } from "@falorb/linki-client";
 import type { McpContext } from "../context";
-import { requireScope } from "../context";
+import { requireCapability, requireScope } from "../context";
 import { getLinkiClient } from "../clients";
 import { ago, failure, money, table, text } from "../format";
 
@@ -476,6 +476,7 @@ export function registerCrmTools(server: McpServer, ctx: () => McpContext): void
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "manageCrm", "add a contact to the CRM");
 
         const [existing] = await db
           .select({ id: schema.crmContacts.id, linkiId: schema.crmContacts.linkiId })
@@ -554,6 +555,7 @@ export function registerCrmTools(server: McpServer, ctx: () => McpContext): void
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "actOnIntegrations", "push a signal to Linki");
 
         const [contact] = await db
           .select()

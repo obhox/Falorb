@@ -219,6 +219,26 @@ export const apiKeys = pgTable(
     /** Short non-secret prefix so a key is recognisable in the UI. */
     keyPrefix: text("key_prefix").notNull(),
     scopes: text("scopes").array().notNull().default([]),
+    /**
+     * The membership role this key acts with.
+     *
+     * Scope and role answer different questions and both are needed. Scope says
+     * what *kind* of operation a credential may perform — read or write — and
+     * role says which of those operations the holder is entitled to at all.
+     * Without this column a `write` key was implicitly an owner: it could
+     * promote a member to owner over MCP, archive a property, or rewrite what a
+     * property collects, none of which the dashboard permits below `admin` or
+     * `owner`. The whole capability model in `roles.ts` simply did not apply to
+     * anything holding a bearer token.
+     *
+     * Defaults to `admin` rather than something stricter because that is what
+     * every key issued before this column existed is backfilled to: tightening
+     * an already-issued credential silently breaks automation that was working,
+     * so the migration preserves behaviour and new keys are issued
+     * least-privilege deliberately. `admin` still closes the escalation that
+     * mattered most — `assignRole` is owner-only, so no key can promote anyone.
+     */
+    role: text("role").notNull().default("admin"),
     lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
     expiresAt: timestamp("expires_at", { withTimezone: true }),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),

@@ -4,6 +4,7 @@ import { randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
 import { AUDIT_ACTIONS, audit, db, schema } from "@falorb/db";
+import { assertSafeWebhookUrl, UnsafeUrlError } from "@falorb/core";
 import { requireSession } from "@/server/session";
 import type { ActionResult } from "./project";
 import { deny } from "./guard";
@@ -13,6 +14,16 @@ import { deny } from "./guard";
  * channel's own webhook destination). Gated `manageProject` (admin+) —
  * a registered endpoint receives conversion data on every matching goal,
  * the same trust tier as changing what a property collects.
+ *
+ * The URL is screened by `assertSafeWebhookUrl`, the same check the alert
+ * channel path in `channels.ts` has always run. This path had only a
+ * `^https?://` regex, which meant an admin could register
+ * `http://169.254.169.254/…` or `http://clickhouse:8123/?query=…` and have the
+ * worker issue that request from inside the private network on every
+ * conversion — a server-side request forgery with a scheduler attached. The
+ * syntactic screen here is the first half; `postWebhook` in the worker
+ * re-resolves every hop at delivery time, which is what defeats a hostname
+ * repointed after it was saved.
  */
 
 export async function createWebhook(formData: FormData): Promise<ActionResult & { secret?: string }> {
@@ -21,8 +32,13 @@ export async function createWebhook(formData: FormData): Promise<ActionResult & 
   const refusal = deny(session.workspace.role, "manageProject", "register a webhook");
   if (refusal) return refusal;
 
-  const url = String(formData.get("url") ?? "").trim();
-  if (!/^https?:\/\/.+/i.test(url)) return { ok: false, message: "Enter a valid URL." };
+  let url: string;
+  try {
+    url = assertSafeWebhookUrl(String(formData.get("url") ?? "")).toString();
+  } catch (error) {
+    if (error instanceof UnsafeUrlError) return { ok: false, message: error.message };
+    throw error;
+  }
 
   const projectSlug = String(formData.get("project") ?? "").trim();
   const project = projectSlug ? session.projects.find((p) => p.slug === projectSlug) : undefined;

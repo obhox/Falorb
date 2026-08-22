@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Card, Icon } from "@falorb/ui";
 import { requireSession } from "@/server/session";
-import { isLinkiConnected } from "@/server/actions/crm";
+import { isLinkiConnected } from "@/server/crm";
 import { listContactsPaginated } from "@/server/crm";
 import { PageBody, PageHeader } from "@/components/shell/PageHeader";
 import { Pager } from "@/components/Pager";

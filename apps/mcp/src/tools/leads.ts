@@ -10,7 +10,7 @@ import {
   type DateRange,
 } from "@falorb/queries";
 import type { McpContext } from "../context";
-import { requireScope, resolveProjects } from "../context";
+import { requireCapability, requireScope, resolveProjects } from "../context";
 import { ago, failure, money, num, table, text } from "../format";
 
 export interface HotLead {
@@ -253,6 +253,7 @@ export function registerLeadTools(server: McpServer, ctx: () => McpContext): voi
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "writeAnalysis", "mark a lead as contacted");
 
         const [updated] = await db
           .update(schema.persons)
@@ -284,6 +285,7 @@ export function registerLeadTools(server: McpServer, ctx: () => McpContext): voi
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "writeAnalysis", "draft an outreach message");
 
         const lead = await getHotLead(db, person_id, scope.organizationId);
         if (!lead) return failure("No such lead.");

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertSafeWebhookUrl, isPrivateAddress, UnsafeUrlError } from "./net";
+import { assertSafeOutboundUrl, assertSafeWebhookUrl, isPrivateAddress, UnsafeUrlError } from "./net";
 
 /**
  * These cover the syntactic half of the webhook SSRF guard. The half that
@@ -76,3 +76,56 @@ describe("assertSafeWebhookUrl", () => {
     expect(() => assertSafeWebhookUrl("http://hooks.slack.com/x")).toThrow(/https/i);
   });
 });
+
+/**
+ * The same screen, reached by its general name. Every destination a customer
+ * can point this product at — an alert channel, an outbound webhook, a
+ * self-hosted integration's base URL — reaches the private network the same
+ * way, so they share one implementation rather than one screen per feature.
+ * The ops-webhook path had none for exactly as long as it was the feature that
+ * forgot.
+ */
+describe("assertSafeOutboundUrl", () => {
+  it("accepts a self-hosted deployment on a public host", () => {
+    expect(assertSafeOutboundUrl("https://linki.example.com", "Linki deployment").hostname).toBe(
+      "linki.example.com",
+    );
+  });
+
+  it.each([
+    ["http://linki.example.com", "plaintext http, which would send the credential in the clear"],
+    ["https://redis:6379", "a bare container name"],
+    ["https://169.254.169.254/", "the cloud metadata endpoint"],
+    ["https://10.0.0.7:8123/?query=SELECT%201", "a private literal with a query"],
+    ["https://localhost:3000", "localhost by name"],
+  ])("rejects %s (%s)", (raw) => {
+    expect(() => assertSafeOutboundUrl(raw, "Linki deployment")).toThrow(UnsafeUrlError);
+  });
+
+  it("names the destination it is refusing, so the error fits the form it came from", () => {
+    expect(() => assertSafeOutboundUrl("https://10.0.0.7", "Linki deployment")).toThrow(
+      /Linki deployment/,
+    );
+  });
+
+  it("agrees with the webhook spelling on every case", () => {
+    for (const raw of [
+      "https://hooks.slack.com/services/T/B/x",
+      "http://hooks.slack.com/x",
+      "https://127.0.0.1/x",
+      "https://clickhouse:8123/x",
+    ]) {
+      const outbound = safely(() => assertSafeOutboundUrl(raw));
+      const webhook = safely(() => assertSafeWebhookUrl(raw));
+      expect(outbound).toBe(webhook);
+    }
+  });
+});
+
+function safely(fn: () => URL): string {
+  try {
+    return fn().toString();
+  } catch (error) {
+    return error instanceof UnsafeUrlError ? "refused" : "threw";
+  }
+}

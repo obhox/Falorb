@@ -5,9 +5,11 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import {
   AUDIT_ACTIONS,
   audit,
+  capForRole,
   createDatabase,
   generateApiKey,
   schema,
+  scopesForRole,
   verifyApiKey,
   type Database,
 } from "@falorb/db";
@@ -15,7 +17,13 @@ import { generateDisclosure, resolveMaskingRules } from "@falorb/core";
 import { Mailer } from "@falorb/mailer";
 import { auth } from "./auth";
 import { HttpError } from "./http";
-import { requireAuth, requireHumanSession, requireScope } from "./guards";
+import {
+  requireAuth,
+  requireCapability,
+  requireHumanSession,
+  requireScope,
+  type Credential,
+} from "./guards";
 import { teamRoutes } from "./routes/team";
 import { peopleRoutes } from "./routes/people";
 import { integrationsRoutes } from "./routes/integrations";
@@ -43,6 +51,7 @@ type Vars = {
   userId: string | null;
   workspace: Workspace | null;
   scopes: string[];
+  credential: Credential | null;
 };
 
 const app = new Hono<{ Variables: Vars }>();
@@ -73,6 +82,7 @@ app.use("/api/*", async (c, next) => {
   c.set("userId", null);
   c.set("workspace", null);
   c.set("scopes", []);
+  c.set("credential", null);
 
   const authHeader = c.req.header("authorization");
   const bearer = authHeader?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
@@ -86,10 +96,21 @@ app.use("/api/*", async (c, next) => {
         .where(eq(schema.organizations.id, key.organizationId))
         .limit(1);
       if (org) {
+        c.set("credential", "api_key");
         c.set("workspace", {
           organizationId: org.id,
           organizationName: org.name,
-          role: "api_key",
+          /**
+           * The key's own role, not a `"api_key"` placeholder.
+           *
+           * The placeholder made every key roleless, so `can.*` could not be
+           * asked about one and every route fell back to checking scope alone
+           * — which is how a `write` key could reach operations the dashboard
+           * reserves for owners. Whether the caller is a key at all is a
+           * separate fact, recorded above, and `requireHumanSession` reads
+           * that rather than inspecting the role.
+           */
+          role: key.role,
         });
         c.set("scopes", key.scopes.length ? key.scopes : ["read"]);
       }
@@ -99,10 +120,15 @@ app.use("/api/*", async (c, next) => {
 
   const session = await auth.api.getSession({ headers: c.req.raw.headers });
   if (session?.user) {
+    const workspace = await ensureWorkspace(db, session.user);
+    c.set("credential", "session");
     c.set("userId", session.user.id);
     // Lazily creates the organization on first authenticated request.
-    c.set("workspace", await ensureWorkspace(db, session.user));
-    c.set("scopes", ["read", "write", "admin"]);
+    c.set("workspace", workspace);
+    // Derived from the membership role rather than hardcoded. This line used to
+    // read `["read", "write", "admin"]` unconditionally, which meant a viewer
+    // signing in held every scope the API knew about.
+    c.set("scopes", scopesForRole(workspace.role));
   }
   return next();
 });
@@ -143,7 +169,10 @@ const createProjectSchema = z.object({
 });
 
 app.post("/api/projects", async (c) => {
-  const workspace = requireAuth(c);
+  // Creating a property decides what gets collected and from which domains,
+  // which is `manageProject` in the dashboard's own vocabulary — admin, not
+  // merely "someone holding a write scope".
+  const workspace = requireCapability(c, "manageProject", "create a property");
   requireScope(c, "write");
 
   const parsed = createProjectSchema.safeParse(await c.req.json().catch(() => ({})));
@@ -200,7 +229,10 @@ const patchProjectSchema = z.object({
 });
 
 app.patch("/api/projects/:slug", async (c) => {
-  const workspace = requireAuth(c);
+  // Domains, retention, consent mode and cookieless all live behind this one
+  // route. The dashboard gates the same settings on `manageProject`; a viewer
+  // reaching them through the API was the same escalation by another door.
+  const workspace = requireCapability(c, "manageProject", "change property settings");
   requireScope(c, "write");
 
   const parsed = patchProjectSchema.safeParse(await c.req.json().catch(() => ({})));
@@ -245,6 +277,14 @@ app.patch("/api/projects/:slug", async (c) => {
 const createKeySchema = z.object({
   name: z.string().min(1).max(120),
   scopes: z.array(z.enum(["read", "write"])).min(1).optional(),
+  /**
+   * The membership role the key acts with. Defaults to `viewer` — a key is a
+   * credential handed to a program, and the overwhelmingly common case (an
+   * assistant reading reports) needs nothing more. Callers that want a key to
+   * change things ask for it explicitly, and never get more than the issuer
+   * holds.
+   */
+  role: z.enum(["viewer", "member", "admin", "owner"]).optional(),
   project: z.string().optional().describe("Restrict the key to one project slug."),
   expires_in_days: z.number().int().min(1).max(3650).optional(),
 });
@@ -259,6 +299,11 @@ app.post("/api/keys", async (c) => {
   // would not revoke the ones it created — and nothing records the lineage.
   // Issuing a credential is a human act.
   const workspace = requireHumanSession(c, "issue API keys");
+  // And an admin act. Being signed in was the only requirement here, so a
+  // viewer could mint a write-scoped key and hold, through the key, authority
+  // their own account did not have — the first step of the escalation chain
+  // that `capForRole` below closes the second half of.
+  requireCapability(c, "manageTeam", "issue API keys");
 
   const parsed = createKeySchema.safeParse(await c.req.json().catch(() => ({})));
   if (!parsed.success) throw new HttpError(422, "A key needs a name.");
@@ -279,6 +324,15 @@ app.post("/api/keys", async (c) => {
     projectId = project.id;
   }
 
+  /**
+   * Never above the issuer's own role. An admin minting an `owner` key would be
+   * an owner with one extra step, and the key would outlive their membership.
+   * `capForRole` clamps rather than refuses; comparing the two tells the caller
+   * plainly that they got less than they asked for.
+   */
+  const requestedRole = parsed.data.role ?? "viewer";
+  const grantedRole = capForRole(workspace.role, requestedRole);
+
   const key = generateApiKey();
   const [created] = await db
     .insert(schema.apiKeys)
@@ -288,6 +342,7 @@ app.post("/api/keys", async (c) => {
       name: parsed.data.name,
       keyHash: key.keyHash,
       keyPrefix: key.keyPrefix,
+      role: grantedRole,
       scopes: parsed.data.scopes ?? ["read"],
       expiresAt: parsed.data.expires_in_days
         ? new Date(Date.now() + parsed.data.expires_in_days * 86_400_000)
@@ -303,7 +358,7 @@ app.post("/api/keys", async (c) => {
     targetId: created!.id,
     // The plaintext never reaches this object; `audit` also redacts key-shaped
     // fields as a second line of defence.
-    metadata: { name: created!.name, scopes: created!.scopes, projectId },
+    metadata: { name: created!.name, scopes: created!.scopes, role: grantedRole, projectId },
   });
 
   const mcpUrl = process.env.FALORB_MCP_URL ?? "http://localhost:3002/mcp";
@@ -312,6 +367,12 @@ app.post("/api/keys", async (c) => {
       id: created!.id,
       name: created!.name,
       scopes: created!.scopes,
+      role: created!.role,
+      ...(grantedRole !== requestedRole
+        ? {
+            roleNote: `Issued as "${grantedRole}" rather than "${requestedRole}": a key cannot hold more authority than the person issuing it.`,
+          }
+        : {}),
       // Returned exactly once — only the hash is stored.
       key: key.plaintext,
       warning: "Copy this now. It is stored only as a hash and cannot be shown again.",
@@ -339,6 +400,7 @@ app.get("/api/keys", async (c) => {
       // Never the key itself; the prefix is enough to recognise it.
       prefix: k.keyPrefix,
       scopes: k.scopes,
+      role: k.role,
       projectId: k.projectId,
       lastUsedAt: k.lastUsedAt,
       expiresAt: k.expiresAt,
@@ -352,6 +414,7 @@ app.delete("/api/keys/:id", async (c) => {
   // Same reasoning as issuance: a key that can revoke keys can revoke the ones
   // an incident responder is relying on.
   const workspace = requireHumanSession(c, "revoke API keys");
+  requireCapability(c, "manageTeam", "revoke API keys");
 
   // Revoked, not deleted — the row is the audit trail of what existed and when
   // it was last used.

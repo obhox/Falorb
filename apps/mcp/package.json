@@ -18,10 +18,18 @@
   },
   "dependencies": {
     "@clickhouse/client": "^1.23.1",
+    "@falorb/agents": "workspace:*",
     "@falorb/ai": "workspace:*",
+    "@falorb/buffer-client": "workspace:*",
+    "@falorb/bund-ai-client": "workspace:*",
+    "@falorb/clay-client": "workspace:*",
     "@falorb/core": "workspace:*",
     "@falorb/db": "workspace:*",
+    "@falorb/elevenlabs-client": "workspace:*",
+    "@falorb/linki-client": "workspace:*",
+    "@falorb/openseo-client": "workspace:*",
     "@falorb/queries": "workspace:*",
+    "@falorb/research": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "drizzle-orm": "^0.45.2",
     "zod": "^3.24.1"

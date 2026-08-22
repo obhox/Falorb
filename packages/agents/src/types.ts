@@ -29,11 +29,15 @@ import type { can } from "@falorb/db";
 export const TOOLKITS = [
   "analytics",
   "people",
+  "leads",
   "crm",
   "support",
   "tasks",
   "memory",
   "content",
+  "prospecting",
+  "ugc",
+  "growth",
 ] as const;
 
 export type Toolkit = (typeof TOOLKITS)[number];
@@ -41,21 +45,29 @@ export type Toolkit = (typeof TOOLKITS)[number];
 export const TOOLKIT_LABELS: Record<Toolkit, string> = {
   analytics: "Analytics",
   people: "Visitors & leads",
+  leads: "Lead outreach",
   crm: "Sales & CRM",
   support: "Customer support",
   tasks: "Task board",
   memory: "Long-term memory",
   content: "Writing",
+  prospecting: "Prospecting",
+  ugc: "UGC video",
+  growth: "Referrals & signals",
 };
 
 export const TOOLKIT_DESCRIPTIONS: Record<Toolkit, string> = {
   analytics: "Traffic, trends, funnels, drop-off and retention across the properties it can see.",
   people: "Individual visitors, their history, and which leads are worth contacting.",
+  leads: "Look at one warm lead closely, mark outreach done, and draft the first message.",
   crm: "Read the mirrored CRM, and create or update contacts and signals in Linki.",
   support: "Read conversations and escalations, and resolve an escalation in Bund AI.",
   tasks: "Open, comment on, complete and hand off work on the shared board.",
   memory: "Keep and recall conclusions between shifts.",
   content: "Draft prose — outreach, briefs, summaries — as a step inside a larger job.",
+  prospecting: "Review people discovered off-site, qualify them, and draft the approach.",
+  ugc: "Generate a UGC video from a brief and queue a finished one for posting.",
+  growth: "Referral links, the AI growth-signal cache, and the waitlist queue.",
 };
 
 /**

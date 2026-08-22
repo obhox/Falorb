@@ -20,9 +20,12 @@ export const alertChannels = pgTable(
       .notNull()
       .references(() => organizations.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
-    /** "email" | "slack" | "webhook" */
+    /** "email" | "slack" | "webhook" | "agent" */
     kind: text("kind").notNull(),
-    /** Destination config. Secrets (Slack/webhook URLs) are encrypted at rest. */
+    /** Destination config. Secrets (Slack/webhook URLs) are encrypted at
+     * rest. For `kind: "agent"`: `{ agentId: string, objective?: string }` —
+     * a fired alert queues a normal `agent_runs` row (`trigger: "alert"`)
+     * for that agent rather than sending a message anywhere. */
     config: jsonb("config").notNull().default({}),
     active: boolean("active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

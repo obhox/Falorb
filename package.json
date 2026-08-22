@@ -28,7 +28,8 @@
   },
   "pnpm": {
     "overrides": {
-      "esbuild": "^0.25.12"
+      "esbuild": "^0.25.12",
+      "deepmerge-ts": "^8.0.1"
     }
   },
   "devDependencies": {

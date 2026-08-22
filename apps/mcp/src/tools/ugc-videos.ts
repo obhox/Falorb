@@ -135,7 +135,9 @@ export function registerUgcVideoTools(server: McpServer, ctx: () => McpContext):
           `Brief: ${row.brief}`,
           row.script ? `\nScript:\n${row.script}` : null,
           row.videoPrompt ? `\nShot description:\n${row.videoPrompt}` : null,
-          row.voiceName ? `\nVoice: ${row.voiceName}` : null,
+          row.voiceName
+            ? `\nVoice: ${row.voiceName}${row.voiceProvider === "gemini" ? " (ElevenLabs unavailable — voiced by Gemini fallback instead)" : ""}`
+            : null,
           row.videoUrl ? `\nVideo: ${row.videoUrl}` : null,
           row.durationSeconds ? `Duration: ${row.durationSeconds}s` : null,
           row.lastError ? `\nError: ${row.lastError}` : null,

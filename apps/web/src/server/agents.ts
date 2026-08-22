@@ -236,6 +236,81 @@ export async function countPendingApprovals(organizationId: string): Promise<num
   return row?.n ?? 0;
 }
 
+/**
+ * Every failure any agent has hit, across every run — one place to look
+ * instead of opening each shift's transcript to check.
+ *
+ * `agent_steps.ok = false` already covers everything worth showing here: a
+ * thrown run error (`kind: "error"`), a tool that raised, invalid tool
+ * arguments, and a policy refusal all write that row the same way in
+ * `run.ts`'s `performCall`. Nothing new needs to be logged — this is the
+ * surface that was missing, not the capture.
+ */
+export interface ErrorLogRow {
+  id: string;
+  runId: string;
+  agentId: string;
+  agentName: string;
+  agentAvatar: string;
+  kind: string;
+  toolName: string | null;
+  message: string;
+  objective: string;
+  trigger: string;
+  createdAt: Date;
+}
+
+export async function listErrors(organizationId: string, limit = 200): Promise<ErrorLogRow[]> {
+  return db()
+    .select({
+      id: schema.agentSteps.id,
+      runId: schema.agentSteps.runId,
+      agentId: schema.agentRuns.agentId,
+      agentName: schema.agents.name,
+      agentAvatar: schema.agents.avatar,
+      kind: schema.agentSteps.kind,
+      toolName: schema.agentSteps.toolName,
+      // The message lives in different places depending on what failed:
+      // `content` for a thrown run error, `result.error` for a tool that
+      // raised or was called with bad arguments, `result.refused` for a
+      // policy denial.
+      message: sql<string>`coalesce(
+        ${schema.agentSteps.content},
+        ${schema.agentSteps.result} ->> 'error',
+        ${schema.agentSteps.result} ->> 'refused',
+        'Unknown error'
+      )`,
+      objective: schema.agentRuns.objective,
+      trigger: schema.agentRuns.trigger,
+      createdAt: schema.agentSteps.createdAt,
+    })
+    .from(schema.agentSteps)
+    .innerJoin(schema.agentRuns, eq(schema.agentSteps.runId, schema.agentRuns.id))
+    .innerJoin(schema.agents, eq(schema.agentRuns.agentId, schema.agents.id))
+    .where(
+      and(eq(schema.agentRuns.organizationId, organizationId), eq(schema.agentSteps.ok, false)),
+    )
+    .orderBy(desc(schema.agentSteps.createdAt))
+    .limit(limit);
+}
+
+/** For the roster banner — same window `listAgents`' recency reads use. */
+export async function countRecentErrors(organizationId: string, hours = 24): Promise<number> {
+  const since = new Date(Date.now() - hours * 3_600_000);
+  const [row] = await db()
+    .select({ n: count() })
+    .from(schema.agentSteps)
+    .innerJoin(schema.agentRuns, eq(schema.agentSteps.runId, schema.agentRuns.id))
+    .where(
+      and(
+        eq(schema.agentRuns.organizationId, organizationId),
+        eq(schema.agentSteps.ok, false),
+        gte(schema.agentSteps.createdAt, since),
+      ),
+    );
+  return row?.n ?? 0;
+}
+
 export interface TaskRow {
   id: string;
   title: string;

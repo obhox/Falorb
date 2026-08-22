@@ -73,6 +73,7 @@ export function AgentRoster({
   automationPaused,
   automationPausedAt,
   automationPausedBy,
+  recentErrors,
   now,
 }: {
   agents: RosterAgent[];
@@ -84,6 +85,7 @@ export function AgentRoster({
   automationPaused: boolean;
   automationPausedAt: string | null;
   automationPausedBy: string | null;
+  recentErrors: number;
   now: number;
 }) {
   const [hiring, setHiring] = useState(false);
@@ -128,6 +130,22 @@ export function AgentRoster({
             <Link href="/agents/approvals" style={{ marginLeft: "auto", textDecoration: "none" }}>
               <Button size="sm" variant="accent">
                 Review
+              </Button>
+            </Link>
+          </div>
+        </Card>
+      )}
+
+      {recentErrors > 0 && (
+        <Card tone="inset" padding={14}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <Icon name="triangle-alert" size={15} />
+            <span style={{ fontSize: 13, color: "var(--text-primary)" }}>
+              {recentErrors} error{recentErrors === 1 ? "" : "s"} in the last 24 hours.
+            </span>
+            <Link href="/agents/errors" style={{ marginLeft: "auto", textDecoration: "none" }}>
+              <Button size="sm" variant="ghost">
+                See errors
               </Button>
             </Link>
           </div>

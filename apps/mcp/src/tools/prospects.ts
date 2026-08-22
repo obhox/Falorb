@@ -1,9 +1,9 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull, or } from "drizzle-orm";
 import { schema, resolveAiCredentials } from "@falorb/db";
 import { AiSignalError, complete } from "@falorb/ai";
-import { PROSPECT_SOURCES } from "@falorb/core";
+import { MIN_PROSPECT_RELEVANCE_SCORE, PROSPECT_SOURCES } from "@falorb/core";
 import type { McpContext, Scope } from "../context";
 import { requireScope, resolveProjects, ScopeError } from "../context";
 import { ago, failure, table, text } from "../format";
@@ -48,7 +48,7 @@ export function registerProspectTools(server: McpServer, ctx: () => McpContext):
     {
       title: "Prospects discovered off-site",
       description:
-        "People, accounts, or job postings discovered talking about (or hiring for) something relevant to the product, somewhere the organization doesn't own — Reddit, Hacker News, and job postings today (see list_prospect_sources). Optionally enriched with contact info. Complements get_hot_leads, which only covers people already tracked as on-site visitors.",
+        "People, accounts, or job postings discovered talking about (or hiring for) something relevant to the product, somewhere the organization doesn't own — Reddit, Hacker News, and job postings today (see list_prospect_sources). Always filtered to matches an AI relevance pass scored as actually related to the product (or not yet scored) — coincidental keyword matches never show up here. Optionally enriched with contact info. Complements get_hot_leads, which only covers people already tracked as on-site visitors.",
       inputSchema: {
         project: z.string().optional().describe('Project slug to filter by its keyword list; omit or "all" for the whole portfolio.'),
         status: z.enum(["new", "enriching", "enriched", "contacted", "dismissed"]).optional(),
@@ -63,6 +63,7 @@ export function registerProspectTools(server: McpServer, ctx: () => McpContext):
         const conditions = [
           eq(schema.prospects.organizationId, scope.organizationId),
           inArray(schema.prospects.projectId, projectIds),
+          or(isNull(schema.prospects.relevanceScore), gte(schema.prospects.relevanceScore, MIN_PROSPECT_RELEVANCE_SCORE)),
         ];
         if (status) conditions.push(eq(schema.prospects.status, status));
 

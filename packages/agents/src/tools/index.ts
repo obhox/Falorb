@@ -5,10 +5,13 @@ import { TOOLKITS } from "../types";
 import { analyticsTools } from "./analytics";
 import { contentTools } from "./content";
 import { crmTools } from "./crm";
+import { growthTools } from "./growth";
 import { memoryTools } from "./memory";
 import { peopleTools } from "./people";
+import { prospectingTools } from "./prospecting";
 import { supportTools } from "./support";
 import { taskTools } from "./tasks";
+import { ugcTools } from "./ugc";
 
 /**
  * The catalogue: every action any agent could ever take, and the rules for
@@ -29,6 +32,9 @@ export const ALL_TOOLS: AnyToolDefinition[] = [
   ...taskTools,
   ...memoryTools,
   ...contentTools,
+  ...prospectingTools,
+  ...ugcTools,
+  ...growthTools,
 ];
 
 const BY_NAME = new Map(ALL_TOOLS.map((t) => [t.name, t]));

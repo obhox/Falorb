@@ -903,10 +903,10 @@ or something that happens outside software entirely.
 another a support lead is only which *toolkits* it holds. There is no
 `agentType` enum the runtime switches on, because that would make "an SDR who
 also watches support tickets" inexpressible — and that combination is the
-normal shape of a job at a small company. `AGENT_PRESETS` ships six starting
+normal shape of a job at a small company. `AGENT_PRESETS` ships seven starting
 points (chief of staff, growth analyst, SDR, support lead, content
-strategist, revenue ops); after creation an agent is just an agent, and
-`preset` is provenance only.
+strategist, revenue ops, growth marketer); after creation an agent is just an
+agent, and `preset` is provenance only.
 
 ### The autonomy dial, and why it is graded on *effect*
 
@@ -929,6 +929,19 @@ that, but it is never a default, never implied, and settable only by an
 owner. Independently of all of this, the agent's `role` bounds it from above
 — a `viewer` agent set to `autonomous` with a blanket waiver still cannot
 write, because the role check runs first and nothing relaxes it.
+
+`autoApproveTools` also accepts `toolkit:<name>` (e.g. `toolkit:crm`),
+waiving every tool in one skillset without the all-or-nothing choice between
+naming each tool and waiving everything with `"*"`. It sits at the same
+admin tier as the rest of agent management (`can.manageAgents`) rather than
+owner-only — it is strictly narrower than blanket approval, the same
+reasoning that keeps `manageCrm`/`manageUgcVideos` at member tier while only
+the credential-holding `manageIntegrations` sits at admin. On the agent
+detail page, the per-toolkit "skip approval" checkbox is hidden whenever the
+owner-only "act with no approvals at all" checkbox is on, and the client
+omits the toolkit selection from that save entirely in that state — sending
+an empty selection would otherwise silently clear an owner-set `"*"` out
+from under an admin who never saw that setting.
 
 ### Approvals do not block the shift
 
@@ -956,7 +969,7 @@ while somebody demoted the agent does not still fire.
 | ✅ | `agent_memories` schema | What an agent still knows next week — conclusions and corrections, written by the agent itself through a tool. Without it an agent re-derives the same findings every shift and never accumulates judgement, which is the difference between a scheduled script and an employee. Scoped per agent, not per org: two agents holding contradictory beliefs is legible, whereas a shared pool would let one agent's mistake silently steer another's work |
 | ✅ | `auditLog.actorAgentId` | Agent actions land in the same log as human ones. A separate "agent activity" table would mean answering "who changed this deal" required reading two places and merging by timestamp — and the whole point is that both kinds of colleague are accountable the same way |
 | ✅ | `@falorb/agents` | The runtime: `policy.ts` (one `decide()` every gate funnels through — UI, worker, and approval-resume all call it, so they cannot drift apart), `run.ts` (the loop, resume, budget, approval raising, `executeApproval`), `prompt.ts` (briefing assembly), `presets.ts`, and the tool registry. Server-only, same boundary `@falorb/ai`/`@falorb/mailer` draw |
-| ✅ | Seven toolkits, 22 tools | `analytics` (through `@falorb/queries`, the same layer the dashboard and MCP server read — an agent computing its own aggregates would eventually report a figure a human cannot reproduce), `people`, `crm` (reads the mirror, writes to Linki), `support` (reads the mirror, resolves in Bund AI), `tasks`, `memory`, `content`. Suppression-list and duplicate-contact checks are enforced *in the tool*, not left to the prompt — putting do-not-contact in a prompt makes it a suggestion |
+| ✅ | Ten toolkits, 41 tools | `analytics` (through `@falorb/queries`, the same layer the dashboard and MCP server read — an agent computing its own aggregates would eventually report a figure a human cannot reproduce), `people`, `crm` (reads the mirror, writes to Linki), `support` (reads the mirror, resolves in Bund AI), `tasks`, `memory`, `content`, `prospecting` (off-site leads found by social listening, §17), `ugc` (text-to-video generation and a posting checklist, §18), `growth` (referral links, the cached AI signal library, and a read-only waitlist view). Suppression-list and duplicate-contact checks are enforced *in the tool*, not left to the prompt — putting do-not-contact in a prompt makes it a suggestion. The three newer toolkits reuse only what `@falorb/queries` already exposes to both the dashboard and the agent runtime, and query `@falorb/db` directly rather than importing `apps/web/src/server/*` — `@falorb/agents` does not depend on the Next.js app. Regenerating a cached signal and enabling/disabling the waitlist are deliberately left out: the former is a bespoke, app-layer analytics pipeline per signal kind, and the latter is gated by `can.share` (admin-tier, since it changes what's publicly reachable) rather than the `writeAnalysis` tier everything else here sits at |
 | ✅ | `chat()` in `@falorb/ai` | Tool-calling turn beside the existing `complete()`, separate rather than a flag on it: different shape of interaction, and folding them together would push a `tool_calls` branch into four call sites that will never take it. Both are now thin wrappers over `transport.ts`'s `callModel`, so agents work against either supported gateway. Agents run on `openrouter/auto` like everything else — no pinned model to go stale, no per-deployment model list to maintain. What makes that safe is `provider.require_parameters`, sent whenever tools are present, so auto only considers models that support function calling; without it an agent silently degrades into one that writes prose *about* the action it would have taken |
 | ✅ | Shifts bill to the organization's own gateway | Through `@falorb/db`'s shared `resolveAiCredentials`, not a copy — the dashboard, the worker and the agent runtime have to agree on which gateway an org's AI runs against, and two implementations of that eventually disagree. The result is carried on `AgentContext`, resolved once per shift rather than per turn, because it decrypts a stored key and a gateway swapped mid-run would bill half a conversation to each. Without it every shift would quietly fall through to the deployment-wide `OPENROUTER_API_KEY`, ignoring both the connection an org configured and the model it chose. `draft_text` reads the same credentials, so a tool that itself calls a model spends the same key the shift does |
 | ✅ | `agents-enqueue` / `agents-run` / `agents-approvals` worker jobs | Enqueue is a cheap indexed lookup on a 1m beat so assigning a task feels immediate; execution costs real model calls, so it runs on its own 2m beat with a small per-sweep cap and `skipOnBoot` (a restart loop must not fire a paid shift on every boot). `nextRunAt` advances at enqueue, not completion, so a wedged run cannot push a daily agent into being a weekly one. Stalled runs are reclaimed by heartbeat and *resume* from `agent_steps` rather than re-running a billed shift |
@@ -964,8 +977,8 @@ while somebody demoted the agent does not still fire.
 | ✅ | `/tasks`, `/tasks/[id]` | The shared board, with one assignee dropdown containing people and agents together. That is the smallest UI decision here and the most load-bearing: choosing who does a piece of work should not begin with choosing what *kind of thing* does it |
 | ✅ | Escalation routes closed | `canGrantAgentRole` caps an agent's role at the granter's own (otherwise an admin creates an `owner` agent and drives it); `canDecideApproval` requires the reviewer to hold the tool's capability; blanket auto-approval is owner-only. 12 unit tests in `policy.test.ts` cover each |
 | ✅ | Resume tested without a database | `rebuildMessages` is pure and exported precisely so the post-crash path can be asserted (`run.test.ts`) — see §19a |
-| ⬜ | Agent-to-agent delegation | The schema supports it (`trigger: "delegation"`, `parentTaskId`), and an agent can already create a task — but nothing lets it *assign* one to another agent. Deliberate: a delegation loop between two autonomous agents is the failure mode with no natural bound, and it needs its own depth limit before the tool exists |
-| ⬜ | Event-triggered shifts | `trigger: "alert"` is in the vocabulary and nothing emits it yet. A fired alert waking the relevant agent is the obvious next step — the alerts worker already knows when something broke |
+| ✅ | Agent-to-agent delegation | `delegate_task` (tasks toolkit) assigns work directly to another agent, the same `manageTasks`/`internal` grade as `create_task`. `tasks.delegationDepth` bounds it — `MAX_DELEGATION_DEPTH = 3` in `packages/agents/src/tools/tasks.ts`, checked by the pure, unit-tested `checkDelegation` — rather than cycle detection: the counter is monotonically increasing, so it caps any loop shape (chain or ping-pong) regardless. Self-delegation is refused outright. The worker (`enqueueAgentTasks`) tells a human-assigned task from a delegated one by `creatorType`, writing `trigger: "delegation"` only for the latter |
+| ✅ | Event-triggered shifts | `alertChannels.kind` gained `"agent"` (`config: { agentId, objective? }`); when a rule fires, `apps/worker/src/jobs/alerts.ts`'s `deliver()` queues a normal `agent_runs` row (`trigger: "alert"`) instead of sending a message anywhere. Nothing about being alert-triggered bypasses policy — same role/autonomy gates, same approval queue for anything external. The looked-up agent's `organizationId` is checked against the rule's explicitly, since `config` is loosely-typed JSON on an admin-authored row rather than a foreign key |
 | ✅ | Task editing and deletion | `updateTaskAction` / `deleteTaskAction`, plus an edit card on the task page. Status and assignee are deliberately excluded from that form — both are one-click controls elsewhere on the same page, and duplicating them into a Save-button form would give one thing two ways to change that disagree about whether the change has landed |
 | ✅ | Verified against a live model | `pnpm --filter @falorb/agents verify` drives a real shift end to end. Confirmed working: the loop (43 steps, 8 turns, $0.005), tool dispatch through the real query layer, transcript persistence, the budget backstop, **the approval gate holding** under `assisted` (a `create_task` was queued, not performed), the approve → worker-execute round trip actually creating the task, and agent attribution in `audit_log`. See §19a for what that run exposed and what is still unproven |
 

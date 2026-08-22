@@ -1,0 +1,1 @@
+ALTER TABLE "tasks" ADD COLUMN "delegation_depth" integer DEFAULT 0 NOT NULL;

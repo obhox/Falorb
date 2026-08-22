@@ -4,11 +4,12 @@ import { canDecideApproval, canGrantAgentRole, decide } from "./policy";
 import type { ToolDefinition } from "./types";
 
 const tool = (
-  over: Partial<Pick<ToolDefinition, "name" | "capability" | "effect">> = {},
-): Pick<ToolDefinition, "name" | "capability" | "effect"> => ({
+  over: Partial<Pick<ToolDefinition, "name" | "capability" | "effect" | "toolkit">> = {},
+): Pick<ToolDefinition, "name" | "capability" | "effect" | "toolkit"> => ({
   name: "crm_create_contact",
   capability: "actOnIntegrations",
   effect: "external",
+  toolkit: "crm",
   ...over,
 });
 
@@ -59,6 +60,19 @@ describe("decide", () => {
   it("honours a blanket waiver", () => {
     const a = agent({ autonomy: "autonomous", autoApproveTools: ["*"] });
     expect(decide(a, tool()).kind).toBe("allow");
+  });
+
+  it("honours a toolkit waiver, and only for tools in that toolkit", () => {
+    const a = agent({ autonomy: "autonomous", autoApproveTools: ["toolkit:crm"] });
+    expect(decide(a, tool({ toolkit: "crm" })).kind).toBe("allow");
+    expect(
+      decide(a, tool({ name: "support_resolve_escalation", toolkit: "support" })).kind,
+    ).toBe("approval");
+  });
+
+  it("still denies a toolkit-waived tool the role forbids", () => {
+    const a = agent({ role: "viewer", autonomy: "autonomous", autoApproveTools: ["toolkit:crm"] });
+    expect(decide(a, tool({ toolkit: "crm" })).kind).toBe("deny");
   });
 
   it("still denies a waived tool the role forbids", () => {

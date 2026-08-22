@@ -19,6 +19,16 @@
  * transport. A fresh `Client` is used for the retry rather than reusing the
  * failed one — the SDK's `Client` does not guarantee it is reusable after a
  * failed `connect()`.
+ *
+ * Every call into the SDK also goes through `withTimeout`, on top of the
+ * `timeout` already passed as `RequestOptions` to the SDK call itself. Two
+ * layers rather than trusting the SDK's own `AbortController`-based timeout
+ * alone: this client's actual caller is a server action a human is staring
+ * at a spinner for, and an arbitrary user-supplied URL is exactly the kind
+ * of input worth being defensive about — a server that accepts the
+ * connection but never answers should not be able to hang that request
+ * indefinitely, whichever layer would otherwise be responsible for giving
+ * up first.
  */
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -50,6 +60,27 @@ export class McpConnectorError extends Error {
 }
 
 const DEFAULT_TIMEOUT_MS = 15_000;
+
+/**
+ * Bounds how long a caller waits, independent of whether the underlying SDK
+ * call actually honors its own `RequestOptions.timeout` — see the module
+ * doc comment for why that distinction matters here specifically.
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new McpConnectorError(message)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
 
 export class McpConnectorClient {
   private readonly url: string;
@@ -85,14 +116,22 @@ export class McpConnectorClient {
     try {
       const client = new Client({ name: "falorb", version: "0.1.0" });
       const transport = new StreamableHTTPClientTransport(target, { requestInit: this.requestInit });
-      await client.connect(transport);
+      await withTimeout(
+        client.connect(transport, { timeout: this.timeoutMs }),
+        this.timeoutMs,
+        `Timed out connecting to ${this.url} over Streamable HTTP.`,
+      );
       this.client = client;
       return client;
     } catch (streamableError) {
       try {
         const client = new Client({ name: "falorb", version: "0.1.0" });
         const transport = new SSEClientTransport(target, { requestInit: this.requestInit });
-        await client.connect(transport);
+        await withTimeout(
+          client.connect(transport, { timeout: this.timeoutMs }),
+          this.timeoutMs,
+          `Timed out connecting to ${this.url} over SSE.`,
+        );
         this.client = client;
         return client;
       } catch (sseError) {
@@ -108,7 +147,11 @@ export class McpConnectorClient {
   async listTools(): Promise<McpToolSummary[]> {
     const client = await this.ensureConnected();
     try {
-      const { tools } = await client.listTools(undefined, { timeout: this.timeoutMs });
+      const { tools } = await withTimeout(
+        client.listTools(undefined, { timeout: this.timeoutMs }),
+        this.timeoutMs,
+        "Timed out listing tools on this MCP server.",
+      );
       return tools.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema }));
     } catch (error) {
       throw new McpConnectorError("Could not list tools on this MCP server.", error);
@@ -120,7 +163,11 @@ export class McpConnectorClient {
     const client = await this.ensureConnected();
     let result: unknown;
     try {
-      result = await client.callTool({ name, arguments: args }, undefined, { timeout: this.timeoutMs });
+      result = await withTimeout(
+        client.callTool({ name, arguments: args }, undefined, { timeout: this.timeoutMs }),
+        this.timeoutMs,
+        `Timed out calling "${name}" on this MCP server.`,
+      );
     } catch (error) {
       throw new McpConnectorError(`MCP tool "${name}" failed.`, error);
     }

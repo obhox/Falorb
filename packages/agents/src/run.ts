@@ -239,6 +239,9 @@ export async function executeRun(deps: RunDeps, runId: string): Promise<RunOutco
                 id: c.id,
                 name: c.name,
                 args: c.argumentsJson,
+                // Gemini rejects a replayed call without its signature, so
+                // the resume path needs it as much as the live one.
+                ...(c.thoughtSignature ? { signature: c.thoughtSignature } : {}),
               })),
             }
           : null,
@@ -829,12 +832,15 @@ export function rebuildMessages(steps: ReplayableStep[]): ChatMessage[] {
   for (const step of steps) {
     if (step.kind === "assistant") {
       const raw = (
-        step.arguments as { toolCalls?: { id?: string; name: string; args: string }[] } | null
+        step.arguments as
+          | { toolCalls?: { id?: string; name: string; args: string; signature?: string }[] }
+          | null
       )?.toolCalls;
-      const toolCalls = (raw ?? []).map((c, i) => ({
+      const toolCalls: ToolCall[] = (raw ?? []).map((c, i) => ({
         id: c.id ?? `replay_${step.position}_${i}`,
         name: c.name,
         argumentsJson: c.args,
+        ...(c.signature ? { thoughtSignature: c.signature } : {}),
       }));
       unclaimed = toolCalls.map((c) => c.id);
       messages.push({

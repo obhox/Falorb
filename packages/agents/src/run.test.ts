@@ -75,6 +75,25 @@ describe("rebuildMessages", () => {
     }
   });
 
+  it("carries a persisted Gemini thought signature back onto the replayed call", () => {
+    const messages = rebuildMessages([
+      step({
+        position: 0,
+        kind: "assistant",
+        content: null,
+        arguments: {
+          toolCalls: [
+            { id: "c1", name: "list_tasks", args: "{}", signature: "sig-abc" },
+            { id: "c2", name: "get_stats", args: "{}" },
+          ],
+        },
+      }),
+    ]);
+    const calls = (messages[0] as { toolCalls: { thoughtSignature?: string }[] }).toolCalls;
+    expect(calls[0]!.thoughtSignature).toBe("sig-abc");
+    expect(calls[1]).not.toHaveProperty("thoughtSignature");
+  });
+
   it("does not emit a second copy of each call from the tool_call rows", () => {
     const messages = rebuildMessages(transcript);
     // Two assistant messages, two tool messages — the tool_call rows are the

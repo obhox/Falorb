@@ -22,7 +22,7 @@ whole backend; see [FEATURES.md](FEATURES.md) for the gaps.
 - **Growth signals** — page-performance and interest-graph insights per property, plus on-demand AI recommendations for content, product gaps, channels, and who to contact.
 - **Bring your own AI** — connect your own OpenRouter (openrouter.ai), Ramp Router (router.com) or Google Gemini account in Settings → Integrations and pick the model every AI feature runs on: your key, your billing, your model. Falls back to the deployment's `OPENROUTER_API_KEY` if you connect none.
 - **Privacy-first** — no raw IP stored anywhere, GDPR export/erasure, per-project retention.
-- **AI-native** — an MCP server (25 tools) so an assistant can query the platform directly, and a dashboard panel tracking what AI crawlers read on your sites.
+- **AI-native** — an MCP server (133 tools, read **and** write over nearly everything, including the CRM/support/social mirrors, the task board and AI-employee roster, and integration credentials themselves for the local operator) so an assistant can query and run the platform directly, and a dashboard panel tracking what AI crawlers read on your sites.
 - **Integrations** — deep, two-way connections to Linki (sales outreach/CRM), [Bund AI](https://usebund.com) (customer support), and Buffer (social post scheduling): their data mirrors into Falorb, joinable with product analytics, and a few manual actions (push a signal, create/update a contact, resolve an escalation, publish a post) run from here without switching tabs. See [FEATURES.md §13](FEATURES.md#13-integrations--linki--bund-ai--buffer--clay-built-generic-multi-service-design-superseded).
 - **UGC AI video** — generate a script, voiceover, and a lip-synced talking video from a presenter photo, built in-house on top of ElevenLabs, then queue it for posting. See [FEATURES.md §18](FEATURES.md#18-ugc-ai-video-generation--script-voice-and-a-talking-avatar-video).
 - **AI employees** — agents with names, job titles, briefs and shifts, working the same task board your team does. They read the analytics, act on the CRM and support queue, and hand anything they cannot do to a person with the reason attached. Permissions reuse the same four roles humans have; anything reaching a customer waits for a human to approve it. See [FEATURES.md §19](FEATURES.md#19-ai-employees--agents-that-work-alongside-people).
@@ -82,7 +82,7 @@ dashboard and the query layer — and share one `better-auth` config from
 | `apps/worker` | Stream writer + 21 scheduled jobs (derivations, syncs, agent shifts) |
 | `apps/api` | Self-serve accounts — signup, sessions, projects, API keys, team invites |
 | `apps/web` | The dashboard — 33 routes, role-enforced, light and dark |
-| `apps/mcp` | MCP server — 25 tools, 2 resources, 3 prompts for AI assistants |
+| `apps/mcp` | MCP server — 133 tools, 2 resources, 3 prompts for AI assistants |
 
 ## Getting started
 

@@ -41,6 +41,24 @@ export interface Scope {
   scopes: string[];
   /** Label for logs and the server instructions. */
   label: string;
+  /**
+   * True only for the stdio fallback (no API key; the operator running this
+   * process already holds direct database credentials). False for every
+   * bearer-key caller, local or remote.
+   *
+   * A handful of tools require this rather than just the `write` scope —
+   * storing/testing/revoking an integration credential, and requesting a
+   * person's GDPR erasure — mirroring `requireHumanSession` in
+   * `apps/api/src/routes/{integrations,people}.ts`, which refuses those same
+   * actions to *any* bearer key, including "the read-only keys users hand to
+   * AI assistants, which is exactly how [person erasure] became reachable
+   * without any check at all" (that route's own words). A stdio operator
+   * already has the database credentials to do either directly, so gating
+   * them here adds no real protection for that case; a bearer key — the
+   * shape every remote MCP client authenticates with — is exactly the case
+   * those two routes were written to exclude.
+   */
+  isLocalOperator: boolean;
 }
 
 export interface McpContext {
@@ -105,6 +123,7 @@ export async function resolveScope(
       projectIds: projects.map((p) => p.id),
       scopes: verified.scopes.length ? verified.scopes : ["read"],
       label: `api key ${verified.id.slice(0, 8)}`,
+      isLocalOperator: false,
     };
   }
 
@@ -141,6 +160,7 @@ export async function resolveScope(
     projectIds: projects.map((p) => p.id),
     scopes: ["read", "write"],
     label: `local stdio (${org.name})`,
+    isLocalOperator: true,
   };
 }
 
@@ -152,6 +172,20 @@ export function requireScope(scope: Scope, required: string): void {
   if (!hasScope(scope, required)) {
     throw new ScopeError(
       `This action needs the "${required}" scope; this API key has [${scope.scopes.join(", ")}].`,
+    );
+  }
+}
+
+/**
+ * Refuse a bearer API key outright, regardless of its scopes — see the
+ * `isLocalOperator` docblock on `Scope`. Used only where the dashboard's own
+ * API refuses every bearer key the same way (`requireHumanSession`).
+ */
+export function requireLocalOperator(scope: Scope, action: string): void {
+  if (!scope.isLocalOperator) {
+    throw new ScopeError(
+      `An API key cannot ${action}, the same rule the dashboard's own API enforces for this action — ` +
+        "sign in to the dashboard to do this, or run this server over stdio as the local operator.",
     );
   }
 }

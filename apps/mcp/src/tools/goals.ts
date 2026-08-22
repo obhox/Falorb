@@ -10,7 +10,7 @@ import {
   type GoalDefinition,
 } from "@falorb/queries";
 import type { McpContext } from "../context";
-import { requireScope, resolveProjects } from "../context";
+import { requireCapability, requireScope, resolveProjects } from "../context";
 import { failure, money, num, pct, table, text } from "../format";
 
 /**
@@ -88,6 +88,7 @@ export function registerGoalTools(server: McpServer, ctx: () => McpContext): voi
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "writeAnalysis", "create a goal");
         const [id] = resolveProjects(scope, project);
 
         const [created] = await db
@@ -125,6 +126,7 @@ export function registerGoalTools(server: McpServer, ctx: () => McpContext): voi
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "writeAnalysis", "change a goal");
         const [id] = resolveProjects(scope, project);
 
         const [updated] = await db
@@ -156,6 +158,7 @@ export function registerGoalTools(server: McpServer, ctx: () => McpContext): voi
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "writeAnalysis", "remove a goal");
         const [id] = resolveProjects(scope, project);
 
         const [deleted] = await db

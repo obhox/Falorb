@@ -60,6 +60,15 @@ export interface VerifiedKey {
   organizationId: string;
   projectId: number | null;
   scopes: string[];
+  /**
+   * The membership role this key acts with — see `api_keys.role`.
+   *
+   * Returned alongside the scopes because a caller needs both to authorise
+   * anything: scopes say read-or-write, the role says whether this credential
+   * is entitled to that class of change at all. Consumers that check only
+   * scopes are the reason a `write` key could once promote a member to owner.
+   */
+  role: string;
 }
 
 /**
@@ -102,6 +111,11 @@ export async function verifyApiKey(
     organizationId: row.organizationId,
     projectId: row.projectId,
     scopes: row.scopes ?? [],
+    // Falls back to the least privileged role rather than the column default:
+    // a null here means a row this code does not understand, and an
+    // unrecognised role must never resolve to more authority than the caller
+    // can demonstrate. Same reasoning as `rankOf` treating unknown as viewer.
+    role: row.role ?? "viewer",
   };
 }
 

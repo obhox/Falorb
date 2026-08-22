@@ -1,6 +1,10 @@
 "use client";
 
 import { useState } from "react";
+// From core, not db: this is a client component, and `@falorb/db` pulls
+// `postgres` into the browser bundle. The role model is pure logic and lives
+// on the client-safe side of that line for exactly this reason.
+import { ROLE_DESCRIPTIONS, ROLE_LABELS, rankOf, type MemberRole } from "@falorb/core";
 import { Badge, Button, Card, Checkbox, Dialog, Icon, IconButton, Input, Select } from "@falorb/ui";
 import { CopyField } from "@/components/CopyField";
 import { Empty } from "@/components/Empty";
@@ -13,6 +17,9 @@ export interface KeyView {
   name: string;
   prefix: string;
   scopes: string[];
+  /** The membership role the key acts with — what it may do, as opposed to
+   * `scopes`, which is whether it may write at all. */
+  role: string;
   project: string | null;
   lastUsedAt: string | null;
   expiresAt: string | null;
@@ -32,6 +39,7 @@ export function KeysPanel({
   keys,
   projects,
   canManage,
+  viewerRole,
   mcpUrl,
   stdioCommand,
   now,
@@ -39,6 +47,9 @@ export function KeysPanel({
   keys: KeyView[];
   projects: { slug: string; name: string }[];
   canManage: boolean;
+  /** The viewer's own role. A key is never issued above it, so the picker
+   * below only offers what this person can actually delegate. */
+  viewerRole: string;
   mcpUrl: string;
   stdioCommand: string;
   now: number;
@@ -47,6 +58,9 @@ export function KeysPanel({
   const { run, pending } = useAction();
 
   const [name, setName] = useState("");
+  // Least privilege by default: the overwhelmingly common key is an assistant
+  // reading reports, which needs nothing more than viewer.
+  const [role, setRole] = useState<MemberRole>("viewer");
   const [write, setWrite] = useState(false);
   const [scope, setScope] = useState("");
   const [expiry, setExpiry] = useState("");
@@ -56,6 +70,7 @@ export function KeysPanel({
     const data = new FormData();
     data.set("name", name);
     if (write) data.set("write", "on");
+    data.set("role", role);
     data.set("project", scope);
     data.set("expires_in_days", expiry);
 
@@ -71,6 +86,16 @@ export function KeysPanel({
   }
 
   const scopeLabels = ["All properties", ...projects.map((p) => p.name)];
+
+  /**
+   * Only roles at or below the issuer's own. The server refuses anything higher
+   * regardless — `capForRole` is the actual guard — but offering a choice that
+   * will always be rejected is a form the reader can only lose at.
+   */
+  const grantableRoles = (["viewer", "member", "admin", "owner"] as MemberRole[]).filter(
+    (r) => rankOf(r) <= rankOf(viewerRole),
+  );
+  const roleLabels = grantableRoles.map((r) => ROLE_LABELS[r]);
 
   return (
     <>
@@ -162,6 +187,11 @@ export function KeysPanel({
                   <span style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                     <Badge tone={key.scopes.includes("write") ? "warn" : "neutral"}>
                       {key.scopes.includes("write") ? "read + write" : "read"}
+                    </Badge>
+                    {/* Role, not just scope: two `read + write` keys can differ
+                        enormously in what they may actually change. */}
+                    <Badge tone={rankOf(key.role) >= rankOf("admin") ? "warn" : "neutral"}>
+                      {ROLE_LABELS[key.role as MemberRole] ?? key.role}
                     </Badge>
                     {key.project && <Badge tone="neutral">{key.project}</Badge>}
                   </span>
@@ -292,11 +322,35 @@ export function KeysPanel({
               />
             </div>
 
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <span
+                style={{
+                  fontSize: "var(--size-label)",
+                  color: "var(--text-secondary)",
+                  fontWeight: "var(--wt-medium)",
+                }}
+              >
+                Role
+              </span>
+              <Select
+                size="sm"
+                value={ROLE_LABELS[role]}
+                options={roleLabels}
+                onChange={(label: string) => {
+                  const next = grantableRoles.find((r) => ROLE_LABELS[r] === label);
+                  if (next) setRole(next);
+                }}
+              />
+              <span style={{ fontSize: "var(--size-micro)", color: "var(--text-muted)" }}>
+                {ROLE_DESCRIPTIONS[role]}
+              </span>
+            </div>
+
             <Checkbox
               checked={write}
               onChange={setWrite}
               label="Allow writes"
-              description="Lets the holder create alerts. Reading analytics needs no write scope; leave this off unless you know it is needed."
+              description="Lets the holder change things at all. The role above decides which things; this decides whether it may change anything. Leave it off unless you know it is needed."
             />
 
             <Input

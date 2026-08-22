@@ -22,7 +22,7 @@ import { CompanyResearchCard } from "./CompanyResearchCard";
 import { DataRequestsCard } from "./DataRequestsCard";
 import { MergeCard } from "./MergeCard";
 import { listMergeHistory } from "@/server/merges";
-import { getLinkedContact, isLinkiConnected } from "@/server/actions/crm";
+import { getLinkedContact, isLinkiConnected } from "@/server/crm";
 import {
   ensureDealStages,
   getCrmProfile,

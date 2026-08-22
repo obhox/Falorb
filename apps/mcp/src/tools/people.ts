@@ -15,7 +15,7 @@ import {
   type Filter,
 } from "@falorb/queries";
 import type { McpContext } from "../context";
-import { projectName, requireLocalOperator, requireScope, resolveProjects } from "../context";
+import { projectName, requireCapability, requireLocalOperator, requireScope, resolveProjects } from "../context";
 import { ago, duration, failure, money, num, pct, table, text } from "../format";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -399,6 +399,7 @@ export function registerPeopleTools(server: McpServer, ctx: () => McpContext): v
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "manageProject", "act on a data-subject request");
         if (!UUID.test(person_id)) return failure(`"${person_id}" is not a full person UUID.`);
 
         const [person] = await db
@@ -485,6 +486,7 @@ export function registerPeopleTools(server: McpServer, ctx: () => McpContext): v
       const { db, clickhouse, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "manageProject", "merge two profiles");
         if (!UUID.test(survivor_id) || !UUID.test(merged_id)) {
           return failure("Both ids must be full person UUIDs — use search_people or list_people.");
         }
@@ -588,6 +590,7 @@ export function registerPeopleTools(server: McpServer, ctx: () => McpContext): v
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "manageProject", "reverse a merge");
 
         const [record] = await db
           .select()

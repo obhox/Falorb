@@ -7,7 +7,19 @@ export * from "./clickhouse/index";
 export * from "./api-keys";
 export * from "./audit";
 export * from "./workspace";
-export * from "./roles";
+/**
+ * The role model lives in `@falorb/core`, not here, and is re-exported so that
+ * every existing `from "@falorb/db"` import keeps working.
+ *
+ * It moved because it is pure logic with no database dependency, and the
+ * dashboard needs it in a *client* component — the API-key form offers only
+ * the roles the issuer can delegate, which means `rankOf` and `ROLE_LABELS`
+ * have to reach the browser. Importing them from this package dragged
+ * `postgres` and `pg` into the client bundle, which the Next build correctly
+ * refused. Anything that is a rule rather than a query belongs on the other
+ * side of that line.
+ */
+export * from "@falorb/core";
 export * from "./crypto";
 export * from "./ai-credentials";
 

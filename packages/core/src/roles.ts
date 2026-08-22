@@ -131,3 +131,49 @@ export const INVITABLE_ROLES: MemberRole[] = ["admin", "member", "viewer"];
 export function isMemberRole(value: string): value is MemberRole {
   return (MEMBER_ROLES as readonly string[]).includes(value);
 }
+
+/**
+ * The role a credential may be issued, given the role of whoever is issuing it.
+ *
+ * An actor cannot delegate authority they do not hold. Without this cap, the
+ * cheapest privilege escalation in the product is to mint a key more powerful
+ * than yourself and then present it: a member issuing an `owner` key would be
+ * an owner with one extra step, and revoking their membership would not revoke
+ * the key. This is the API-key twin of `canGrantAgentRole` in
+ * `@falorb/agents`, which caps an AI employee's role the same way and for the
+ * same reason.
+ *
+ * Returns the requested role when it is within reach, the issuer's own role
+ * when it is not. Clamping rather than throwing is deliberate: the caller has
+ * already been authorised to issue *a* key, and the safe reading of "give this
+ * key more power than I have" is "give it as much as I have", not "fail".
+ * Callers that want to refuse instead can compare the result to the request.
+ */
+export function capForRole(granterRole: string, requested: string): MemberRole {
+  const wanted: MemberRole = isMemberRole(requested) ? requested : "viewer";
+  const granter: MemberRole = isMemberRole(granterRole) ? granterRole : "viewer";
+  return rankOf(wanted) <= rankOf(granter) ? wanted : granter;
+}
+
+/**
+ * The API scope vocabulary a membership role corresponds to.
+ *
+ * Two vocabularies exist because they answer different questions, and the API
+ * speaks both: `scopes` bound what a *credential* may do (a key handed to an
+ * assistant can be read-only regardless of who issued it), `role` bounds what
+ * the *holder* is entitled to. A signed-in human presents no scopes at all, so
+ * the API used to invent them — and invented `["read","write","admin"]` for
+ * everyone, which made a viewer indistinguishable from an owner on every route
+ * that checked scope rather than role. Deriving them here means the two
+ * vocabularies cannot disagree.
+ *
+ * This is a floor, not the whole check. Scope is coarse; the capability checks
+ * (`can.*`) are what actually separate `admin` from `owner`, and a mutating
+ * route needs both.
+ */
+export function scopesForRole(role: string): string[] {
+  const scopes = ["read"];
+  if (can.writeAnalysis(role)) scopes.push("write");
+  if (can.manageProject(role)) scopes.push("admin");
+  return scopes;
+}

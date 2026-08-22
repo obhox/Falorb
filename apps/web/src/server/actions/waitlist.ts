@@ -1,7 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { requireSession } from "@/server/session";
+import { clientKey, LIMITS, rateLimiter } from "@/server/rate-limit";
 import {
   disableWaitlist,
   enableWaitlist,
@@ -58,12 +60,35 @@ export async function disableProjectWaitlist(slug: string): Promise<ActionResult
   return { ok: true, message: "Waitlist turned off." };
 }
 
+/**
+ * Join a waitlist.
+ *
+ * The one deliberately unauthenticated *write* in the dashboard: the visitor
+ * has a token, not a session, which is the whole point of a public signup
+ * form. That also makes it the one place someone can add rows to this
+ * product's database without an account, so it is rate limited per address —
+ * tightly, because nobody signs up five times a minute by accident and the
+ * abuse shape here is list stuffing rather than load.
+ *
+ * The limit lives in the action rather than in middleware because a server
+ * action is not addressed by a path: it arrives as a POST to whatever route
+ * the form happens to be on, so a path prefix cannot see it.
+ */
 export async function submitWaitlistJoin(
   token: string,
   email: string,
   name: string | undefined,
   ref: string | undefined,
 ): Promise<ActionResult & { referralCode?: string; position?: number }> {
+  const verdict = await rateLimiter().check(
+    "waitlist-join",
+    clientKey(await headers()),
+    LIMITS.waitlistJoin,
+  );
+  if (!verdict.allowed) {
+    return { ok: false, message: "Too many attempts just now. Try again in a minute." };
+  }
+
   const resolved = await resolveWaitlistToken(String(token ?? "").trim());
   if (!resolved) return { ok: false, message: "This waitlist is not available." };
 

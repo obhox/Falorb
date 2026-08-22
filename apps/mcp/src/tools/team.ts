@@ -4,7 +4,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { and, desc, eq, gt, isNull } from "drizzle-orm";
 import { schema } from "@falorb/db";
 import type { McpContext } from "../context";
-import { requireScope } from "../context";
+import { requireCapability, requireScope } from "../context";
 import { ago, failure, table, text } from "../format";
 
 const ROLES = ["owner", "admin", "member", "viewer"] as const;
@@ -23,6 +23,14 @@ function hashToken(token: string): string {
  * `apps/web/src/server/actions/team.ts` exactly — never orphan a workspace
  * by demoting or removing its last owner — because an assistant acting on a
  * misread instruction should be caught by the same guard a person is.
+ *
+ * It did not, in fact, mirror them. Every tool below asked only for the `write`
+ * scope, so any write-capable key could invite people, remove them, and
+ * promote a member to `owner` — the last of which is the whole escalation:
+ * a credential someone hands an assistant could mint a permanent human owner
+ * of the workspace, surviving revocation of the key itself. The dashboard
+ * requires `manageTeam` (admin) for the first two and `assignRole` (owner) for
+ * the third. Those are now checked here too, against the role the key carries.
  */
 export function registerTeamTools(server: McpServer, ctx: () => McpContext): void {
   server.registerTool(
@@ -100,7 +108,7 @@ export function registerTeamTools(server: McpServer, ctx: () => McpContext): voi
     {
       title: "Invite someone to the workspace",
       description:
-        "Invite by email, as admin or lower — an invite mints a seat for someone not yet present to check against, so owners are promoted deliberately by an existing owner rather than invited directly. Returns a one-time link; only its hash is stored. Requires the write scope.",
+        "Invite by email, as admin or lower — an invite mints a seat for someone not yet present to check against, so owners are promoted deliberately by an existing owner rather than invited directly. Returns a one-time link; only its hash is stored. Requires the write scope and an admin-or-above key.",
       inputSchema: {
         email: z.string().email(),
         role: z.enum(["admin", "member", "viewer"]).optional().default("member"),
@@ -111,6 +119,7 @@ export function registerTeamTools(server: McpServer, ctx: () => McpContext): voi
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "manageTeam", "invite people to the workspace");
         const normalized = email.trim().toLowerCase();
 
         const [already] = await db
@@ -153,7 +162,7 @@ export function registerTeamTools(server: McpServer, ctx: () => McpContext): voi
     "revoke_invitation",
     {
       title: "Revoke a pending invitation",
-      description: "Withdraw an outstanding invite before it's accepted. Requires the write scope.",
+      description: "Withdraw an outstanding invite before it's accepted. Requires the write scope and an admin-or-above key.",
       inputSchema: { invitation_id: z.string().describe("From list_team.") },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
     },
@@ -161,6 +170,7 @@ export function registerTeamTools(server: McpServer, ctx: () => McpContext): voi
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "manageTeam", "revoke invitations");
         const [revoked] = await db
           .update(schema.invitations)
           .set({ revokedAt: new Date() })
@@ -178,7 +188,7 @@ export function registerTeamTools(server: McpServer, ctx: () => McpContext): voi
     "change_member_role",
     {
       title: "Change a member's role",
-      description: "Promote or demote a member. Refuses to demote the workspace's only owner. Requires the write scope.",
+      description: "Promote or demote a member. Refuses to demote the workspace's only owner. Requires the write scope and an owner key — handing out roles is owner-only.",
       inputSchema: {
         user_id: z.string().describe("From list_team."),
         role: z.enum(ROLES),
@@ -189,6 +199,9 @@ export function registerTeamTools(server: McpServer, ctx: () => McpContext): voi
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        // `assignRole`, not `manageTeam`: handing out roles is owner-only, and
+        // this is the tool a leaked write key would reach for first.
+        requireCapability(scope, "assignRole", "change a member's role");
 
         const owners = await ownerIds(db, scope.organizationId);
         if (owners.length === 1 && owners[0] === user_id && role !== "owner") {
@@ -213,7 +226,7 @@ export function registerTeamTools(server: McpServer, ctx: () => McpContext): voi
     "remove_member",
     {
       title: "Remove a member from the workspace",
-      description: "Remove someone from the workspace. Refuses to remove the only owner. Requires the write scope.",
+      description: "Remove someone from the workspace. Refuses to remove the only owner. Requires the write scope and an admin-or-above key.",
       inputSchema: { user_id: z.string().describe("From list_team.") },
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
     },
@@ -221,6 +234,7 @@ export function registerTeamTools(server: McpServer, ctx: () => McpContext): voi
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "manageTeam", "remove someone from the workspace");
 
         const owners = await ownerIds(db, scope.organizationId);
         if (owners.length === 1 && owners[0] === user_id) {

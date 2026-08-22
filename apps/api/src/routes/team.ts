@@ -2,10 +2,11 @@ import { createHash, randomBytes } from "node:crypto";
 import { Hono } from "hono";
 import { z } from "zod";
 import { and, desc, eq, gt, isNull } from "drizzle-orm";
-import { AUDIT_ACTIONS, audit, schema, type Database } from "@falorb/db";
+import { AUDIT_ACTIONS, audit, can, schema, type Database } from "@falorb/db";
 import { Mailer, inviteMail } from "@falorb/mailer";
 import type { Workspace } from "../onboarding";
 import { HttpError } from "../http";
+import type { Credential } from "../guards";
 
 /**
  * Team membership and invitations.
@@ -21,20 +22,26 @@ type Vars = {
   userId: string | null;
   workspace: Workspace | null;
   scopes: string[];
+  credential: Credential | null;
 };
 
 const INVITE_TTL_DAYS = 7;
 
-/** Roles that may manage the team. */
-const ADMIN_ROLES = new Set(["owner", "admin"]);
-
 export function teamRoutes(db: Database, mailer: Mailer): Hono<{ Variables: Vars }> {
   const app = new Hono<{ Variables: Vars }>();
 
+  /**
+   * `can.manageTeam` rather than a local set of role names.
+   *
+   * This file used to carry its own `new Set(["owner", "admin"])`, which was
+   * the only role check anywhere in the API — and a second, separately-invented
+   * reading of "admin" is exactly the drift `@falorb/db`'s `roles.ts` exists to
+   * prevent. One definition, imported by both the dashboard and this.
+   */
   const requireAdmin = (c: { get: (k: "workspace") => Workspace | null }): Workspace => {
     const workspace = c.get("workspace");
     if (!workspace) throw new HttpError(401, "Sign in first.");
-    if (!ADMIN_ROLES.has(workspace.role)) {
+    if (!can.manageTeam(workspace.role)) {
       throw new HttpError(403, "Only an owner or admin can manage the team.");
     }
     return workspace;

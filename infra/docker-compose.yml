@@ -43,7 +43,13 @@ services:
       CLICKHOUSE_USER: falorb
       CLICKHOUSE_PASSWORD: falorb
       CLICKHOUSE_DB: falorb
-      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: 1
+      # Deliberately not CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT=1. That grants the
+      # application user CREATE USER, DROP USER, ROLE ADMIN and GRANT OPTION,
+      # none of which anything in this repository uses — the ClickHouse
+      # migrations in `packages/db/src/clickhouse/migrations` only ever create
+      # tables. Development matching production here is the point: a permission
+      # that exists only locally is one nobody notices depending on until it is
+      # missing in production.
     ports:
       - "8123:8123" # HTTP
       - "9000:9000" # native protocol
@@ -52,7 +58,13 @@ services:
       - ./clickhouse/config.d:/etc/clickhouse-server/config.d:ro
       # Writable on purpose: the image's entrypoint generates
       # users.d/default-user.xml here from CLICKHOUSE_USER/PASSWORD. Mounting
-      # this read-only makes the container crash-loop on startup.
+      # this read-only makes the container crash-loop on startup — and it is
+      # why that generated file is gitignored rather than committed. A copy of
+      # it used to be checked in, which meant the published image shipped a
+      # user named `falorb` with the password `falorb`, reachable from `::/0`
+      # with access management. It was inert wherever CLICKHOUSE_PASSWORD was
+      # set, because the entrypoint overwrites the file at start-up — and live
+      # the moment it was not.
       - ./clickhouse/users.d:/etc/clickhouse-server/users.d
     ulimits:
       nofile:

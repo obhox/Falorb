@@ -24,7 +24,10 @@
     "db:seed:events": "pnpm --filter @falorb/db seed:events",
     "e2e": "pnpm --filter @falorb/web e2e",
     "audit": "pnpm audit --audit-level=high",
-    "loadtest": "node scripts/loadtest.mjs"
+    "loadtest": "node scripts/loadtest.mjs",
+    "skills:init": "npx skills init",
+    "skills:add": "npx skills add",
+    "skills:list": "npx skills list"
   },
   "pnpm": {
     "overrides": {

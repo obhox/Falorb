@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { AGENT_PRESETS } from "@falorb/agents";
+import { AGENT_PRESETS, TOOLKIT_DESCRIPTIONS, TOOLKIT_LABELS, TOOLKITS } from "@falorb/agents";
 import { can } from "@falorb/db";
 import { requireSession } from "@/server/session";
 import { countPendingApprovals, listAgents } from "@/server/agents";
@@ -69,6 +69,11 @@ export default async function AgentsPage() {
             summary: p.summary,
             toolkits: p.toolkits,
             scheduleMinutes: p.scheduleMinutes,
+          }))}
+          toolkits={TOOLKITS.map((t) => ({
+            key: t,
+            label: TOOLKIT_LABELS[t],
+            description: TOOLKIT_DESCRIPTIONS[t],
           }))}
           projects={session.projects.map((p) => ({ id: p.id, slug: p.slug }))}
           canManage={can.manageAgents(session.workspace.role)}

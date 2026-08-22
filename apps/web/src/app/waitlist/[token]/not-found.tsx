@@ -7,7 +7,7 @@ import { Empty } from "@/components/Empty";
  */
 export default function WaitlistNotFound() {
   return (
-    <main style={{ minHeight: "100dvh", display: "grid", placeItems: "center", padding: "var(--space-9)" }}>
+    <main style={{ height: "100%", overflowY: "auto", display: "grid", placeItems: "center", padding: "var(--space-9)" }}>
       <Card tone="panel" style={{ maxWidth: 460 }}>
         <Empty
           icon="link-2-off"

@@ -58,6 +58,7 @@ export default async function SupportEscalationPage({
       />
       <PageBody>
         <div
+          className="falorb-grid-2pane"
           style={{
             display: "grid",
             gridTemplateColumns: "minmax(0, 1.4fr) minmax(240px, 1fr)",

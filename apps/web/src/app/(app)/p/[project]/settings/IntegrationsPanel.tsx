@@ -28,6 +28,7 @@ const LABELS: Record<Provider, string> = {
   elevenlabs: "ElevenLabs",
   github: "GitHub",
   migadu: "Migadu",
+  openseo: "OpenSEO",
 };
 
 const HAS_BASE_URL: Record<Provider, boolean> = {
@@ -43,6 +44,7 @@ const HAS_BASE_URL: Record<Provider, boolean> = {
   elevenlabs: false,
   github: false,
   migadu: false,
+  openseo: false,
 };
 
 /** Migadu is the one provider whose management API needs a second secret —
@@ -60,6 +62,7 @@ const HAS_USERNAME: Record<Provider, boolean> = {
   elevenlabs: false,
   github: false,
   migadu: true,
+  openseo: false,
 };
 
 const KEY_PLACEHOLDERS: Record<Provider, string> = {
@@ -75,6 +78,7 @@ const KEY_PLACEHOLDERS: Record<Provider, string> = {
   elevenlabs: "Your ElevenLabs API key",
   github: "github_pat_…",
   migadu: "Your Migadu API key",
+  openseo: "oseo_…",
 };
 
 const PROVIDERS: Provider[] = [
@@ -90,6 +94,7 @@ const PROVIDERS: Provider[] = [
   "elevenlabs",
   "github",
   "migadu",
+  "openseo",
 ];
 
 /**

@@ -29,6 +29,7 @@
     "@falorb/git-blog-client": "workspace:*",
     "@falorb/linki-client": "workspace:*",
     "@falorb/migadu-client": "workspace:*",
+    "@falorb/openseo-client": "workspace:*",
     "@falorb/queries": "workspace:*",
     "@falorb/research": "workspace:*",
     "@falorb/ui": "workspace:*",

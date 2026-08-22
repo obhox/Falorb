@@ -23,6 +23,7 @@
     "@falorb/linki-client": "workspace:*",
     "@falorb/mailer": "workspace:*",
     "@falorb/migadu-client": "workspace:*",
+    "@falorb/openseo-client": "workspace:*",
     "@falorb/queries": "workspace:*",
     "@falorb/research": "workspace:*",
     "@hono/node-server": "^1.13.7",

@@ -90,7 +90,7 @@ When you find something that needs fixing, open a task with the evidence in it. 
     avatar: "🎯",
     summary:
       "Finds the visitors worth talking to, works out what they care about, and drafts the approach.",
-    toolkits: ["people", "crm", "analytics", "content", "tasks", "memory"],
+    toolkits: ["people", "leads", "crm", "analytics", "content", "tasks", "memory"],
     role: "member",
     autonomy: "assisted",
     scheduleMinutes: 8 * 60,
@@ -98,7 +98,7 @@ When you find something that needs fixing, open a task with the evidence in it. 
       "Review new and warming leads. For anyone genuinely worth approaching, research what they did on the site and prepare the outreach.",
     instructions: `You are a sales development rep working the inbound signal from the company's own properties.
 
-Your advantage is that you can see what someone actually did before you write to them — which pages, how often, over how long, and whether they have touched more than one of the company's products. Use it. An approach that refers to something real is worth ten that do not.
+Your advantage is that you can see what someone actually did before you write to them — which pages, how often, over how long, and whether they have touched more than one of the company's products. Use it. An approach that refers to something real is worth ten that do not. Use get_hot_leads to find who to look at, get_lead to read one closely, and mark_lead_contacted once you have actually reached out.
 
 Qualify honestly. A high lead score on someone who read one page twice is not a lead. Look for repeat visits, depth, or cross-property activity. If someone does not clear the bar, say so and move on rather than manufacturing a reason.
 

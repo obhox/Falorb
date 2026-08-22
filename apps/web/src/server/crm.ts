@@ -1,16 +1,20 @@
 import "server-only";
 import { and, desc, eq, ilike, isNull, or, sql } from "drizzle-orm";
 import { db, schema } from "@falorb/db";
+import { markSyncRequested } from "./sync-demand";
 
 /**
  * The CRM, read-side — two sources:
  *
  *   `crmContacts`/`crmLists`/`crmWorkflows`/`crmSignalRules` are the Linki
- *   mirror, written by `apps/worker/src/jobs/linki-sync.ts`.
+ *   mirror, written by `apps/worker/src/jobs/linki-sync.ts`. Every function
+ *   that reads one of those tables flags the org for a fresh sync first (see
+ *   `sync-demand.ts`) — the sync happens on the worker's next tick, not
+ *   before the read returns.
  *
  *   `crmProfiles`/`crmDealStages`/`crmDeals` are Falorb-owned (Part 1a of
  *   the integration plan) — nothing writes these but the actions in
- *   `apps/web/src/server/actions/crm.ts`.
+ *   `apps/web/src/server/actions/crm.ts`, so those reads don't flag Linki.
  */
 
 export type CrmContactRow = typeof schema.crmContacts.$inferSelect;
@@ -18,6 +22,7 @@ export type CrmWorkflowRow = typeof schema.crmWorkflows.$inferSelect;
 export type CrmSignalRuleRow = typeof schema.crmSignalRules.$inferSelect;
 
 export async function listContacts(organizationId: string): Promise<CrmContactRow[]> {
+  await markSyncRequested(organizationId, "linki");
   return db()
     .select()
     .from(schema.crmContacts)
@@ -28,6 +33,7 @@ export async function listContacts(organizationId: string): Promise<CrmContactRo
 
 /** Linki targets nobody's brought into Falorb's CRM yet — the entry point for the pre-existing contact backlog. */
 export async function listUnmatchedContacts(organizationId: string): Promise<CrmContactRow[]> {
+  await markSyncRequested(organizationId, "linki");
   return db()
     .select()
     .from(schema.crmContacts)
@@ -54,6 +60,7 @@ export interface CrmContactsPage {
 
 /** The full, paginated Linki contacts mirror — unlike `listUnmatchedContacts`, not capped at 500. */
 export async function listContactsPaginated(query: CrmContactsQuery): Promise<CrmContactsPage> {
+  await markSyncRequested(query.organizationId, "linki");
   const limit = Math.min(Math.max(query.limit ?? 50, 1), 200);
   const offset = Math.max(query.offset ?? 0, 0);
 
@@ -97,6 +104,7 @@ export async function listContactsPaginated(query: CrmContactsQuery): Promise<Cr
 }
 
 export async function getContact(organizationId: string, contactId: string): Promise<CrmContactRow | null> {
+  await markSyncRequested(organizationId, "linki");
   const [row] = await db()
     .select()
     .from(schema.crmContacts)
@@ -114,6 +122,7 @@ export async function listMembershipsForContact(
   organizationId: string,
   contactId: string,
 ): Promise<CrmContactListMembershipView[]> {
+  await markSyncRequested(organizationId, "linki");
   const rows = await db()
     .select({ listId: schema.crmLists.id, listName: schema.crmLists.name })
     .from(schema.crmListMembers)
@@ -126,6 +135,7 @@ export async function listMembershipsForContact(
 }
 
 export async function listWorkflows(organizationId: string): Promise<CrmWorkflowRow[]> {
+  await markSyncRequested(organizationId, "linki");
   return db()
     .select()
     .from(schema.crmWorkflows)
@@ -141,6 +151,7 @@ export interface CrmListView {
 }
 
 export async function listLists(organizationId: string): Promise<CrmListView[]> {
+  await markSyncRequested(organizationId, "linki");
   const rows = await db()
     .select({
       id: schema.crmLists.id,
@@ -157,6 +168,7 @@ export async function listLists(organizationId: string): Promise<CrmListView[]> 
 }
 
 export async function listSignalRules(organizationId: string): Promise<CrmSignalRuleRow[]> {
+  await markSyncRequested(organizationId, "linki");
   return db()
     .select()
     .from(schema.crmSignalRules)
@@ -385,6 +397,7 @@ export interface CrmRunView {
 }
 
 export async function listRuns(organizationId: string): Promise<CrmRunView[]> {
+  await markSyncRequested(organizationId, "linki");
   const rows = await db()
     .select({
       id: schema.crmRuns.id,
@@ -432,6 +445,7 @@ export interface CrmRunDetail {
 }
 
 export async function getRunDetail(organizationId: string, runId: string): Promise<CrmRunDetail | null> {
+  await markSyncRequested(organizationId, "linki");
   const [run] = await db()
     .select({
       id: schema.crmRuns.id,
@@ -505,6 +519,7 @@ export interface CrmSentMessageView {
 }
 
 export async function listSentMessages(organizationId: string): Promise<CrmSentMessageView[]> {
+  await markSyncRequested(organizationId, "linki");
   const rows = await db()
     .select({
       id: schema.crmSentMessages.id,
@@ -544,6 +559,7 @@ export interface CrmSuppressionView {
 }
 
 export async function listSuppressions(organizationId: string): Promise<CrmSuppressionView[]> {
+  await markSyncRequested(organizationId, "linki");
   const rows = await db()
     .select({
       id: schema.crmSuppressions.id,
@@ -583,6 +599,7 @@ export async function listSentMessagesForPerson(
   organizationId: string,
   personId: string,
 ): Promise<LinkiEmailView[]> {
+  await markSyncRequested(organizationId, "linki");
   const rows = await db()
     .select({
       id: schema.crmSentMessages.id,
@@ -622,6 +639,7 @@ export async function listCampaignRunsForPerson(
   organizationId: string,
   personId: string,
 ): Promise<LinkiCampaignRunView[]> {
+  await markSyncRequested(organizationId, "linki");
   const rows = await db()
     .select({
       runId: schema.crmRuns.id,
@@ -701,6 +719,7 @@ export async function getLinkedContact(
   organizationId: string,
   personId: string,
 ): Promise<LinkedContactView | null> {
+  await markSyncRequested(organizationId, "linki");
   const [row] = await db()
     .select()
     .from(schema.crmContacts)
@@ -729,6 +748,7 @@ export async function getLinkedContact(
  * org-wide check; see `packages/db/src/schema/integrations.ts`.
  */
 export async function isLinkiConnected(organizationId: string): Promise<boolean> {
+  await markSyncRequested(organizationId, "linki");
   const [row] = await db()
     .select({ id: schema.integrationConnections.id })
     .from(schema.integrationConnections)

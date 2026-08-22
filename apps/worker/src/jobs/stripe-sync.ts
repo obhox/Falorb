@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { PgColumn } from "drizzle-orm/pg-core";
 import { decryptCredential, schema } from "@falorb/db";
 import {
@@ -8,19 +8,29 @@ import {
   type StripeInvoice,
   type StripeSubscription,
 } from "@falorb/stripe-client";
+import { isSyncStale } from "@falorb/core";
 import type { WorkerContext } from "../context";
 
 /**
  * Mirrors Stripe (the operator's own payment processing account) into
  * Falorb's own Postgres — one connection at a time, org-level or
  * project-level, same shape as `linki-sync.ts`/`bund-ai-sync.ts`: a full
- * paginated poll every run (Stripe has no incremental event stream this job
- * consumes — Events exist but reading them is a separate, webhook-shaped
- * integration this repo deliberately doesn't build yet, see FEATURES.md
- * §20's "Not yet built"), upsert on `(organizationId, stripeId)` (org-level
- * rows) or `(organizationId, projectId, stripeId)` (project-level rows),
- * `lastSyncedAt`/`status`/`lastError` on `integrationConnections` as the
- * connection-health signal.
+ * paginated poll per synced connection (Stripe has no incremental event
+ * stream this job consumes — Events exist but reading them is a separate,
+ * webhook-shaped integration this repo deliberately doesn't build yet, see
+ * FEATURES.md §20's "Not yet built"), upsert on `(organizationId, stripeId)`
+ * (org-level rows) or `(organizationId, projectId, stripeId)` (project-level
+ * rows), `lastSyncedAt`/`status`/`lastError` on `integrationConnections` as
+ * the connection-health signal and the cooldown clock below.
+ *
+ * Demand-driven, not a blind sweep — see `buffer-sync.ts`'s doc comment for
+ * why. `context.syncDemand` is flagged by `apps/web/src/server/billing.ts` (a
+ * page load) and `.../actions/integrations.ts` (a fresh connect), keyed by
+ * `organizationId` alone — draining it and matching on organizationId below
+ * picks up that org's org-level connection *and* every project-level
+ * override together, since `listCustomers`/etc. in `billing.ts` are always
+ * scoped by organizationId first. This only calls Stripe for orgs flagged
+ * since the last tick, gated further by `SYNC_COOLDOWN_MS` per connection.
  *
  * Unlike Linki/Bund AI, every `StripeClient.list*` method already
  * cursor-walks every page internally (see that package's docblock), so this
@@ -38,14 +48,19 @@ import type { WorkerContext } from "../context";
  * project's, even though they share an `organizationId`.
  */
 
+const SYNC_COOLDOWN_MS = 5 * 60_000;
+
 export async function syncStripe(context: WorkerContext): Promise<void> {
-  // Every active Stripe connection — the org-level one (`projectId` null)
-  // and every project's own override. An operator running more than one
-  // product under one Falorb organization connects a separate Stripe
-  // account per project (each with its own DBA); each connection is synced,
-  // and reported on, independently — one project's bad key marks only that
-  // project's connection errored, never the org-level one or a sibling
-  // project's.
+  const requestedOrgIds = await context.syncDemand.drain("stripe");
+  if (!requestedOrgIds.length) return;
+
+  // Every active Stripe connection for a flagged org — the org-level one
+  // (`projectId` null) and every project's own override. An operator running
+  // more than one product under one Falorb organization connects a separate
+  // Stripe account per project (each with its own DBA); each connection is
+  // synced, and reported on, independently — one project's bad key marks
+  // only that project's connection errored, never the org-level one or a
+  // sibling project's.
   const connections = await context.db
     .select()
     .from(schema.integrationConnections)
@@ -53,10 +68,12 @@ export async function syncStripe(context: WorkerContext): Promise<void> {
       and(
         eq(schema.integrationConnections.provider, "stripe"),
         eq(schema.integrationConnections.status, "active"),
+        inArray(schema.integrationConnections.organizationId, requestedOrgIds),
       ),
     );
 
   for (const connection of connections) {
+    if (!isSyncStale(connection.lastSyncedAt, SYNC_COOLDOWN_MS)) continue;
     try {
       await syncConnection(context, connection);
     } catch (error) {
@@ -65,10 +82,16 @@ export async function syncStripe(context: WorkerContext): Promise<void> {
           ? `org ${connection.organizationId} project ${connection.projectId}`
           : `org ${connection.organizationId}`;
       console.error(`[stripe-sync] ${scope} failed:`, String(error));
-      await context.db
-        .update(schema.integrationConnections)
-        .set({ status: "error", lastError: String(error), updatedAt: new Date() })
-        .where(eq(schema.integrationConnections.id, connection.id));
+      const status = (error as { status?: number; statusCode?: number })?.status
+        ?? (error as { statusCode?: number })?.statusCode;
+      if (status === 429) {
+        console.warn(`[stripe-sync] ${scope} rate-limited, will retry later`);
+      } else {
+        await context.db
+          .update(schema.integrationConnections)
+          .set({ status: "error", lastError: String(error), updatedAt: new Date() })
+          .where(eq(schema.integrationConnections.id, connection.id));
+      }
     }
   }
 }

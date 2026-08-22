@@ -299,6 +299,12 @@ for exactly what's built versus still planned.
   escalation (from `/support`), compose and publish a Buffer post (from
   `/social`). Each is one human clicking one button for one record on
   screen — there is no automated/bulk action yet.
+- **MCP servers** — connect any remote MCP server (Streamable HTTP or SSE,
+  optional bearer token) at `/settings/integrations`, and any AI employee
+  holding the `mcp` toolkit can look up and call its tools as part of a
+  shift — the one integration here that isn't bespoke to one product, since
+  MCP is a standard protocol rather than a service-specific API. See
+  [FEATURES.md §13d](FEATURES.md#13d-mcp-servers--agents-as-a-generic-mcp-client).
 
 ## Privacy
 

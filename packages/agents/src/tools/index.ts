@@ -8,6 +8,7 @@ import { crmTools } from "./crm";
 import { emailTools } from "./email";
 import { growthTools } from "./growth";
 import { leadsTools } from "./leads";
+import { mcpTools } from "./mcp";
 import { memoryTools } from "./memory";
 import { peopleTools } from "./people";
 import { prospectingTools } from "./prospecting";
@@ -39,6 +40,7 @@ export const ALL_TOOLS: AnyToolDefinition[] = [
   ...ugcTools,
   ...growthTools,
   ...emailTools,
+  ...mcpTools,
 ];
 
 const BY_NAME = new Map(ALL_TOOLS.map((t) => [t.name, t]));

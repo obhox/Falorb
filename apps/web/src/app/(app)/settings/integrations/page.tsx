@@ -2,8 +2,10 @@ import type { Metadata } from "next";
 import { can } from "@falorb/db";
 import { requireSession } from "@/server/session";
 import { listConnections } from "@/server/integrations";
+import { listMcpServers } from "@/server/mcp-servers";
 import { PageBody, PageHeader } from "@/components/shell/PageHeader";
 import { IntegrationsPanel } from "./IntegrationsPanel";
+import { McpServersPanel } from "./McpServersPanel";
 
 export const metadata: Metadata = { title: "Integrations" };
 export const dynamic = "force-dynamic";
@@ -15,7 +17,10 @@ export const dynamic = "force-dynamic";
  */
 export default async function IntegrationsPage() {
   const session = await requireSession();
-  const connections = await listConnections(session.workspace.organizationId);
+  const [connections, mcpServers] = await Promise.all([
+    listConnections(session.workspace.organizationId),
+    listMcpServers(session.workspace.organizationId),
+  ]);
 
   return (
     <>
@@ -23,6 +28,11 @@ export default async function IntegrationsPage() {
       <PageBody>
         <IntegrationsPanel
           connections={connections}
+          canManage={can.manageIntegrations(session.workspace.role)}
+          now={Date.now()}
+        />
+        <McpServersPanel
+          servers={mcpServers}
           canManage={can.manageIntegrations(session.workspace.role)}
           now={Date.now()}
         />

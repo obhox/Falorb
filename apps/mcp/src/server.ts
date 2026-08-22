@@ -14,6 +14,7 @@ import { registerIntegrationTools } from "./tools/integrations";
 import { registerLeadTools } from "./tools/leads";
 import { registerLiveTools } from "./tools/live";
 import { registerManagementTools } from "./tools/manage";
+import { registerMcpConnectionTools } from "./tools/mcp-connections";
 import { registerPeopleTools } from "./tools/people";
 import { registerProspectTools } from "./tools/prospects";
 import { registerReferralTools } from "./tools/referrals";
@@ -210,6 +211,7 @@ export function buildServer(ctx: () => McpContext): McpServer {
   registerBillingTools(server, ctx);
   registerEmailTools(server, ctx);
   registerIntegrationTools(server, ctx);
+  registerMcpConnectionTools(server, ctx);
   registerTaskTools(server, ctx);
   registerAgentTools(server, ctx);
   registerUgcVideoTools(server, ctx);

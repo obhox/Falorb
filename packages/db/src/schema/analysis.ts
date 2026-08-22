@@ -4,6 +4,7 @@ import {
   integer,
   jsonb,
   numeric,
+  pgEnum,
   pgTable,
   text,
   timestamp,
@@ -239,11 +240,24 @@ export const dashboardWidgets = pgTable(
 );
 
 /**
+ * Whether a draft has been committed to the owner's connected blog repo yet.
+ * `publishing` covers the request in flight so a second click while a commit
+ * is landing doesn't fire a duplicate; `failed` keeps `publishError` around
+ * for the drafts page to show, and a retry just re-attempts from `failed`.
+ */
+export const contentDraftPublishStatusEnum = pgEnum("content_draft_publish_status", [
+  "draft",
+  "publishing",
+  "published",
+  "failed",
+]);
+
+/**
  * An AI-drafted landing/content page for a topic the Content page flagged as
  * "rising interest, thin coverage" — real visitor demand with no page
- * serving it yet. Drafted, not published: Falorb has no CMS integration, so
- * this stores the copy for the owner to paste elsewhere rather than shipping
- * it live itself.
+ * serving it yet. Optionally published by committing to a connected `github`
+ * blog repo (see `publishContentDraft` and `blogPublishTargets`); until then
+ * it's just copy for the owner to paste elsewhere.
  */
 export const contentDrafts = pgTable(
   "content_drafts",
@@ -263,6 +277,15 @@ export const contentDrafts = pgTable(
     body: text("body").notNull(),
     createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
     generatedAt: timestamp("generated_at", { withTimezone: true }).notNull().defaultNow(),
+    publishStatus: contentDraftPublishStatusEnum("publish_status").notNull().default("draft"),
+    publishedAt: timestamp("published_at", { withTimezone: true }),
+    /** The file's web URL at the commit that published it, e.g. github.com/.../blob/<sha>/<path>. */
+    publishedUrl: text("published_url"),
+    /** The commit SHA that (re-)published this draft, shown as a link target on the drafts page. */
+    publishCommitSha: text("publish_commit_sha"),
+    /** Repo-relative path this draft was written to, so a re-publish targets the same file. */
+    publishFilePath: text("publish_file_path"),
+    publishError: text("publish_error"),
   },
   (t) => [
     index("content_drafts_project_idx").on(t.projectId),

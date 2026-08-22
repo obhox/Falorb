@@ -15,6 +15,7 @@ import { BufferClient, BUFFER_API_ENDPOINT } from "@falorb/buffer-client";
 import { ClayClient, CLAY_DEFAULT_BASE_URL } from "@falorb/clay-client";
 import { ExaClient, EXA_DEFAULT_BASE_URL, FirecrawlClient, FIRECRAWL_DEFAULT_BASE_URL } from "@falorb/research";
 import { ElevenLabsClient, ELEVENLABS_DEFAULT_BASE_URL } from "@falorb/elevenlabs-client";
+import { GitHubBlogClient, GITHUB_API_ENDPOINT } from "@falorb/git-blog-client";
 import { MigaduClient, MIGADU_API_ENDPOINT } from "@falorb/migadu-client";
 import type { Workspace } from "../onboarding";
 import { HttpError } from "../http";
@@ -66,6 +67,7 @@ const PROVIDERS = {
   exa: { label: "Exa", fixedBaseUrl: EXA_DEFAULT_BASE_URL },
   firecrawl: { label: "Firecrawl", fixedBaseUrl: FIRECRAWL_DEFAULT_BASE_URL },
   elevenlabs: { label: "ElevenLabs", fixedBaseUrl: ELEVENLABS_DEFAULT_BASE_URL },
+  github: { label: "GitHub", fixedBaseUrl: GITHUB_API_ENDPOINT },
   migadu: { label: "Migadu", fixedBaseUrl: MIGADU_API_ENDPOINT },
 } as const satisfies Record<string, { label: string; fixedBaseUrl: string | null }>;
 
@@ -80,10 +82,16 @@ function parseProvider(raw: string): Provider {
   throw new HttpError(404, `Unknown integration provider "${raw}".`);
 }
 
+/**
+ * `repoConfig` only matters for `github` — that's the one provider whose
+ * `verifyConnection` needs to know *which* repo the key should be able to
+ * read, not just that the key itself is well-formed.
+ */
 async function pingProvider(
   provider: Provider,
   baseUrl: string,
   apiKey: string,
+  repoConfig?: { owner: string; repo: string },
 ): Promise<{ ok: boolean; detail: string }> {
   if (provider === "linki") return new LinkiClient({ baseUrl, apiKey }).verifyConnection();
   if (provider === "bund_ai") return new BundAiClient({ baseUrl, apiKey }).verifyConnection();
@@ -91,11 +99,17 @@ async function pingProvider(
   if (provider === "clay") return new ClayClient({ baseUrl, apiKey }).verifyConnection();
   if (provider === "exa") return new ExaClient({ baseUrl, apiKey }).verifyConnection();
   if (provider === "firecrawl") return new FirecrawlClient({ baseUrl, apiKey }).verifyConnection();
+  if (provider === "github") {
+    return new GitHubBlogClient({ baseUrl, apiKey }).verifyConnection(repoConfig?.owner, repoConfig?.repo);
+  }
   if (provider === "migadu") return new MigaduClient({ baseUrl, apiKey }).verifyConnection();
   return new ElevenLabsClient({ baseUrl, apiKey }).verifyConnection();
 }
 
-function publicConnection(row: typeof schema.integrationConnections.$inferSelect) {
+function publicConnection(
+  row: typeof schema.integrationConnections.$inferSelect,
+  repoConfig?: typeof schema.blogPublishTargets.$inferSelect | null,
+) {
   return {
     provider: row.provider,
     projectId: row.projectId,
@@ -108,6 +122,15 @@ function publicConnection(row: typeof schema.integrationConnections.$inferSelect
     // Deliberately no key material, not even the prefix — unlike `api_keys`,
     // there is nothing here safe to display; the whole value is a live
     // credential for a third party, not a Falorb-issued token.
+    repoConfig: repoConfig
+      ? {
+          owner: repoConfig.owner,
+          repo: repoConfig.repo,
+          branch: repoConfig.branch,
+          pathTemplate: repoConfig.pathTemplate,
+          frontmatterTemplate: repoConfig.frontmatterTemplate,
+        }
+      : null,
   };
 }
 
@@ -135,8 +158,12 @@ export function integrationsRoutes(db: Database): Hono<{ Variables: Vars }> {
     const workspace = requireHumanSession(c, "view connected integrations");
     const projectId = await resolveProjectId(db, workspace.organizationId, c.req.query("project"));
     const rows = await db
-      .select()
+      .select({ connection: schema.integrationConnections, repoConfig: schema.blogPublishTargets })
       .from(schema.integrationConnections)
+      .leftJoin(
+        schema.blogPublishTargets,
+        eq(schema.blogPublishTargets.integrationConnectionId, schema.integrationConnections.id),
+      )
       .where(
         and(
           eq(schema.integrationConnections.organizationId, workspace.organizationId),
@@ -145,12 +172,22 @@ export function integrationsRoutes(db: Database): Hono<{ Variables: Vars }> {
             : eq(schema.integrationConnections.projectId, projectId),
         ),
       );
-    return c.json({ connections: rows.map(publicConnection) });
+    return c.json({ connections: rows.map((r) => publicConnection(r.connection, r.repoConfig)) });
   });
 
   const connectSchema = z.object({
     baseUrl: z.string().url().optional(),
     apiKey: z.string().min(1),
+    /** Required only for `github` — where in the repo to publish to. */
+    repoConfig: z
+      .object({
+        owner: z.string().min(1),
+        repo: z.string().min(1),
+        branch: z.string().min(1).optional(),
+        pathTemplate: z.string().min(1).optional(),
+        frontmatterTemplate: z.string().optional(),
+      })
+      .optional(),
     /** Migadu only — its admin email, combined with `apiKey` below before storage. */
     username: z.string().min(1).optional(),
   });
@@ -166,6 +203,9 @@ export function integrationsRoutes(db: Database): Hono<{ Variables: Vars }> {
     if (!fixedBaseUrl && !parsed.data.baseUrl) {
       throw new HttpError(422, "baseUrl is required.");
     }
+    if (provider === "github" && !parsed.data.repoConfig) {
+      throw new HttpError(422, "repoConfig (owner, repo) is required to connect GitHub.");
+    }
     if (NEEDS_USERNAME[provider] && !parsed.data.username) {
       throw new HttpError(422, "username is required.");
     }
@@ -179,7 +219,7 @@ export function integrationsRoutes(db: Database): Hono<{ Variables: Vars }> {
     let check: { ok: boolean; detail: string };
     let encrypted: ReturnType<typeof encryptCredential>;
     try {
-      check = await pingProvider(provider, baseUrl, credential);
+      check = await pingProvider(provider, baseUrl, credential, parsed.data.repoConfig);
       encrypted = encryptCredential(credential);
     } catch (error) {
       // pingProvider's own client always catches its network errors and
@@ -210,24 +250,16 @@ export function integrationsRoutes(db: Database): Hono<{ Variables: Vars }> {
             targetWhere: sql`${schema.integrationConnections.projectId} is not null`,
           };
 
-    const [row] = await db
-      .insert(schema.integrationConnections)
-      .values({
-        organizationId: workspace.organizationId,
-        projectId,
-        provider,
-        baseUrl,
-        encryptedApiKey: encrypted.ciphertext,
-        iv: encrypted.iv,
-        authTag: encrypted.authTag,
-        status: check.ok ? "active" : "error",
-        lastVerifiedAt: check.ok ? new Date() : null,
-        lastError: check.ok ? null : check.detail,
-        createdBy: c.get("userId"),
-      })
-      .onConflictDoUpdate({
-        ...conflict,
-        set: {
+    // The connection row and (for github) its repo config either both land
+    // or neither does — a connection with no target row would pass
+    // `verifyConnection` but have nowhere to actually publish to.
+    const { row, repoConfig } = await db.transaction(async (tx) => {
+      const [row] = await tx
+        .insert(schema.integrationConnections)
+        .values({
+          organizationId: workspace.organizationId,
+          projectId,
+          provider,
           baseUrl,
           encryptedApiKey: encrypted.ciphertext,
           iv: encrypted.iv,
@@ -235,23 +267,66 @@ export function integrationsRoutes(db: Database): Hono<{ Variables: Vars }> {
           status: check.ok ? "active" : "error",
           lastVerifiedAt: check.ok ? new Date() : null,
           lastError: check.ok ? null : check.detail,
-          revokedAt: null,
-          updatedAt: new Date(),
-        },
-      })
-      .returning();
+          createdBy: c.get("userId"),
+        })
+        .onConflictDoUpdate({
+          ...conflict,
+          set: {
+            baseUrl,
+            encryptedApiKey: encrypted.ciphertext,
+            iv: encrypted.iv,
+            authTag: encrypted.authTag,
+            status: check.ok ? "active" : "error",
+            lastVerifiedAt: check.ok ? new Date() : null,
+            lastError: check.ok ? null : check.detail,
+            revokedAt: null,
+            updatedAt: new Date(),
+          },
+        })
+        .returning();
+
+      let repoConfig: typeof schema.blogPublishTargets.$inferSelect | undefined;
+      if (provider === "github" && parsed.data.repoConfig) {
+        const { owner, repo, branch, pathTemplate, frontmatterTemplate } = parsed.data.repoConfig;
+        [repoConfig] = await tx
+          .insert(schema.blogPublishTargets)
+          .values({
+            integrationConnectionId: row!.id,
+            owner,
+            repo,
+            ...(branch ? { branch } : {}),
+            ...(pathTemplate ? { pathTemplate } : {}),
+            ...(frontmatterTemplate ? { frontmatterTemplate } : {}),
+          })
+          .onConflictDoUpdate({
+            target: schema.blogPublishTargets.integrationConnectionId,
+            set: {
+              owner,
+              repo,
+              // Blank on a reconnect means "leave as-is," not "clear it".
+              ...(branch ? { branch } : {}),
+              ...(pathTemplate ? { pathTemplate } : {}),
+              ...(frontmatterTemplate ? { frontmatterTemplate } : {}),
+              updatedAt: new Date(),
+            },
+          })
+          .returning();
+      }
+
+      return { row: row!, repoConfig };
+    });
 
     audit(db, {
       organizationId: workspace.organizationId,
       actorId: c.get("userId"),
       action: AUDIT_ACTIONS.integrationConnected,
       targetType: "integration_connection",
-      targetId: row!.id,
+      targetId: row.id,
       metadata: { provider, baseUrl, verified: check.ok, projectId },
     });
 
     return c.json(
-      { connection: publicConnection(row!), verification: check },
+      { connection: publicConnection(row, repoConfig), verification: check },
       check.ok ? 201 : 202,
     );
   });
@@ -285,7 +360,16 @@ export function integrationsRoutes(db: Database): Hono<{ Variables: Vars }> {
         iv: row.iv,
         authTag: row.authTag,
       });
-      check = await pingProvider(provider, row.baseUrl, apiKey);
+      let repoConfig: { owner: string; repo: string } | undefined;
+      if (provider === "github") {
+        const [target] = await db
+          .select({ owner: schema.blogPublishTargets.owner, repo: schema.blogPublishTargets.repo })
+          .from(schema.blogPublishTargets)
+          .where(eq(schema.blogPublishTargets.integrationConnectionId, row.id))
+          .limit(1);
+        repoConfig = target;
+      }
+      check = await pingProvider(provider, row.baseUrl, apiKey, repoConfig);
     } catch (error) {
       throw new HttpError(
         500,

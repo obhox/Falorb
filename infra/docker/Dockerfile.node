@@ -35,7 +35,8 @@ COPY packages/core/package.json           packages/core/
 # this for packages/research -> @falorb/ai, packages/agents -> zod/
 # zod-to-json-schema/@clickhouse/client, packages/stripe-client -> stripe,
 # packages/migadu-client -> imapflow/mailparser/nodemailer, and
-# packages/openseo-client -> @modelcontextprotocol/sdk; see Dockerfile.web
+# packages/openseo-client -> @modelcontextprotocol/sdk, and
+# packages/mcp-connector -> @modelcontextprotocol/sdk; see Dockerfile.web
 # for the build failure this caused there -- apps/worker depends on these
 # packages too). Packages with no dependencies of their own (linki-client,
 # bund-ai-client, clay-client, buffer-client, elevenlabs-client,
@@ -48,6 +49,7 @@ COPY packages/db/package.json             packages/db/
 COPY packages/stripe-client/package.json  packages/stripe-client/
 COPY packages/migadu-client/package.json  packages/migadu-client/
 COPY packages/openseo-client/package.json packages/openseo-client/
+COPY packages/mcp-connector/package.json  packages/mcp-connector/
 COPY packages/queries/package.json        packages/queries/
 COPY packages/auth/package.json           packages/auth/
 COPY packages/mailer/package.json         packages/mailer/

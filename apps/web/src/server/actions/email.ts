@@ -38,7 +38,7 @@ export async function listMigaduDomains(): Promise<{ ok: true; domains: string[]
 
   try {
     const domains = await client.listDomains();
-    return { ok: true, domains: domains.map((d) => d.domain_name) };
+    return { ok: true, domains: domains.map((d) => d.name) };
   } catch (error) {
     return { ok: false, message: error instanceof MigaduApiError ? error.message : String(error) };
   }

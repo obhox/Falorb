@@ -41,11 +41,11 @@ describe("MigaduClient", () => {
     expect(calls[0]!.authHeader).toBe(expected);
   });
 
-  it("lists domains from the domains envelope", async () => {
-    mockMigadu(() => ({ status: 200, body: { domains: [{ domain_name: "example.com" }] } }));
+  it("lists domains from the domains envelope, keyed by `name` (not `domain_name`, unlike a mailbox)", async () => {
+    mockMigadu(() => ({ status: 200, body: { domains: [{ name: "example.com" }] } }));
 
     const domains = await client().listDomains();
-    expect(domains).toEqual([{ domain_name: "example.com" }]);
+    expect(domains).toEqual([{ name: "example.com" }]);
   });
 
   it("creates a mailbox with the given local part and password, never auto-generated", async () => {
@@ -58,7 +58,9 @@ describe("MigaduClient", () => {
     const mailbox = await client().createMailbox("example.com", { localPart: "sales", name: "Sales", password: "s3cret!" });
 
     expect(mailbox.address).toBe("sales@example.com");
-    expect(sentBody).toMatchObject({ local_part: "sales", password: "s3cret!", password_use_auto: false });
+    expect(sentBody).toMatchObject({ local_part: "sales", password: "s3cret!" });
+    // `password_use_auto` isn't a real Migadu field — regression check that it never sneaks back in.
+    expect(sentBody).not.toHaveProperty("password_use_auto");
   });
 
   it("surfaces a rejected key as a failed verifyConnection rather than throwing", async () => {
@@ -71,7 +73,7 @@ describe("MigaduClient", () => {
   });
 
   it("reports a healthy key through verifyConnection", async () => {
-    mockMigadu(() => ({ status: 200, body: { domains: [{ domain_name: "example.com" }] } }));
+    mockMigadu(() => ({ status: 200, body: { domains: [{ name: "example.com" }] } }));
 
     const result = await client().verifyConnection();
 

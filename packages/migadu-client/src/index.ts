@@ -38,8 +38,12 @@ export interface MigaduClientOptions {
   timeoutMs?: number;
 }
 
+/** Migadu's domain object keys the name as `name` — unlike `MigaduMailbox`,
+ * which keys the same concept as `domain_name` on its own object. Confirmed
+ * against a third-party client's struct tags (no official example response
+ * ships in Migadu's own docs): https://github.com/MrLemur/migadu-go */
 export interface MigaduDomain {
-  domain_name: string;
+  name: string;
   [key: string]: unknown;
 }
 
@@ -119,14 +123,19 @@ export class MigaduClient {
     return result.mailboxes;
   }
 
+  /**
+   * `password_use_auto` doesn't exist on Migadu's real `Mailbox` object —
+   * it isn't a field the API recognizes. Supplying `password` directly is
+   * enough; `password_method` only matters for the invite-style flow this
+   * client doesn't use. `password_recovery_email` is left unset rather than
+   * sent as `null`, since it's a plain string field.
+   */
   createMailbox(domain: string, input: CreateMailboxInput): Promise<MigaduMailbox> {
     return this.request<MigaduMailbox>("POST", `domains/${domain}/mailboxes`, {
       body: {
         local_part: input.localPart,
         name: input.name,
         password: input.password,
-        password_use_auto: false,
-        password_recovery_email: null,
         is_internal: false,
       },
     });

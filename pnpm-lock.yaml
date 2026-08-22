@@ -161,6 +161,9 @@ importers:
       '@falorb/linki-client':
         specifier: workspace:*
         version: link:../../packages/linki-client
+      '@falorb/mcp-connector':
+        specifier: workspace:*
+        version: link:../../packages/mcp-connector
       '@falorb/migadu-client':
         specifier: workspace:*
         version: link:../../packages/migadu-client
@@ -237,6 +240,9 @@ importers:
       '@falorb/linki-client':
         specifier: workspace:*
         version: link:../../packages/linki-client
+      '@falorb/mcp-connector':
+        specifier: workspace:*
+        version: link:../../packages/mcp-connector
       '@falorb/migadu-client':
         specifier: workspace:*
         version: link:../../packages/migadu-client
@@ -386,6 +392,9 @@ importers:
       '@falorb/linki-client':
         specifier: workspace:*
         version: link:../linki-client
+      '@falorb/mcp-connector':
+        specifier: workspace:*
+        version: link:../mcp-connector
       '@falorb/migadu-client':
         specifier: workspace:*
         version: link:../migadu-client
@@ -577,6 +586,22 @@ importers:
       '@types/nodemailer':
         specifier: ^8.0.1
         version: 8.0.1
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.5
+        version: 3.2.7(@types/node@22.20.1)(tsx@4.23.12)
+
+  packages/mcp-connector:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.30.0
+        version: 1.30.0(zod@4.4.3)
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.5
+        version: 22.20.1
       typescript:
         specifier: ^5.7.3
         version: 5.9.3

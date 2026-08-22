@@ -586,6 +586,80 @@ once this specific integration was requested; Postiz remains a separate,
 undecided possibility if a self-hosted alternative is wanted later, not
 something this work replaced.
 
+### 13d. MCP servers — agents as a generic MCP client
+
+The row above sounds like it rules this out ("generic, arbitrary-service
+integrations... remain unbuilt and are no longer the near-term direction"),
+but that stance was about hand-building a bespoke REST connector per service
+(a HubSpot client, a Slack client, ...) with no shared abstraction between
+them. MCP is the opposite shape: one standard protocol, so supporting it once
+means an organization can connect *any* compliant server — its own internal
+tools, Notion, anything — without Falorb writing a line of code per service.
+`apps/mcp` is Falorb acting as an MCP *server*; this is the reverse, Falorb
+acting as an MCP *client*, generalizing a pattern that already existed for
+one fixed server: `@falorb/openseo-client` (§13c) wraps
+`@modelcontextprotocol/sdk`'s `Client` to call OpenSEO's hosted MCP endpoint,
+resolving OpenSEO's specific tool names against a hardcoded candidate list.
+This can't do that — a connected server's tools are never known ahead of
+time — so `@falorb/mcp-connector` drops the candidate-list resolution and
+exposes `listTools()`/`callTool()` straight from the server's own `tools/list`.
+
+- **Schema** — `mcp_connections` (`packages/db/src/schema/mcp.ts`), not a new
+  `integration_connections` provider: an organization can connect arbitrarily
+  many, arbitrarily named servers (a "Notion" server, an "internal tools"
+  server), a cardinality that table's one-row-per-provider uniqueness doesn't
+  fit. Same AES-256-GCM-at-rest convention, except the credential columns are
+  nullable — some MCP servers need no auth at all. Each row caches its last
+  `tools/list` result (`toolsCache`/`toolsCachedAt`) so a read doesn't cost a
+  live round trip every time.
+- **Client** — `packages/mcp-connector`, `McpConnectorClient`: connects over
+  Streamable HTTP, falling back to the older SSE transport if that fails
+  (both ship in `@modelcontextprotocol/sdk`, no new dependency); `listTools`,
+  `callTool`, `verifyConnection` (lists tools — the cheapest authenticated
+  call that proves the connection works, same reasoning as OpenSEO's).
+- **Agent toolkit** — `@falorb/agents`'s new `mcp` toolkit
+  (`packages/agents/src/tools/mcp.ts`) has exactly two tools, not one per
+  discovered remote tool. `packages/agents` has a hard invariant that every
+  tool name is resolvable from one static, global registry forever —
+  `executeApproval` (`run.ts`) resumes a queued approval by looking a tool up
+  **by name**, potentially long after the shift that raised it has ended,
+  possibly in a different worker process. A tool synthesized fresh per remote
+  server, per shift, would not exist for that lookup to find, and since every
+  MCP call is graded `external` (see below) — and so will very often need
+  approval — that is not an edge case. `list_mcp_tools` (read) is how an
+  agent discovers what a connected server actually offers and each tool's
+  argument schema, the substitute for per-tool function schemas a static
+  registry can't provide here; `call_mcp_tool` (external,
+  `actOnIntegrations`) is the one, always-resolvable path every call goes
+  through, reconstructing the connection and the real tool name from stored
+  ids rather than any in-memory state.
+- **Grading is deliberately uniform, not clever** — every `call_mcp_tool`
+  call is graded `external` regardless of what the remote tool actually
+  does, because Falorb has no way to know whether a given server's tool
+  reads or deletes something. An admin who trusts a specific server waives
+  that the same way as any other toolkit: `autoApproveTools: ["toolkit:mcp"]`
+  or `"*"`.
+- **Falorb's own MCP server** — `apps/mcp/src/tools/mcp-connections.ts`
+  (`list_mcp_servers`, `connect_mcp_server`, `test_mcp_server_connection`,
+  `revoke_mcp_server_connection`), same shape as `tools/integrations.ts`:
+  reads are open, writes require `requireLocalOperator` — connecting a
+  credential is a materially different, higher-trust act than using one
+  already connected, refused to every bearer API key the same way the
+  dashboard's own API refuses it.
+- **Dashboard** — Settings → Integrations gained an "MCP servers" panel
+  (`McpServersPanel.tsx`) alongside the existing per-provider one: connect
+  (name, URL, optional token), test, revoke. Org-level only, no per-project
+  override — an MCP connection is a service credential, not a per-property
+  preference, same tier as Linki/Bund AI rather than the AI gateways. No
+  manual tool-call inspector — a human can see what's connected and its tool
+  count, but only an agent actually calls a tool.
+- **Explicit limitations, not silently designed around**: bearer-token auth
+  only, no OAuth/dynamic client registration; remote (HTTP/SSE) transport
+  only, no stdio/local-process servers — a multi-tenant hosted backend
+  can't safely run an arbitrary org-supplied local command; any agent
+  holding the `mcp` toolkit can call any server the org has connected
+  (no per-agent server picker — a real, separate follow-up if ever wanted).
+
 ## 14. Dashboard — `apps/web`
 
 Next.js 15 App Router on React 19, built on the Falorb design system. **33
@@ -1075,7 +1149,7 @@ had pressed "Pause". Both now defer.
 | ✅ | `agent_memories` schema | What an agent still knows next week — conclusions and corrections, written by the agent itself through a tool. Without it an agent re-derives the same findings every shift and never accumulates judgement, which is the difference between a scheduled script and an employee. Scoped per agent, not per org: two agents holding contradictory beliefs is legible, whereas a shared pool would let one agent's mistake silently steer another's work |
 | ✅ | `auditLog.actorAgentId` | Agent actions land in the same log as human ones. A separate "agent activity" table would mean answering "who changed this deal" required reading two places and merging by timestamp — and the whole point is that both kinds of colleague are accountable the same way |
 | ✅ | `@falorb/agents` | The runtime: `policy.ts` (one `decide()` every gate funnels through — UI, worker, and approval-resume all call it, so they cannot drift apart), `run.ts` (the loop, resume, budget, approval raising, `executeApproval`), `prompt.ts` (briefing assembly), `presets.ts`, and the tool registry. Server-only, same boundary `@falorb/ai`/`@falorb/mailer` draw |
-| ✅ | Twelve toolkits, 46 tools | `analytics` (through `@falorb/queries`, the same layer the dashboard and MCP server read — an agent computing its own aggregates would eventually report a figure a human cannot reproduce), `people`, `crm` (reads the mirror, writes to Linki), `support` (reads the mirror, resolves in Bund AI), `tasks`, `memory`, `content`, `prospecting` (off-site leads found by social listening, §17), `ugc` (text-to-video generation and a posting checklist, §18), `growth` (referral links, the cached AI signal library, and a read-only waitlist view), `email` (its own mailbox: `read_inbox` over the `migadu-sync` mirror, `send_email` from that one address, gated `actOnIntegrations`/`external` exactly as `composeEmail` is for a person). Suppression-list and duplicate-contact checks are enforced *in the tool*, not left to the prompt — putting do-not-contact in a prompt makes it a suggestion. The three newer toolkits reuse only what `@falorb/queries` already exposes to both the dashboard and the agent runtime, and query `@falorb/db` directly rather than importing `apps/web/src/server/*` — `@falorb/agents` does not depend on the Next.js app. Regenerating a cached signal and enabling/disabling the waitlist are deliberately left out: the former is a bespoke, app-layer analytics pipeline per signal kind, and the latter is gated by `can.share` (admin-tier, since it changes what's publicly reachable) rather than the `writeAnalysis` tier everything else here sits at |
+| ✅ | Thirteen toolkits, 48 tools | `analytics` (through `@falorb/queries`, the same layer the dashboard and MCP server read — an agent computing its own aggregates would eventually report a figure a human cannot reproduce), `people`, `crm` (reads the mirror, writes to Linki), `support` (reads the mirror, resolves in Bund AI), `tasks`, `memory`, `content`, `prospecting` (off-site leads found by social listening, §17), `ugc` (text-to-video generation and a posting checklist, §18), `growth` (referral links, the cached AI signal library, and a read-only waitlist view), `email` (its own mailbox: `read_inbox` over the `migadu-sync` mirror, `send_email` from that one address, gated `actOnIntegrations`/`external` exactly as `composeEmail` is for a person), `mcp` (look up and call tools on connected MCP servers — §13d). Suppression-list and duplicate-contact checks are enforced *in the tool*, not left to the prompt — putting do-not-contact in a prompt makes it a suggestion. The three newer toolkits reuse only what `@falorb/queries` already exposes to both the dashboard and the agent runtime, and query `@falorb/db` directly rather than importing `apps/web/src/server/*` — `@falorb/agents` does not depend on the Next.js app. Regenerating a cached signal and enabling/disabling the waitlist are deliberately left out: the former is a bespoke, app-layer analytics pipeline per signal kind, and the latter is gated by `can.share` (admin-tier, since it changes what's publicly reachable) rather than the `writeAnalysis` tier everything else here sits at |
 | ✅ | `chat()` in `@falorb/ai` | Tool-calling turn beside the existing `complete()`, separate rather than a flag on it: different shape of interaction, and folding them together would push a `tool_calls` branch into four call sites that will never take it. Both are now thin wrappers over `transport.ts`'s `callModel`, so agents work against either supported gateway. Agents run on `openrouter/auto` like everything else — no pinned model to go stale, no per-deployment model list to maintain. What makes that safe is `provider.require_parameters`, sent whenever tools are present, so auto only considers models that support function calling; without it an agent silently degrades into one that writes prose *about* the action it would have taken |
 | ✅ | Shifts bill to the organization's own gateway | Through `@falorb/db`'s shared `resolveAiCredentials`, not a copy — the dashboard, the worker and the agent runtime have to agree on which gateway an org's AI runs against, and two implementations of that eventually disagree. The result is carried on `AgentContext`, resolved once per shift rather than per turn, because it decrypts a stored key and a gateway swapped mid-run would bill half a conversation to each. Without it every shift would quietly fall through to the deployment-wide `OPENROUTER_API_KEY`, ignoring both the connection an org configured and the model it chose. `draft_text` reads the same credentials, so a tool that itself calls a model spends the same key the shift does |
 | ✅ | `agents-enqueue` / `agents-run` / `agents-approvals` worker jobs | Enqueue is a cheap indexed lookup on a 1m beat so assigning a task feels immediate; execution costs real model calls, so it runs on its own 2m beat with a small per-sweep cap and `skipOnBoot` (a restart loop must not fire a paid shift on every boot). `nextRunAt` advances at enqueue, not completion, so a wedged run cannot push a daily agent into being a weekly one. Stalled runs are reclaimed by heartbeat and *resume* from `agent_steps` rather than re-running a billed shift |

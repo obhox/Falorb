@@ -232,6 +232,13 @@
       "when": 1787397804561,
       "tag": "0032_cold_nuke",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1787422094764,
+      "tag": "0033_right_the_enforcers",
+      "breakpoints": true
     }
   ]
 }

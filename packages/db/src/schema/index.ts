@@ -12,3 +12,4 @@ export * from "./prospecting";
 export * from "./ugc";
 export * from "./agents";
 export * from "./email";
+export * from "./mcp";

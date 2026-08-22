@@ -39,6 +39,7 @@ export const TOOLKITS = [
   "ugc",
   "growth",
   "email",
+  "mcp",
 ] as const;
 
 export type Toolkit = (typeof TOOLKITS)[number];
@@ -56,6 +57,7 @@ export const TOOLKIT_LABELS: Record<Toolkit, string> = {
   ugc: "UGC video",
   growth: "Referrals & signals",
   email: "Own mailbox",
+  mcp: "Connected MCP servers",
 };
 
 export const TOOLKIT_DESCRIPTIONS: Record<Toolkit, string> = {
@@ -71,6 +73,7 @@ export const TOOLKIT_DESCRIPTIONS: Record<Toolkit, string> = {
   ugc: "Generate a UGC video from a brief and queue a finished one for posting.",
   growth: "Referral links, the AI growth-signal cache, and the waitlist queue.",
   email: "Read and send from its own mailbox — a real address a customer can reply to.",
+  mcp: "Look up and call tools on external MCP servers your organization has connected.",
 };
 
 /**

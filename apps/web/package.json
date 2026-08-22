@@ -28,6 +28,7 @@
     "@falorb/elevenlabs-client": "workspace:*",
     "@falorb/git-blog-client": "workspace:*",
     "@falorb/linki-client": "workspace:*",
+    "@falorb/mcp-connector": "workspace:*",
     "@falorb/migadu-client": "workspace:*",
     "@falorb/openseo-client": "workspace:*",
     "@falorb/queries": "workspace:*",

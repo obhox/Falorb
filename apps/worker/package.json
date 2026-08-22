@@ -26,6 +26,7 @@
     "@falorb/mailer": "workspace:*",
     "@falorb/queries": "workspace:*",
     "@falorb/research": "workspace:*",
+    "@falorb/stripe-client": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "ioredis": "^5.4.2"
   },

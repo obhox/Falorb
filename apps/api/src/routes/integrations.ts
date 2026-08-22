@@ -15,6 +15,7 @@ import { BufferClient, BUFFER_API_ENDPOINT } from "@falorb/buffer-client";
 import { ClayClient, CLAY_DEFAULT_BASE_URL } from "@falorb/clay-client";
 import { ExaClient, EXA_DEFAULT_BASE_URL, FirecrawlClient, FIRECRAWL_DEFAULT_BASE_URL } from "@falorb/research";
 import { ElevenLabsClient, ELEVENLABS_DEFAULT_BASE_URL } from "@falorb/elevenlabs-client";
+import { StripeClient, STRIPE_DEFAULT_BASE_URL } from "@falorb/stripe-client";
 import type { Workspace } from "../onboarding";
 import { HttpError } from "../http";
 import { requireHumanSession } from "../guards";
@@ -22,7 +23,7 @@ import { requireHumanSession } from "../guards";
 /**
  * Connection management for the external products Falorb drives on the
  * organization's behalf (Linki, Bund AI, Buffer, Clay, Exa, Firecrawl,
- * ElevenLabs, more over time) — org-level by default, or scoped to one
+ * ElevenLabs, Stripe, more over time) — org-level by default, or scoped to one
  * property (`?project=<slug>`) to store an override for that property alone.
  * A property with its own connection for a provider uses that one; a
  * property with none falls back to the organization's. See
@@ -38,11 +39,12 @@ import { requireHumanSession } from "../guards";
  *
  * `verifyConnection` delegates to each product's real typed client
  * (`packages/linki-client`, `packages/bund-ai-client`, `packages/buffer-client`,
- * `packages/clay-client`, `packages/research`, `packages/elevenlabs-client`)
- * rather than a generic raw `fetch` — one implementation of "how do I reach
- * this API" per product, shared with the mirror/enrichment jobs
- * (`linki-sync.ts`, `bund-ai-sync.ts`, `buffer-sync.ts`,
- * `clay-enrichment.ts`) instead of a second one living only here.
+ * `packages/clay-client`, `packages/research`, `packages/elevenlabs-client`,
+ * `packages/stripe-client`) rather than a generic raw `fetch` — one
+ * implementation of "how do I reach this API" per product, shared with the
+ * mirror/enrichment jobs (`linki-sync.ts`, `bund-ai-sync.ts`,
+ * `buffer-sync.ts`, `clay-enrichment.ts`, `stripe-sync.ts`) instead of a
+ * second one living only here.
  */
 
 type Vars = {
@@ -65,6 +67,7 @@ const PROVIDERS = {
   exa: { label: "Exa", fixedBaseUrl: EXA_DEFAULT_BASE_URL },
   firecrawl: { label: "Firecrawl", fixedBaseUrl: FIRECRAWL_DEFAULT_BASE_URL },
   elevenlabs: { label: "ElevenLabs", fixedBaseUrl: ELEVENLABS_DEFAULT_BASE_URL },
+  stripe: { label: "Stripe", fixedBaseUrl: STRIPE_DEFAULT_BASE_URL },
 } as const satisfies Record<string, { label: string; fixedBaseUrl: string | null }>;
 
 type Provider = keyof typeof PROVIDERS;
@@ -85,7 +88,8 @@ async function pingProvider(
   if (provider === "clay") return new ClayClient({ baseUrl, apiKey }).verifyConnection();
   if (provider === "exa") return new ExaClient({ baseUrl, apiKey }).verifyConnection();
   if (provider === "firecrawl") return new FirecrawlClient({ baseUrl, apiKey }).verifyConnection();
-  return new ElevenLabsClient({ baseUrl, apiKey }).verifyConnection();
+  if (provider === "elevenlabs") return new ElevenLabsClient({ baseUrl, apiKey }).verifyConnection();
+  return new StripeClient({ baseUrl, apiKey }).verifyConnection();
 }
 
 function publicConnection(row: typeof schema.integrationConnections.$inferSelect) {

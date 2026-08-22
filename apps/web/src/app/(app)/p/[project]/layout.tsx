@@ -48,6 +48,7 @@ export default async function ProjectLayout({
     { href: `${base}/referrals`, label: "Referrals" },
     { href: `${base}/waitlist`, label: "Waitlist" },
     { href: `${base}/signals`, label: "Signals" },
+    { href: `${base}/billing`, label: "Billing" },
     { href: `${base}/settings`, label: "Settings" },
   ];
 

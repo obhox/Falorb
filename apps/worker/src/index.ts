@@ -21,6 +21,7 @@ import { sendWeeklyDigests } from "./jobs/digest";
 import { syncLinki } from "./jobs/linki-sync";
 import { syncBundAi } from "./jobs/bund-ai-sync";
 import { syncBuffer } from "./jobs/buffer-sync";
+import { syncStripe } from "./jobs/stripe-sync";
 import { generateUgcVideos } from "./jobs/ugc-video-gen";
 import {
   enqueueAgentTasks,
@@ -238,6 +239,15 @@ scheduler.add({
   timeoutMs: 20 * MINUTE,
   run: async () => {
     await syncBuffer(context);
+  },
+});
+
+scheduler.add({
+  name: "stripe-sync",
+  intervalMs: 15 * MINUTE,
+  timeoutMs: 20 * MINUTE,
+  run: async () => {
+    await syncStripe(context);
   },
 });
 

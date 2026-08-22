@@ -6,6 +6,7 @@ import { BundAiClient } from "@falorb/bund-ai-client";
 import { BufferClient } from "@falorb/buffer-client";
 import { ExaClient, FirecrawlClient, type ResearchClients } from "@falorb/research";
 import { ElevenLabsClient } from "@falorb/elevenlabs-client";
+import { StripeClient } from "@falorb/stripe-client";
 import type { AiCredentials, AiProvider } from "@falorb/ai";
 
 /**
@@ -30,7 +31,7 @@ import type { AiCredentials, AiProvider } from "@falorb/ai";
  */
 async function activeConnection(
   organizationId: string,
-  provider: "linki" | "bund_ai" | "buffer" | "exa" | "firecrawl" | "elevenlabs",
+  provider: "linki" | "bund_ai" | "buffer" | "exa" | "firecrawl" | "elevenlabs" | "stripe",
   projectId?: number,
 ) {
   if (projectId != null) {
@@ -104,6 +105,25 @@ export async function getElevenLabsClient(organizationId: string): Promise<Eleve
 }
 
 /**
+ * The org's Stripe connection, or one project's own override — same
+ * project-with-fallback shape as `getLinkiClient`/`getBundAiClient`, now
+ * that a project can connect its own separate Stripe account (a different
+ * DBA under the same Falorb organization; see FEATURES.md §20). `/billing`
+ * and `/p/[project]/billing` both read the mirror tables directly
+ * (`apps/web/src/server/billing.ts`), same as `/crm`/`/support` do for
+ * their own mirrors, so nothing in the web app calls this today. It exists
+ * for the write actions this integration deliberately doesn't have yet
+ * (FEATURES.md §20's "Not yet built") and for parity with every other
+ * provider getter in this file.
+ */
+export async function getStripeClient(organizationId: string, projectId?: number): Promise<StripeClient | null> {
+  const row = await activeConnection(organizationId, "stripe", projectId);
+  if (!row) return null;
+  const apiKey = decryptCredential({ ciphertext: row.encryptedApiKey, iv: row.iv, authTag: row.authTag });
+  return new StripeClient({ baseUrl: row.baseUrl, apiKey });
+}
+
+/**
  * Builds `@falorb/research`'s `ResearchClients` bag from whichever of
  * Exa/Firecrawl this organization (or, when `projectId` is given, this
  * project — falling back to the org) has connected — either, both, or
@@ -165,6 +185,7 @@ export type Provider =
   | "exa"
   | "firecrawl"
   | "elevenlabs"
+  | "stripe"
   | AiProvider;
 
 export const PROVIDERS: Provider[] = [
@@ -179,6 +200,7 @@ export const PROVIDERS: Provider[] = [
   "exa",
   "firecrawl",
   "elevenlabs",
+  "stripe",
 ];
 
 export interface ConnectionView {

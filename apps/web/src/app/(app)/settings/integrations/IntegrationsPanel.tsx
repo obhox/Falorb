@@ -26,6 +26,7 @@ const LABELS: Record<Provider, string> = {
   exa: "Exa",
   firecrawl: "Firecrawl",
   elevenlabs: "ElevenLabs",
+  stripe: "Stripe",
 };
 const BLURBS: Record<Provider, string> = {
   openrouter:
@@ -42,6 +43,8 @@ const BLURBS: Record<Provider, string> = {
   exa: "Neural web search, grounding content drafts in what already ranks. Generate a key at dashboard.exa.ai/api-keys.",
   firecrawl: "Page scraping, grounding company research in a company's own site. Generate a key at firecrawl.dev/app/api-keys.",
   elevenlabs: "Script, voice, and talking-video generation for UGC videos (see UGC videos). Generate a key in ElevenLabs at Settings → API Keys.",
+  stripe:
+    "Read-only mirror of your own Stripe account — customers, subscriptions, invoices, and charges, for revenue and payment health (see Billing). Never used for Falorb's own billing. Generate a secret key in Stripe at Developers → API keys; a restricted key needs read access to Balance, Customers, Subscriptions, Invoices and Charges.",
 };
 
 /** Buffer, Clay, Exa, Firecrawl, and ElevenLabs each have one fixed API
@@ -58,6 +61,7 @@ const HAS_BASE_URL: Record<Provider, boolean> = {
   exa: false,
   firecrawl: false,
   elevenlabs: false,
+  stripe: false,
 };
 
 const KEY_PLACEHOLDERS: Record<Provider, string> = {
@@ -71,6 +75,7 @@ const KEY_PLACEHOLDERS: Record<Provider, string> = {
   exa: "exa_…",
   firecrawl: "fc-…",
   elevenlabs: "Your ElevenLabs API key",
+  stripe: "sk_live_… or sk_test_…",
 };
 
 /** Shown when `lastSyncedAt` is null — Linki/Bund AI/Buffer/Clay are
@@ -88,6 +93,7 @@ const NEVER_SYNCED: Record<Provider, string> = {
   exa: "not applicable — used on demand when drafting content or researching a company",
   firecrawl: "not applicable — used on demand when drafting content or researching a company",
   elevenlabs: "never — used on demand each time you generate a UGC video, not on a schedule",
+  stripe: "never — the mirror job runs every 15 minutes",
 };
 
 const PROVIDERS: Provider[] = [
@@ -101,6 +107,7 @@ const PROVIDERS: Provider[] = [
   "exa",
   "firecrawl",
   "elevenlabs",
+  "stripe",
 ];
 
 /**

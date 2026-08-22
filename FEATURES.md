@@ -997,6 +997,48 @@ Still unproven, honestly:
 
 ---
 
+## 20. Stripe billing mirror — read-only, org- or project-scoped
+
+A read-only mirror of Stripe (the operator's own payment processing account
+— the business run *through* Falorb, not Falorb's own SaaS billing for
+itself): customers, subscriptions, invoices, and charges, pulled on a
+schedule and shown at `/billing` (org-wide) and `/p/[project]/billing`
+(one property's own). There is no write path yet — no refunds, no
+subscription changes, no invoice creation from Falorb — see "Not yet built"
+below.
+
+**Multi-account, tied to a project.** `integration_connections` (§13) has
+always supported an org-level row (`projectId` null) and a project-level
+override per provider — Linki and Bund AI already used this for their own
+per-property connections. Stripe's connect form used it too, but the sync
+job and the four mirror tables did not: `stripe-sync.ts` only ever queried
+the org-level connection, and `stripeCustomers`/`stripeSubscriptions`/
+`stripeInvoices`/`stripeCharges` had no `projectId` column at all. An
+operator running more than one product under one Falorb organization — each
+billed through its own Stripe account (a different DBA) — could connect only
+one, ever: reconnecting on a second property rotated the same org-level row
+rather than adding a second account, and there was no way to keep two
+accounts' revenue apart even if the row existed.
+
+Fixed by extending the same org/project split every other mirror-backed
+provider already has:
+
+| | Feature | Notes |
+|---|---|---|
+| ✅ | `projectId` on all four mirror tables | Nullable, FK to `projects` (`onDelete: cascade`). Null means the row came from the organization's own Stripe connection; set means it came from that one project's own Stripe connection — a different Stripe account entirely |
+| ✅ | Partial unique indexes, not one loosened index | Each table's old single `(organizationId, stripeId)` unique index is now a *pair*: `..._org_stripe_uq` on `(organizationId, stripeId)` WHERE `project_id IS NULL`, and `..._project_stripe_uq` on `(organizationId, projectId, stripeId)` WHERE `project_id IS NOT NULL` — the exact pattern `integration_connections_org_provider_uq` / `..._project_provider_uq` already used (`packages/db/src/schema/integrations.ts`). A single non-partial index on all three columns would not have worked: Postgres never treats two NULLs as equal, so it would have silently accepted unlimited duplicate org-level rows for the same `stripeId`. Migration: `packages/db/drizzle/0026_stripe_multi_project.sql` — read back to confirm both partial indexes exist per table (not a single non-partial one) |
+| ✅ | `stripe-sync.ts` syncs every active connection | Was: one query for the org-level connection only. Now: every active `stripe` connection for every org — org-level and every project's own override — each synced, and health-reported (`lastSyncedAt`/`status`/`lastError`), independently. One project's revoked or bad key marks only that project's connection errored, never the org-level one or a sibling project's. Every upsert and every FK-resolution `UPDATE` (`customer_id`, `subscription_id`) is scoped by `projectId` too (`IS NOT DISTINCT FROM`, since it's nullable), so a subscription synced from Project A's Stripe account can only ever resolve its `customer_id` against Project A's (or the org-level connection's) mirrored customers — never Project B's, even though both share an `organizationId`. `ON CONFLICT` targets switch between the org-level and project-level partial index depending on which the batch is (one connection's sync is entirely one or the other) |
+| — | `linkCustomersToPersons` unchanged | Deliberately still scoped by `organizationId` alone, not further split by `projectId` — a person can legitimately be a customer of more than one of the operator's Stripe accounts, and `persons` itself has no per-project row-splitting (`projectIds` is an array, not a partition) |
+| ✅ | `getStripeClient(organizationId, projectId?)` | Now matches `getLinkiClient`/`getBundAiClient`'s shape exactly — a project's own connection first, falling back to the organization's |
+| ✅ | `apps/web/src/server/billing.ts` takes an optional `projectId` | `isStripeConnected`, `listCustomers`, `listSubscriptions`, `listInvoices`, `listCharges`, `getBillingSummary`. Omitted, every query is `projectId IS NULL` — `/billing`'s original behavior, unchanged, for an organization that only ever connects one Stripe account at the org level. Passed, every query is `projectId = <value>` — that project's own connection's data only, never blended with the org-level connection's or a sibling project's |
+| ✅ | `/p/[project]/billing` | New route, same `BillingTabsPanel`/`StatStrip` UI as the org-wide `/billing` page, reading the now-project-aware `billing.ts` functions with this project's id. Added to the property tab strip (`p/[project]/layout.tsx`) next to Settings. The per-property Settings → Integrations panel (`p/[project]/settings/IntegrationsPanel.tsx`) already let a user connect Stripe at the project level — it was wired generically across every provider when the connect UI was first built, so no change was needed there, only the read side |
+| 🟡 | Live sync unverified | No live Stripe key exists in this environment (same as before this fix). Verified: full monorepo typecheck, full test suite, a production `next build` (confirms `/p/[project]/billing` builds and is routed), and the generated migration SQL read back line-by-line to confirm both partial unique indexes exist per table. Not verified against a live Stripe account: an actual two-account sync (org-level + a second project-level account) has not been run end to end against real data |
+
+Not yet built: any write path (refunds, subscription changes, invoice
+creation), a Stripe Events/webhook consumer for incremental sync (today's
+job is a full paginated poll every run), and a UI affordance for "label this
+connection" beyond the property it's attached to.
+
 ## Backend surface not yet in the dashboard
 
 Audited by enumerating every schema table and every query-layer export, then

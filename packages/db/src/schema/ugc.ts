@@ -89,6 +89,15 @@ export const ugcVideos = pgTable(
     voiceName: text("voice_name"),
     audioBase64: text("audio_base64"),
     audioMimeType: text("audio_mime_type"),
+    /** "elevenlabs" | "gemini" — which vendor actually generated
+     * `audioBase64`. ElevenLabs is and remains the vendor the composer asks
+     * for (`voiceId`/`voiceName` above are always its voice library); this
+     * only ever reads "gemini" when ElevenLabs' `textToSpeech` call failed
+     * and the org had a Gemini AI connection to fall back to
+     * (`apps/worker/src/jobs/ugc-video-gen.ts`) — a different voice than the
+     * one picked, worth surfacing on the review page rather than leaving
+     * `voiceName` to claim a voice that isn't actually in the clip. */
+    voiceProvider: text("voice_provider").notNull().default("elevenlabs"),
 
     /** Avatar mode only — the face the lipsync model animates. */
     presenterImageBase64: text("presenter_image_base64"),

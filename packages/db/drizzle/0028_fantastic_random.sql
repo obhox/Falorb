@@ -1,0 +1,1 @@
+ALTER TABLE "ugc_videos" ADD COLUMN "voice_provider" text DEFAULT 'elevenlabs' NOT NULL;

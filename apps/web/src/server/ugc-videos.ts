@@ -22,6 +22,7 @@ export interface UgcVideoRow {
   script: string | null;
   videoPrompt: string | null;
   voiceName: string | null;
+  voiceProvider: string;
   videoModel: string;
   aspectRatio: string | null;
   resolution: string | null;
@@ -43,6 +44,7 @@ const listColumns = {
   script: schema.ugcVideos.script,
   videoPrompt: schema.ugcVideos.videoPrompt,
   voiceName: schema.ugcVideos.voiceName,
+  voiceProvider: schema.ugcVideos.voiceProvider,
   videoModel: schema.ugcVideos.videoModel,
   aspectRatio: schema.ugcVideos.aspectRatio,
   resolution: schema.ugcVideos.resolution,

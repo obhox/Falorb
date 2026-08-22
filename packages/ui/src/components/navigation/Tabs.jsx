@@ -6,6 +6,7 @@ import React from "react";
 export function Tabs({ tabs = [], value, onChange, size = "md", style }) {
   return (
     <div
+      className="falorb-tabs-scroll"
       style={{
         display: "flex", alignItems: "stretch", gap: size === "sm" ? 16 : 22,
         borderBottom: "1px solid var(--border-subtle)", ...style
@@ -23,6 +24,7 @@ export function Tabs({ tabs = [], value, onChange, size = "md", style }) {
             onClick={() => onChange && onChange(key)}
             style={{
               position: "relative", display: "inline-flex", alignItems: "center", gap: 6,
+              flex: "0 0 auto", whiteSpace: "nowrap",
               padding: size === "sm" ? "0 0 9px" : "0 0 12px",
               border: "none", background: "transparent", cursor: "pointer",
               color: on ? "var(--text-primary)" : "var(--text-muted)",

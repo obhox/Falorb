@@ -247,7 +247,7 @@ only tool below is genuinely refused to a bearer key).
 | ✅ | Email tools | `apps/mcp/src/tools/email.ts` — cold-outreach mailboxes on Migadu. Read: `list_email_accounts`, `list_email_messages` (not a fixed-interval mirror like CRM/support/social/billing — inbound rows land on the worker's 5-minute IMAP poll, outbound rows the instant `send_email` sends them). Write: `send_email` (write scope, matching `composeEmail`'s `actOnIntegrations` gate); `create_email_account`, `archive_email_account` (local operator only — provisioning is dashboard-only, owner/admin, with no bearer-key route at all today) |
 | ✅ | Integration tools | `get_integration_status` (read, any scope) — connected/healthy/last-synced per provider, never the credential itself, now covering Stripe/Migadu/OpenSEO alongside the original six. `connect_integration`, `test_integration_connection`, `revoke_integration_connection`, `set_integration_model` (local operator only) — store, verify, rotate, or clear a credential, org- or property-scoped. `github` stays dashboard-only (its connect form needs a repo/branch/path config this server has nowhere to collect) |
 | ✅ | Task-board tools | `list_tasks`, `get_task`, `create_task`, `update_task`, `assign_task`, `set_task_status`, `comment_on_task`, `delete_task` — the same `tasks`/`task_comments` tables the dashboard and the agent runtime both use; assigning to an agent starts its shift within a minute via the worker's existing sweep |
-| ✅ | AI-employee tools | `list_agents`, `get_agent`, `hire_agent`, `update_agent`, `set_agent_status`, `retire_agent`, `run_agent_now`, `list_agent_runs`, `get_agent_run`, `list_agent_approvals`, `decide_agent_approval`. An agent hired or edited through this server is capped at role "member" — never admin/owner — since a write-scope key carries no per-human role for `canGrantAgentRole` to check against |
+| ✅ | AI-employee tools | `list_agents`, `get_agent`, `hire_agent`, `update_agent`, `set_agent_status`, `retire_agent`, `run_agent_now`, `list_agent_runs`, `get_agent_run`, `list_agent_approvals`, `decide_agent_approval`, `set_automation_paused` (the workspace kill switch). An agent hired or edited through this server is capped at role "member" — never admin/owner — since a write-scope key carries no per-human role for `canGrantAgentRole` to check against |
 | ✅ | `archive_project` | The one project-lifecycle action there is — there is no hard delete anywhere in this codebase, so a write-scope key may do it like any other write |
 | ✅ | Person export/erasure | `request_person_export` (write scope), `request_person_erasure` (local operator only, mirroring `requireHumanSession` on `POST /api/people/requests`'s `delete` kind) |
 | ✅ | Merge/unmerge | `merge_people`, `unmerge_people` (write scope) — the same reversible-via-snapshot mechanism `POST /api/people/merge`/`/unmerge/:id` expose, including the array/timestamp `sql` literal fix (§18) |
@@ -986,12 +986,79 @@ declares (`canDecideApproval`) — approving is exercising — and the agent's
 role is re-checked at execution time, so an approval sitting in the queue
 while somebody demoted the agent does not still fire.
 
+### The loop has to close at both ends
+
+The first build of the queue had an open circuit: nobody was told a request
+existed (the only surface was the dashboard page, and undecided requests
+expired silently at 72h), and the agent was never told what was decided
+(`decisionNote` was documented as "fed back to the agent" and read by
+nothing). A gate nobody is told to open, and whose answer never reaches the
+thing that asked, is not a human-in-the-loop design — it is a place actions
+go to expire. Now:
+
+- **Raising notifies.** `settleApprovals` announces new pending requests:
+  one batched email per workspace per sweep to owners and admins
+  (`approvalsMail`), plus the same notice to an optional Slack/webhook
+  channel (`organizations.approvalNotifyChannelId`, pointing at an
+  `alert_channels` row; set on the Settings page). Announced once a
+  request's shift has ended, or after ten minutes, so one shift's five
+  requests arrive as one message. `agent_approvals.notifiedAt` records it.
+  Channel delivery itself moved out of `alerts.ts` into
+  `apps/worker/src/channels.ts` so analytics alerts and approval notices
+  share one implementation of "reach a person".
+- **Deciding feeds back.** The runtime's next briefing for that agent
+  carries a "Decisions on your earlier requests" section — approved and
+  carried out, rejected with the reviewer's note, expired undecided, or
+  failed in execution — and stamps `feedbackDeliveredAt` so it is said
+  once. The prompt tells the agent a rejection is a decision, not an
+  obstacle.
+- **Expiry is not silence.** An approval that expires undecided becomes a
+  system-authored task on the board ("Undecided: …", with the agent's own
+  rationale) and the run it came from is closed as `needs_attention`
+  rather than `succeeded`. `closeSettledRuns` previously marked a run
+  succeeded the moment nothing was *pending* — which counted expired and
+  failed as settled and filed the shift as a win.
+- **Deciding in bulk, and for a while.** `decideApprovalsAction` takes a
+  list; every row is re-verified for org, status, expiry and the
+  reviewer's capability, and rows that fail are named rather than silently
+  dropped. Approving can also carry a grant — "and for a week" — written to
+  `agent_approval_grants` (1–30 days, from the queue; anything permanent
+  belongs in the agent's `autoApproveTools` where an admin sees it).
+  `decide()` consults active grants next to `autoApproveTools`, under the
+  same rule: the role check runs first and nothing here relaxes it.
+  Grants are listed under "Standing approvals" and can be withdrawn early.
+
+### The kill switch, and why "paused" has to mean paused
+
+`organizations.automationPausedAt` stops every agent in a workspace at once
+— from the Settings page, the roster banner, or the MCP server's
+`set_automation_paused`. Non-null means: nothing new is enqueued (scheduled,
+task-assigned, or alert-triggered), queued runs are not started, a shift in
+progress stops at its next turn, and approved actions are not carried out.
+Nothing is discarded: paused work stays `queued`/`approved` and resumes
+when the switch is cleared, except that an approval whose original 72h
+deadline passes during the pause is failed rather than fired — the
+human's "yes" was about a moment.
+
+The same stop is enforced twice on purpose. The worker's sweeps join to
+`agents.status` and `organizations.automationPausedAt` before claiming
+anything, and `executeRun`/`executeApproval` re-check both (`haltReason`)
+once they hold the row — so the verify script and MCP, which call the
+runtime directly, cannot route around the worker, and a pause landing
+between the query and the claim still holds.
+
+This also fixed a real leak in per-agent pause: `runQueuedAgentRuns`
+selected on `agent_runs.status` alone with no join to `agents`, and
+`executeRun` never read `agent.status`, so a paused agent's queued backlog
+— and any approved-but-unexecuted action — kept firing after the person
+had pressed "Pause". Both now defer.
+
 | | Feature | Notes |
 |---|---|---|
 | ✅ | `agents` schema | Name, job title, avatar, brief, `role` (reuses the existing `member_role` enum — welded to the human one on purpose), `autonomy`, `toolkits[]`, `autoApproveTools[]`, `projectIds[]` scope, shift interval + standing objective, and per-agent budget (`maxStepsPerRun`, `dailyRunLimit`, `dailyTokenLimit`). Vocabulary columns are plain `text()` per the `ugc.ts`/`prospecting.ts` convention; `role` is the one deliberate exception |
 | ✅ | `agent_runs` / `agent_steps` schema | One shift, and its full transcript. **The transcript lives in Postgres, not worker memory** — every model turn and tool result is written as it happens and the next turn's conversation is rebuilt from those rows. Costs a few writes per step; buys a run that survives a worker restart mid-shift, a shift a human can watch progress, and an answer to "what did it actually do" without separate logging |
 | ✅ | `tasks` / `task_comments` schema | One table for human work and agent work, because it is the same work. `assigneeType` is stored rather than derived so "assigned to a person, not yet a specific person" is expressible. `handoffReason` gets its own column rather than a line in the body — it is the single most useful thing on a handoff, and it is what tells a manager their agent is under-permissioned rather than incapable |
-| ✅ | `agent_approvals` schema | The gate. `requiredCapability` is denormalised from the tool so the reviewer's own role can be checked at decision time. `expiresAt` (72h) because a stale approval is dangerous in a way a stale task is not — "send this follow-up" agreed on Monday should not fire on Friday against numbers nobody re-read |
+| ✅ | `agent_approvals` schema | The gate. `requiredCapability` is denormalised from the tool so the reviewer's own role can be checked at decision time. `expiresAt` (72h) because a stale approval is dangerous in a way a stale task is not — "send this follow-up" agreed on Monday should not fire on Friday against numbers nobody re-read. `notifiedAt` / `feedbackDeliveredAt` close the loop at each end (see below); `agent_approval_grants` holds the time-boxed "and for a week" waivers |
 | ✅ | `agent_memories` schema | What an agent still knows next week — conclusions and corrections, written by the agent itself through a tool. Without it an agent re-derives the same findings every shift and never accumulates judgement, which is the difference between a scheduled script and an employee. Scoped per agent, not per org: two agents holding contradictory beliefs is legible, whereas a shared pool would let one agent's mistake silently steer another's work |
 | ✅ | `auditLog.actorAgentId` | Agent actions land in the same log as human ones. A separate "agent activity" table would mean answering "who changed this deal" required reading two places and merging by timestamp — and the whole point is that both kinds of colleague are accountable the same way |
 | ✅ | `@falorb/agents` | The runtime: `policy.ts` (one `decide()` every gate funnels through — UI, worker, and approval-resume all call it, so they cannot drift apart), `run.ts` (the loop, resume, budget, approval raising, `executeApproval`), `prompt.ts` (briefing assembly), `presets.ts`, and the tool registry. Server-only, same boundary `@falorb/ai`/`@falorb/mailer` draw |
@@ -1047,6 +1114,17 @@ Still unproven, honestly:
   itself is confirmed to behave correctly (run marked failed with the
   provider's message, transcript intact, already-queued approval preserved),
   but the corrected prompt has not been seen working.
+- **The approval loop and kill switch have been exercised by the worker's
+  real sweeps, against a live database, but not with a live model.** A
+  scripted smoke drove `runQueuedAgentRuns`/`settleApprovals` end to end:
+  a paused workspace and a paused agent both left a queued run queued and
+  an approved action un-executed; resuming executed it; a fresh pending
+  approval got `notifiedAt` (log mail transport); an overdue one expired,
+  produced its "Undecided:" task, and flipped its run to `needs_attention`;
+  and `loadDecisionFeedback` returned all three outcomes with the reviewer's
+  note present in the built briefing. The mid-shift halt (the per-turn
+  `haltReason` check inside the loop) typechecks and follows the same
+  path, but has not been seen stopping a real model loop.
 - **No agent has been driven by the worker's own sweeps.** `executeRun` and
   `executeApproval` were called directly by the verify script. The scheduling,
   claiming and heartbeat-reclaim logic in `apps/worker/src/jobs/agents.ts`

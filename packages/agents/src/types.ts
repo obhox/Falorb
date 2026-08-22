@@ -123,6 +123,12 @@ export interface AgentContext {
    * to the deployment's.
    */
   credentials: AiCredentials | null;
+  /**
+   * Tool names a reviewer has waived approval for, for a while — unexpired
+   * `agent_approval_grants` rows, loaded once per shift. Read by `decide`
+   * next to the agent's permanent `autoApproveTools`.
+   */
+  activeGrants: string[];
   /** Emitted as the run's narration; surfaced live in the dashboard. */
   log: (message: string) => void;
 }

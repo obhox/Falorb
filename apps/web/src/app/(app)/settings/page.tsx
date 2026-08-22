@@ -13,6 +13,9 @@ import { DomainTestChips } from "@/components/DomainTest";
 import { Empty } from "@/components/Empty";
 import { num, shortDate } from "@/lib/format";
 import { DigestToggle } from "./DigestToggle";
+import { AutomationCard } from "./AutomationCard";
+import { getAutomationState } from "@/server/agents";
+import { listChannels } from "@/server/alerts";
 import { BenchmarkShareControl } from "./BenchmarkShareControl";
 
 export const metadata: Metadata = { title: "Settings" };
@@ -39,13 +42,15 @@ export default async function InstanceSettingsPage() {
   const api = process.env.FALORB_API_URL ?? "http://localhost:3003";
   const referral = process.env.FALORB_REFERRAL_URL ?? app;
 
-  const [[org], orgShare] = await Promise.all([
+  const [[org], orgShare, automation, channels] = await Promise.all([
     db()
       .select({ weeklyDigestEnabled: schema.organizations.weeklyDigestEnabled })
       .from(schema.organizations)
       .where(eq(schema.organizations.id, session.workspace.organizationId))
       .limit(1),
     getOrgShare(session.workspace.organizationId),
+    getAutomationState(session.workspace.organizationId),
+    listChannels(session.workspace.organizationId),
   ]);
   const benchmarkUrl = orgShare?.publicToken
     ? `${app.replace(/\/$/, "")}/benchmark/${orgShare.publicToken}`
@@ -233,6 +238,18 @@ export default async function InstanceSettingsPage() {
             </p>
           </div>
         </Card>
+
+        <AutomationCard
+          paused={automation.paused}
+          pausedAt={automation.pausedAt?.toISOString() ?? null}
+          pausedByName={automation.pausedByName}
+          channels={channels
+            .filter((c) => c.kind !== "agent" && c.active)
+            .map((c) => ({ id: c.id, name: c.name, kind: c.kind }))}
+          notifyChannelId={automation.approvalNotifyChannelId}
+          canEdit={can.manageAgents(session.workspace.role)}
+          now={now}
+        />
 
         <DigestToggle
           weeklyDigestEnabled={org?.weeklyDigestEnabled ?? true}

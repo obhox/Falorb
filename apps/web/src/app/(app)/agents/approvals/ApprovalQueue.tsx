@@ -2,10 +2,14 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Badge, Button, Card, Tabs } from "@falorb/ui";
+import { Badge, Button, Card, Checkbox, Input, Select, Tabs } from "@falorb/ui";
 import { Empty } from "@/components/Empty";
 import { useAction } from "@/lib/use-action";
-import { decideApprovalAction } from "@/server/actions/agents";
+import {
+  decideApprovalAction,
+  decideApprovalsAction,
+  revokeApprovalGrantAction,
+} from "@/server/actions/agents";
 import { relative } from "@/lib/format";
 
 export interface ApprovalItem {
@@ -23,8 +27,27 @@ export interface ApprovalItem {
   expiresAt: string;
   createdAt: string;
   error: string | null;
+  decisionNote: string | null;
   canDecide: boolean;
 }
+
+export interface GrantItem {
+  id: string;
+  agentId: string;
+  agentName: string;
+  agentAvatar: string;
+  toolName: string;
+  grantedByName: string | null;
+  expiresAt: string;
+}
+
+/** Offered next to "Approve": how long the agent may do this unasked. */
+const GRANT_OPTIONS: { label: string; days: number | undefined }[] = [
+  { label: "just this once", days: undefined },
+  { label: "and for a day", days: 1 },
+  { label: "and for a week", days: 7 },
+  { label: "and for 30 days", days: 30 },
+];
 
 const RISK_TONE: Record<string, "neutral" | "warn" | "down"> = {
   low: "neutral",
@@ -43,14 +66,43 @@ const STATUS_TONE: Record<string, "up" | "down" | "neutral"> = {
 export function ApprovalQueue({
   pending,
   recent,
+  grants,
+  canReview,
   now,
 }: {
   pending: ApprovalItem[];
   recent: ApprovalItem[];
+  grants: GrantItem[];
+  canReview: boolean;
   now: number;
 }) {
   const [tab, setTab] = useState("pending");
   const { run, pending: busy } = useAction();
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [note, setNote] = useState("");
+  const [grantLabel, setGrantLabel] = useState(GRANT_OPTIONS[0]!.label);
+  const grantDays = GRANT_OPTIONS.find((o) => o.label === grantLabel)?.days;
+
+  const decidable = pending.filter((p) => p.canDecide);
+  const chosen = decidable.filter((p) => selected.has(p.id));
+  const toggle = (id: string, on: boolean) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+
+  async function decideMany(decision: "approve" | "reject") {
+    const ids = chosen.map((c) => c.id);
+    const result = await run(() =>
+      decideApprovalsAction(ids, decision, note || undefined, decision === "approve" ? grantDays : undefined),
+    );
+    if (result?.ok) {
+      setSelected(new Set());
+      setNote("");
+    }
+  }
 
   return (
     <div style={{ display: "grid", gap: "var(--space-5)", maxWidth: 860 }}>
@@ -60,8 +112,64 @@ export function ApprovalQueue({
         tabs={[
           { value: "pending", label: "Waiting", count: pending.length },
           { value: "recent", label: "Decided", count: recent.length },
+          { value: "grants", label: "Standing approvals", count: grants.length },
         ]}
       />
+
+      {tab === "pending" && decidable.length > 0 && (
+        <Card tone="inset" padding={14}>
+          <div style={{ display: "grid", gap: 10 }}>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <Checkbox
+                checked={chosen.length === decidable.length && decidable.length > 0}
+                onChange={(on) => setSelected(on ? new Set(decidable.map((d) => d.id)) : new Set())}
+                label={
+                  chosen.length
+                    ? `${chosen.length} of ${decidable.length} selected`
+                    : `Select all ${decidable.length} you can decide`
+                }
+              />
+              <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <Select
+                  size="sm"
+                  value={grantLabel}
+                  options={GRANT_OPTIONS.map((o) => o.label)}
+                  onChange={setGrantLabel}
+                />
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={busy || !chosen.length}
+                  onClick={() => void decideMany("reject")}
+                >
+                  Reject {chosen.length || ""}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="accent"
+                  disabled={busy || !chosen.length}
+                  onClick={() => void decideMany("approve")}
+                >
+                  Approve {chosen.length || ""}
+                </Button>
+              </div>
+            </div>
+            <Input
+              size="sm"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="Optional note — the agent reads this at the start of its next shift"
+            />
+            {grantDays && (
+              <span style={{ fontSize: 11.5, color: "var(--text-muted)" }}>
+                Approving with a standing grant lets each selected agent perform that same action
+                without asking for {grantDays === 1 ? "a day" : `${grantDays} days`}. Withdraw it any time
+                under "Standing approvals".
+              </span>
+            )}
+          </div>
+        </Card>
+      )}
 
       {tab === "pending" &&
         (pending.length === 0 ? (
@@ -76,6 +184,13 @@ export function ApprovalQueue({
               <Card key={item.id} tone="card" padding={16}>
                 <div style={{ display: "grid", gap: 12 }}>
                   <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                    {item.canDecide && (
+                      <Checkbox
+                        checked={selected.has(item.id)}
+                        onChange={(on) => toggle(item.id, on)}
+                        style={{ marginTop: 2 }}
+                      />
+                    )}
                     <span style={{ fontSize: 22, lineHeight: 1 }} aria-hidden>
                       {item.agentAvatar}
                     </span>
@@ -150,7 +265,9 @@ export function ApprovalQueue({
                             size="sm"
                             variant="ghost"
                             disabled={busy}
-                            onClick={() => void run(() => decideApprovalAction(item.id, "reject"))}
+                            onClick={() =>
+                              void run(() => decideApprovalAction(item.id, "reject", note || undefined))
+                            }
                           >
                             Reject
                           </Button>
@@ -158,9 +275,13 @@ export function ApprovalQueue({
                             size="sm"
                             variant="accent"
                             disabled={busy}
-                            onClick={() => void run(() => decideApprovalAction(item.id, "approve"))}
+                            onClick={() =>
+                              void run(() =>
+                                decideApprovalAction(item.id, "approve", note || undefined, grantDays),
+                              )
+                            }
                           >
-                            Approve
+                            {grantDays ? `Approve ${grantLabel}` : "Approve"}
                           </Button>
                         </>
                       ) : (
@@ -205,6 +326,9 @@ export function ApprovalQueue({
                     {item.error && (
                       <span style={{ color: "var(--text-danger, #d66)" }}> — {item.error}</span>
                     )}
+                    {item.decisionNote && (
+                      <span style={{ color: "var(--text-muted)" }}> — "{item.decisionNote}"</span>
+                    )}
                   </span>
                   <Badge tone={STATUS_TONE[item.status] ?? "neutral"}>{item.status}</Badge>
                   <span
@@ -216,6 +340,58 @@ export function ApprovalQueue({
                   >
                     {relative(item.createdAt, now)}
                   </span>
+                </div>
+              ))}
+            </div>
+          </Card>
+        ))}
+
+      {tab === "grants" &&
+        (grants.length === 0 ? (
+          <Empty
+            dense
+            icon="shield-check"
+            title="No standing approvals"
+            body='When you approve a request "and for a week", it shows up here until it lapses or you withdraw it.'
+          />
+        ) : (
+          <Card
+            title="Standing approvals"
+            subtitle="Actions an agent may take without asking, for a limited time"
+          >
+            <div style={{ display: "grid", gap: 10 }}>
+              {grants.map((g) => (
+                <div
+                  key={g.id}
+                  style={{
+                    display: "flex",
+                    gap: 10,
+                    alignItems: "center",
+                    borderTop: "1px solid var(--border-subtle)",
+                    paddingTop: 10,
+                  }}
+                >
+                  <span aria-hidden>{g.agentAvatar}</span>
+                  <span style={{ fontSize: 12.5, color: "var(--text-secondary)", flex: 1, minWidth: 0 }}>
+                    <Link href={`/agents/${g.agentId}`} data-plain>
+                      {g.agentName}
+                    </Link>{" "}
+                    may run <code style={{ fontFamily: "var(--font-mono)" }}>{g.toolName}</code> unasked
+                    {g.grantedByName ? ` — granted by ${g.grantedByName}` : ""}
+                  </span>
+                  <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "var(--text-muted)" }}>
+                    lapses {relative(g.expiresAt, now)}
+                  </span>
+                  {canReview && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={() => void run(() => revokeApprovalGrantAction(g.id))}
+                    >
+                      Withdraw
+                    </Button>
+                  )}
                 </div>
               ))}
             </div>

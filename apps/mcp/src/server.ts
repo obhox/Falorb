@@ -3,9 +3,11 @@ import { z } from "zod";
 import type { McpContext } from "./context";
 import { registerAgentTools } from "./tools/agents";
 import { registerAnalyticsTools } from "./tools/analytics";
+import { registerBillingTools } from "./tools/billing";
 import { registerContentTools } from "./tools/content";
 import { registerCrmTools } from "./tools/crm";
 import { registerDiscoveryTools } from "./tools/discovery";
+import { registerEmailTools } from "./tools/email";
 import { registerFunnelTools } from "./tools/funnels";
 import { registerGoalTools } from "./tools/goals";
 import { registerIntegrationTools } from "./tools/integrations";
@@ -15,6 +17,7 @@ import { registerManagementTools } from "./tools/manage";
 import { registerPeopleTools } from "./tools/people";
 import { registerProspectTools } from "./tools/prospects";
 import { registerReferralTools } from "./tools/referrals";
+import { registerSeoTools } from "./tools/seo";
 import { registerSharingTools } from "./tools/sharing";
 import { registerSignalTools } from "./tools/signals";
 import { registerSocialTools } from "./tools/social";
@@ -64,12 +67,16 @@ verify rather than guess.
 - Acquisition links and referral performance → \`list_referral_links\`, \`get_referral_leaderboard\`
 - Early-access queue → \`list_waitlist\`
 - Cached AI recommendations (what to write, who to contact, which channel, what's broken) → \`get_latest_signal\`, \`regenerate_signal\`
+- Draft a new content page → \`draft_content_page\` (grounded in visitor interest, and live keyword/SERP data when OpenSEO is connected)
+- A project's SEO standing (rankings, backlinks, Search Console) → \`get_seo_report\` (requires OpenSEO connected)
 - New project → \`create_project\`, then \`get_install_snippet\`
 - Public sharing → \`get_share_link\` / \`create_share_link\` (one project), \`get_benchmark_report\` (portfolio-wide, aggregate only)
 - Workspace membership → \`list_team\`, \`invite_member\`
 - The mirrored CRM (Linki) → \`list_crm_contacts\`, \`get_crm_contact\`, \`list_crm_deals\`, \`list_crm_lists\`, \`list_crm_workflows\`, \`list_crm_runs\`, \`list_crm_signal_rules\`, \`list_crm_sent_messages\`, \`list_crm_suppressions\`; act on Linki itself with \`create_crm_contact\`, \`push_crm_signal\`
 - The mirrored support queue (Bund AI) → \`list_support_conversations\`, \`list_support_escalations\`, \`list_support_leads\`, \`list_support_tickets\`; close one out with \`resolve_support_escalation\`
 - The mirrored social calendar (Buffer) → \`list_social_channels\`, \`list_social_posts\`; publish with \`create_social_post\`, remove with \`delete_social_post\`
+- The mirrored billing account (Stripe — the operator's own payment processing, not Falorb's) → \`get_billing_summary\`, \`list_billing_customers\`, \`list_billing_subscriptions\`, \`list_billing_invoices\`, \`list_billing_charges\` — read-only, no write path exists yet
+- Cold-outreach mailboxes (Migadu) → \`list_email_accounts\`, \`list_email_messages\`; send with \`send_email\`; provision or remove a mailbox with \`create_email_account\` / \`archive_email_account\` — **local operator (stdio) only**
 - Is an integration actually connected and healthy → \`get_integration_status\`; connect/test/revoke/change its model with \`connect_integration\` / \`test_integration_connection\` / \`revoke_integration_connection\` / \`set_integration_model\` — **local operator (stdio) only**
 - The shared work board, human and agent alike → \`list_tasks\`, \`get_task\`, \`create_task\`, \`update_task\`, \`assign_task\`, \`set_task_status\`, \`comment_on_task\`, \`delete_task\`
 - The AI-employee roster and their shifts → \`list_agents\`, \`get_agent\`, \`hire_agent\`, \`update_agent\`, \`set_agent_status\`, \`retire_agent\`, \`run_agent_now\`, \`list_agent_runs\`, \`get_agent_run\`
@@ -98,22 +105,28 @@ not do this.
 
 **Most write tools need only the \`write\` scope** — create/update/revoke
 goals, alerts, referral links, share links, invitations, team roles, tasks,
-agents, and the CRM/support/social write tools above. A read-only key cannot
-call any of them.
+agents, \`send_email\`, and the CRM/support/social write tools above. A
+read-only key cannot call any of them.
 
 **A handful of actions need the local operator specifically (stdio, no API
 key) — the \`write\` scope alone is not enough:** connecting, testing,
 revoking, or changing the model of an integration credential
-(\`connect_integration\` and its siblings), and \`request_person_erasure\`.
-Both mirror an action \`apps/api\` refuses to *every* bearer API key outright,
-with no scope that grants an exception — the same rule this server enforces.
-A bearer key attempting either gets a clear refusal naming the rule, not a
-silent no-op. Everything else that reaches outside Falorb — pushing a CRM
-signal, resolving a support escalation, publishing a social post, running an
-agent's shift — needs only the \`write\` scope, same as any other write tool;
-those are real actions with real, visible effects (a live post, a message to
-a customer, a signal in another product), so call them deliberately, one at a
-time, never as a bulk sweep.
+(\`connect_integration\` and its siblings), provisioning or removing an email
+mailbox (\`create_email_account\`, \`archive_email_account\`), and
+\`request_person_erasure\`. The integration and erasure actions mirror one
+\`apps/api\` refuses to *every* bearer API key outright, with no scope that
+grants an exception — the same rule this server enforces. The two mailbox
+actions have no bearer-key route in \`apps/api\` at all today (dashboard-only,
+gated at owner/admin), so a remote key has no path to them in the real
+product either — gating them here the same way keeps this server's
+capabilities from exceeding what a bearer key can actually reach elsewhere.
+A bearer key attempting any of these five gets a clear refusal naming the
+rule, not a silent no-op. Everything else that reaches outside Falorb —
+pushing a CRM signal, resolving a support escalation, publishing a social
+post, sending an email, running an agent's shift — needs only the \`write\`
+scope, same as any other write tool; those are real actions with real,
+visible effects (a live post, a message to a customer, a signal in another
+product), so call them deliberately, one at a time, never as a bulk sweep.
 
 **Archiving a property is reversible in effect, not a delete** — there is no
 hard delete anywhere in this platform. \`archive_project\` keeps the row and
@@ -149,14 +162,24 @@ follows the same local-operator-only rule as every other integration
 credential; only read tools and per-prospect status changes need just the
 write scope.
 
-**CRM, support and social data are mirrors, not live queries.** \`list_crm_*\`,
-\`list_support_*\` and \`list_social_*\` read Falorb's own copy of Linki/Bund
-AI/Buffer data, refreshed every 15 minutes by a background sync — so a very
-recent change on the other end may not be reflected yet, and a write tool's
-own effect (a new contact, a resolved escalation, a published post) may not
-show up in the mirror for up to that long even though it already happened on
-the other system. \`get_integration_status\` shows when each provider last
-synced.
+**CRM, support, social, and billing data are mirrors, not live queries.**
+\`list_crm_*\`, \`list_support_*\`, \`list_social_*\` and \`list_billing_*\`/
+\`get_billing_summary\` read Falorb's own copy of Linki/Bund AI/Buffer/Stripe
+data, refreshed on a background sync (every 15 minutes for the first three;
+a full poll each run for Stripe, since it has no incremental webhook
+consumer yet) — so a very recent change on the other end may not be
+reflected yet, and a write tool's own effect (a new contact, a resolved
+escalation, a published post) may not show up in the mirror for up to that
+long even though it already happened on the other system.
+\`get_integration_status\` shows when each provider last synced. Stripe has
+no write path at all yet — every billing tool is read-only.
+
+**Email is different: not a fixed-interval mirror.** \`list_email_messages\`
+reads current state, not a periodic snapshot — an inbound row appears after
+the worker's next IMAP poll (a few minutes, not 15), and an outbound row
+written by \`send_email\` appears immediately, since its existence in
+\`email_messages\` *is* the record of having sent it (Migadu's own Sent
+folder is never polled).
 `.trim();
 
 export function buildServer(ctx: () => McpContext): McpServer {
@@ -173,6 +196,7 @@ export function buildServer(ctx: () => McpContext): McpServer {
   registerManagementTools(server, ctx);
   registerGoalTools(server, ctx);
   registerContentTools(server, ctx);
+  registerSeoTools(server, ctx);
   registerReferralTools(server, ctx);
   registerSignalTools(server, ctx);
   registerWaitlistTools(server, ctx);
@@ -183,6 +207,8 @@ export function buildServer(ctx: () => McpContext): McpServer {
   registerCrmTools(server, ctx);
   registerSupportTools(server, ctx);
   registerSocialTools(server, ctx);
+  registerBillingTools(server, ctx);
+  registerEmailTools(server, ctx);
   registerIntegrationTools(server, ctx);
   registerTaskTools(server, ctx);
   registerAgentTools(server, ctx);
@@ -249,6 +275,8 @@ function registerResources(server: McpServer, ctx: () => McpContext): void {
             "- The mirrored CRM (Linki): contacts, deal pipeline, lists, workflows, runs, sent messages, suppressions",
             "- The mirrored support queue (Bund AI): conversations, escalations, leads, tickets",
             "- The mirrored social calendar (Buffer): channels and scheduled/sent posts",
+            "- The mirrored billing account (Stripe): customers, subscriptions, invoices, charges, and an MRR estimate — org-wide or per project, for operators running more than one Stripe account",
+            "- Provisioned cold-outreach mailboxes (Migadu) and their message history, inbound and outbound",
             "- Whether any third-party integration is connected, healthy, and when it last synced",
             "- The task board and AI-employee roster: who's assigned what, shift history, queued approvals",
             "- UGC AI video status and the available video model catalog",
@@ -260,7 +288,7 @@ function registerResources(server: McpServer, ctx: () => McpContext): void {
             "- Toggle a project's waitlist and the organization's weekly digest email",
             "- Invite, re-role, or remove a team member (never the workspace's only owner)",
             "- Mark a prospect contacted or dismissed; add or remove a listening keyword",
-            "- Create a Linki contact and push a signal to Linki; resolve a Bund AI escalation; compose, publish, or delete a Buffer post",
+            "- Create a Linki contact and push a signal to Linki; resolve a Bund AI escalation; compose, publish, or delete a Buffer post; send an email from a provisioned mailbox",
             "- Create, edit, assign, comment on, and delete tasks on the shared work board (human and agent assignees alike)",
             "- Hire, edit, pause/resume, retire, and run an AI employee's shift on demand (role capped at \"member\"); decide a queued agent approval",
             "- Request a GDPR export for a person",
@@ -268,7 +296,8 @@ function registerResources(server: McpServer, ctx: () => McpContext): void {
             "- Generate a UGC AI video (script/voiceover/talking video, or text-to-video) and queue it in the human-curated posting to-do list — spends real ElevenLabs credits per call",
             "",
             "## Can change (local operator only — stdio, no API key; the write scope alone is not enough)",
-            "- Connect, test, revoke, or change the model of an integration credential (Linki, Bund AI, Buffer, Clay, Exa, Firecrawl, ElevenLabs, or an AI gateway)",
+            "- Connect, test, revoke, or change the model of an integration credential (Linki, Bund AI, Buffer, Clay, Exa, Firecrawl, ElevenLabs, Stripe, Migadu, OpenSEO, or an AI gateway)",
+            "- Provision or archive an email mailbox on the connected Migadu account",
             "- Erase a person's data (a GDPR erasure needs a human to confirm the subject's identity — the same rule the dashboard's own API enforces for every bearer key, this server included)",
             "",
             "## Cannot answer, by design",

@@ -6,6 +6,7 @@ import { analyticsTools } from "./analytics";
 import { contentTools } from "./content";
 import { crmTools } from "./crm";
 import { growthTools } from "./growth";
+import { leadsTools } from "./leads";
 import { memoryTools } from "./memory";
 import { peopleTools } from "./people";
 import { prospectingTools } from "./prospecting";
@@ -27,6 +28,7 @@ import { ugcTools } from "./ugc";
 export const ALL_TOOLS: AnyToolDefinition[] = [
   ...analyticsTools,
   ...peopleTools,
+  ...leadsTools,
   ...crmTools,
   ...supportTools,
   ...taskTools,

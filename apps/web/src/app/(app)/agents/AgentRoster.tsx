@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Badge, Button, Card, Dialog, Icon, Input, Select } from "@falorb/ui";
+import { Badge, Button, Card, Checkbox, Dialog, Icon, Input, Select } from "@falorb/ui";
 import { Empty } from "@/components/Empty";
 import { useAction } from "@/lib/use-action";
 import { hireAgentAction, runAgentNowAction, setAgentStatusAction } from "@/server/actions/agents";
@@ -39,6 +39,12 @@ export interface PresetOption {
   scheduleMinutes: number | null;
 }
 
+export interface ToolkitOption {
+  key: string;
+  label: string;
+  description: string;
+}
+
 const AUTONOMY_TONE: Record<string, "neutral" | "accent" | "warn"> = {
   observer: "neutral",
   assisted: "accent",
@@ -55,6 +61,7 @@ function shiftLabel(minutes: number | null): string {
 export function AgentRoster({
   agents,
   presets,
+  toolkits,
   projects,
   canManage,
   pendingApprovals,
@@ -62,6 +69,7 @@ export function AgentRoster({
 }: {
   agents: RosterAgent[];
   presets: PresetOption[];
+  toolkits: ToolkitOption[];
   projects: { id: number; slug: string }[];
   canManage: boolean;
   pendingApprovals: number;
@@ -253,6 +261,7 @@ export function AgentRoster({
       {hiring && (
         <HireDialog
           presets={presets}
+          toolkits={toolkits}
           projects={projects}
           pending={pending}
           onClose={() => setHiring(false)}
@@ -266,31 +275,51 @@ export function AgentRoster({
   );
 }
 
+const MIN_INSTRUCTIONS = 20;
+
 /**
- * Hiring, as a two-decision form.
+ * Hiring, in one of two shapes.
  *
- * Which job, and which properties. Everything else — brief, permission
- * level, autonomy, schedule — comes from the preset and is editable
- * afterwards on the agent's own page. A twelve-field creation form would put
- * every decision in front of someone before they have seen the agent do
- * anything, which is the wrong order: you tune an employee after watching
- * them work, not before.
+ * From a preset: pick the job and a name. Everything else — brief,
+ * permission level, autonomy, schedule — comes from the preset and is
+ * editable afterwards on the agent's own page. A twelve-field creation form
+ * would put every decision in front of someone before they have seen the
+ * agent do anything, which is the wrong order: you tune an employee after
+ * watching them work, not before.
+ *
+ * From scratch: there is no preset to inherit from, so the fields a preset
+ * would have supplied — name, title, brief, skills — are asked for
+ * directly. Permission level, autonomy and schedule are deliberately left
+ * off this form and default the same safe way a preset hire does (viewer,
+ * assisted, on request only): the "tune after watching it work" principle
+ * still holds, it just starts from the fields nothing else could infer.
  */
 function HireDialog({
   presets,
+  toolkits,
   projects,
   pending,
   onClose,
   onSubmit,
 }: {
   presets: PresetOption[];
+  toolkits: ToolkitOption[];
   projects: { id: number; slug: string }[];
   pending: boolean;
   onClose: () => void;
   onSubmit: (formData: FormData) => void | Promise<void>;
 }) {
+  const [mode, setMode] = useState<"preset" | "scratch">("preset");
+
   const [presetKey, setPresetKey] = useState(presets[0]?.key ?? "");
   const [name, setName] = useState(presets[0]?.name ?? "");
+
+  const [scratchAvatar, setScratchAvatar] = useState("🤖");
+  const [scratchName, setScratchName] = useState("");
+  const [scratchTitle, setScratchTitle] = useState("");
+  const [scratchInstructions, setScratchInstructions] = useState("");
+  const [scratchToolkits, setScratchToolkits] = useState<string[]>([]);
+
   const [scope, setScope] = useState<number[]>([]);
 
   const preset = presets.find((p) => p.key === presetKey);
@@ -304,12 +333,27 @@ function HireDialog({
 
   const labelFor = (p: PresetOption) => `${p.avatar}  ${p.name} — ${p.roleTitle}`;
 
+  const toggleToolkit = (key: string) =>
+    setScratchToolkits((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
+
+  const presetValid = Boolean(preset) && name.trim().length > 0;
+  const scratchValid =
+    scratchName.trim().length > 0 &&
+    scratchName.trim().length <= 60 &&
+    scratchTitle.trim().length > 0 &&
+    scratchInstructions.trim().length >= MIN_INSTRUCTIONS &&
+    scratchToolkits.length > 0;
+
   return (
     <Dialog
       open
       title="Hire an agent"
-      subtitle="Pick the job. You can rewrite the brief and change permissions afterwards."
-      width={560}
+      subtitle={
+        mode === "preset"
+          ? "Pick the job. You can rewrite the brief and change permissions afterwards."
+          : "Write the job yourself — its name, title and instructions. Permissions come after, once you've watched it work."
+      }
+      width={mode === "preset" ? 560 : 640}
       onClose={onClose}
       footer={
         <div style={{ display: "flex", gap: 8 }}>
@@ -319,12 +363,20 @@ function HireDialog({
           <Button
             size="sm"
             variant="accent"
-            disabled={pending || !preset || !name.trim()}
+            disabled={pending || (mode === "preset" ? !presetValid : !scratchValid)}
             onClick={() => {
-              if (!preset) return;
               const formData = new FormData();
-              formData.set("preset", preset.key);
-              formData.set("name", name.trim());
+              if (mode === "preset") {
+                if (!preset) return;
+                formData.set("preset", preset.key);
+                formData.set("name", name.trim());
+              } else {
+                formData.set("name", scratchName.trim());
+                formData.set("roleTitle", scratchTitle.trim());
+                formData.set("instructions", scratchInstructions.trim());
+                formData.set("avatar", scratchAvatar.trim() || "🤖");
+                for (const key of scratchToolkits) formData.append("toolkits", key);
+              }
               for (const id of scope) formData.append("projectIds", String(id));
               void onSubmit(formData);
             }}
@@ -335,34 +387,127 @@ function HireDialog({
       }
     >
       <div style={{ display: "grid", gap: "var(--space-4)" }}>
-        <Select
-          label="Job"
-          value={preset ? labelFor(preset) : ""}
-          options={presets.map(labelFor)}
-          onChange={choose}
-        />
+        <div style={{ display: "flex", gap: 6 }}>
+          <Button
+            size="sm"
+            variant={mode === "preset" ? "primary" : "ghost"}
+            onClick={() => setMode("preset")}
+          >
+            From a preset
+          </Button>
+          <Button
+            size="sm"
+            variant={mode === "scratch" ? "primary" : "ghost"}
+            onClick={() => setMode("scratch")}
+          >
+            From scratch
+          </Button>
+        </div>
 
-        {preset && (
+        {mode === "preset" ? (
           <>
-            <p style={{ fontSize: 12, lineHeight: 1.55, color: "var(--text-secondary)" }}>
-              {preset.summary}
-            </p>
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-              {preset.toolkits.map((t) => (
-                <Badge key={t} tone="neutral">
-                  {t}
-                </Badge>
-              ))}
+            <Select
+              label="Job"
+              value={preset ? labelFor(preset) : ""}
+              options={presets.map(labelFor)}
+              onChange={choose}
+            />
+
+            {preset && (
+              <>
+                <p style={{ fontSize: 12, lineHeight: 1.55, color: "var(--text-secondary)" }}>
+                  {preset.summary}
+                </p>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  {preset.toolkits.map((t) => (
+                    <Badge key={t} tone="neutral">
+                      {t}
+                    </Badge>
+                  ))}
+                </div>
+              </>
+            )}
+
+            <Input
+              label="Name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="What you will call them"
+            />
+          </>
+        ) : (
+          <>
+            <div style={{ display: "flex", gap: 10 }}>
+              <Input
+                label="Avatar"
+                value={scratchAvatar}
+                onChange={(e) => setScratchAvatar(e.target.value)}
+                placeholder="🤖"
+                style={{ maxWidth: 80 }}
+              />
+              <Input
+                label="Name"
+                value={scratchName}
+                onChange={(e) => setScratchName(e.target.value)}
+                placeholder="What you will call them"
+                style={{ flex: 1 }}
+              />
+            </div>
+
+            <Input
+              label="Job title"
+              value={scratchTitle}
+              onChange={(e) => setScratchTitle(e.target.value)}
+              placeholder="e.g. Retention analyst"
+            />
+
+            <label style={{ display: "grid", gap: 6 }}>
+              <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                Instructions — its whole job description, in your words
+              </span>
+              <textarea
+                value={scratchInstructions}
+                onChange={(e) => setScratchInstructions(e.target.value)}
+                rows={10}
+                placeholder="You are... Your job is... How to decide what matters... When to hand something to a person instead of acting..."
+                style={{
+                  width: "100%",
+                  resize: "vertical",
+                  padding: 12,
+                  borderRadius: 10,
+                  border: "1px solid var(--border-subtle)",
+                  background: "var(--surface-inset)",
+                  color: "var(--text-primary)",
+                  font: "inherit",
+                  fontSize: 13,
+                  lineHeight: 1.6,
+                }}
+              />
+              <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                {scratchInstructions.trim().length < MIN_INSTRUCTIONS
+                  ? `At least ${MIN_INSTRUCTIONS} characters — this becomes its standing instructions verbatim.`
+                  : "Becomes its standing instructions verbatim."}
+              </span>
+            </label>
+
+            <div style={{ display: "grid", gap: 8 }}>
+              <span style={{ fontSize: 12, color: "var(--text-muted)" }}>
+                Skills — what makes this a specific job rather than a generic one
+              </span>
+              <div style={{ display: "grid", gap: 10 }}>
+                {toolkits.map((t) => (
+                  <Checkbox
+                    key={t.key}
+                    checked={scratchToolkits.includes(t.key)}
+                    onChange={() => toggleToolkit(t.key)}
+                    label={t.label}
+                    description={t.description}
+                  />
+                ))}
+              </div>
             </div>
           </>
         )}
-
-        <Input
-          label="Name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="What you will call them"
-        />
 
         <div style={{ display: "grid", gap: 8 }}>
           <span style={{ fontSize: 12, color: "var(--text-muted)" }}>

@@ -29,6 +29,7 @@ import type { can } from "@falorb/db";
 export const TOOLKITS = [
   "analytics",
   "people",
+  "leads",
   "crm",
   "support",
   "tasks",
@@ -44,6 +45,7 @@ export type Toolkit = (typeof TOOLKITS)[number];
 export const TOOLKIT_LABELS: Record<Toolkit, string> = {
   analytics: "Analytics",
   people: "Visitors & leads",
+  leads: "Lead outreach",
   crm: "Sales & CRM",
   support: "Customer support",
   tasks: "Task board",
@@ -57,6 +59,7 @@ export const TOOLKIT_LABELS: Record<Toolkit, string> = {
 export const TOOLKIT_DESCRIPTIONS: Record<Toolkit, string> = {
   analytics: "Traffic, trends, funnels, drop-off and retention across the properties it can see.",
   people: "Individual visitors, their history, and which leads are worth contacting.",
+  leads: "Look at one warm lead closely, mark outreach done, and draft the first message.",
   crm: "Read the mirrored CRM, and create or update contacts and signals in Linki.",
   support: "Read conversations and escalations, and resolve an escalation in Bund AI.",
   tasks: "Open, comment on, complete and hand off work on the shared board.",

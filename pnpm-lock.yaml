@@ -51,6 +51,9 @@ importers:
       '@falorb/elevenlabs-client':
         specifier: workspace:*
         version: link:../../packages/elevenlabs-client
+      '@falorb/git-blog-client':
+        specifier: workspace:*
+        version: link:../../packages/git-blog-client
       '@falorb/linki-client':
         specifier: workspace:*
         version: link:../../packages/linki-client
@@ -60,12 +63,18 @@ importers:
       '@falorb/migadu-client':
         specifier: workspace:*
         version: link:../../packages/migadu-client
+      '@falorb/openseo-client':
+        specifier: workspace:*
+        version: link:../../packages/openseo-client
       '@falorb/queries':
         specifier: workspace:*
         version: link:../../packages/queries
       '@falorb/research':
         specifier: workspace:*
         version: link:../../packages/research
+      '@falorb/stripe-client':
+        specifier: workspace:*
+        version: link:../../packages/stripe-client
       '@hono/node-server':
         specifier: ^1.13.7
         version: 1.19.17(hono@4.13.2)
@@ -152,12 +161,21 @@ importers:
       '@falorb/linki-client':
         specifier: workspace:*
         version: link:../../packages/linki-client
+      '@falorb/migadu-client':
+        specifier: workspace:*
+        version: link:../../packages/migadu-client
+      '@falorb/openseo-client':
+        specifier: workspace:*
+        version: link:../../packages/openseo-client
       '@falorb/queries':
         specifier: workspace:*
         version: link:../../packages/queries
       '@falorb/research':
         specifier: workspace:*
         version: link:../../packages/research
+      '@falorb/stripe-client':
+        specifier: workspace:*
+        version: link:../../packages/stripe-client
       '@modelcontextprotocol/sdk':
         specifier: ^1.30.0
         version: 1.30.0(zod@3.25.76)
@@ -213,18 +231,27 @@ importers:
       '@falorb/elevenlabs-client':
         specifier: workspace:*
         version: link:../../packages/elevenlabs-client
+      '@falorb/git-blog-client':
+        specifier: workspace:*
+        version: link:../../packages/git-blog-client
       '@falorb/linki-client':
         specifier: workspace:*
         version: link:../../packages/linki-client
       '@falorb/migadu-client':
         specifier: workspace:*
         version: link:../../packages/migadu-client
+      '@falorb/openseo-client':
+        specifier: workspace:*
+        version: link:../../packages/openseo-client
       '@falorb/queries':
         specifier: workspace:*
         version: link:../../packages/queries
       '@falorb/research':
         specifier: workspace:*
         version: link:../../packages/research
+      '@falorb/stripe-client':
+        specifier: workspace:*
+        version: link:../../packages/stripe-client
       '@falorb/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -313,6 +340,9 @@ importers:
       '@falorb/research':
         specifier: workspace:*
         version: link:../../packages/research
+      '@falorb/stripe-client':
+        specifier: workspace:*
+        version: link:../../packages/stripe-client
       drizzle-orm:
         specifier: ^0.45.2
         version: 0.45.2(@types/pg@8.21.0)(bun-types@1.3.14)(gel@2.2.0)(kysely@0.29.5)(pg@8.23.0)(postgres@3.4.9)
@@ -344,6 +374,9 @@ importers:
       '@falorb/bund-ai-client':
         specifier: workspace:*
         version: link:../bund-ai-client
+      '@falorb/core':
+        specifier: workspace:*
+        version: link:../core
       '@falorb/db':
         specifier: workspace:*
         version: link:../db
@@ -505,6 +538,18 @@ importers:
         specifier: ^3.0.5
         version: 3.2.7(@types/node@22.20.1)(tsx@4.23.12)
 
+  packages/git-blog-client:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.5
+        version: 22.20.1
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.5
+        version: 3.2.7(@types/node@22.20.1)(tsx@4.23.12)
+
   packages/linki-client:
     devDependencies:
       '@types/node':
@@ -557,6 +602,22 @@ importers:
       '@types/nodemailer':
         specifier: ^8.0.1
         version: 8.0.1
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.5
+        version: 3.2.7(@types/node@22.20.1)(tsx@4.23.12)
+
+  packages/openseo-client:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.30.0
+        version: 1.30.0(zod@4.4.3)
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.5
+        version: 22.20.1
       typescript:
         specifier: ^5.7.3
         version: 5.9.3
@@ -625,6 +686,22 @@ importers:
       react:
         specifier: ^19.0.0
         version: 19.2.8
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.5
+        version: 3.2.7(@types/node@22.20.1)(tsx@4.23.12)
+
+  packages/stripe-client:
+    dependencies:
+      stripe:
+        specifier: ^22.5.0
+        version: 22.5.0(@types/node@22.20.1)
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.5
+        version: 22.20.1
       typescript:
         specifier: ^5.7.3
         version: 5.9.3
@@ -2388,6 +2465,15 @@ packages:
   strip-literal@3.1.0:
     resolution: {integrity: sha512-8r3mkIM/2+PpjHoOtiAW8Rg3jJLHaV7xPwG+YRGrv6FP0wwk/toTpATxWYOW0BKdWwl82VT2tFYi5DlROa0Mxg==}
 
+  stripe@22.5.0:
+    resolution: {integrity: sha512-QVwMwriC0bbySx6R4dpsvJ0W//GojC1kwWVS6rPSoVqDUIZX4Hy3TaUrd2AZeXEAaKbfWIjQjvo3vKAReHZ0vQ==}
+    engines: {node: '>=18'}
+    peerDependencies:
+      '@types/node': '>=18'
+    peerDependenciesMeta:
+      '@types/node':
+        optional: true
+
   styled-jsx@5.1.6:
     resolution: {integrity: sha512-qSVyDTeMotdvQYoHWLNGwRFJHC+i+ZvdBRYosOFgC+Wg1vx4frN2/RG/NA7SYqqvKNLf39P2LSRA2pu6n0XYZA==}
     engines: {node: '>= 12.0.0'}
@@ -2870,6 +2956,28 @@ snapshots:
       raw-body: 3.0.2
       zod: 3.25.76
       zod-to-json-schema: 3.25.2(zod@3.25.76)
+    transitivePeerDependencies:
+      - supports-color
+
+  '@modelcontextprotocol/sdk@1.30.0(zod@4.4.3)':
+    dependencies:
+      '@hono/node-server': 1.19.17(hono@4.13.2)
+      ajv: 8.20.0
+      ajv-formats: 3.0.1(ajv@8.20.0)
+      content-type: 1.0.5
+      cors: 2.8.6
+      cross-spawn: 7.0.6
+      eventsource: 3.0.7
+      eventsource-parser: 3.1.1
+      express: 5.2.1
+      express-rate-limit: 8.6.2(express@5.2.1)
+      hono: 4.13.2
+      jose: 6.2.9
+      json-schema-typed: 8.0.2
+      pkce-challenge: 5.0.1
+      raw-body: 3.0.2
+      zod: 4.4.3
+      zod-to-json-schema: 3.25.2(zod@4.4.3)
     transitivePeerDependencies:
       - supports-color
 
@@ -4023,6 +4131,10 @@ snapshots:
     dependencies:
       js-tokens: 9.0.1
 
+  stripe@22.5.0(@types/node@22.20.1):
+    optionalDependencies:
+      '@types/node': 22.20.1
+
   styled-jsx@5.1.6(react@19.2.8):
     dependencies:
       client-only: 0.0.1
@@ -4182,6 +4294,10 @@ snapshots:
   zod-to-json-schema@3.25.2(zod@3.25.76):
     dependencies:
       zod: 3.25.76
+
+  zod-to-json-schema@3.25.2(zod@4.4.3):
+    dependencies:
+      zod: 4.4.3
 
   zod@3.25.76: {}
 

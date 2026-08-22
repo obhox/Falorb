@@ -27,8 +27,11 @@
     "@falorb/db": "workspace:*",
     "@falorb/elevenlabs-client": "workspace:*",
     "@falorb/linki-client": "workspace:*",
+    "@falorb/migadu-client": "workspace:*",
+    "@falorb/openseo-client": "workspace:*",
     "@falorb/queries": "workspace:*",
     "@falorb/research": "workspace:*",
+    "@falorb/stripe-client": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.30.0",
     "drizzle-orm": "^0.45.2",
     "zod": "^3.24.1"

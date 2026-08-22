@@ -6,7 +6,10 @@ import { BundAiClient } from "@falorb/bund-ai-client";
 import { BufferClient } from "@falorb/buffer-client";
 import { ExaClient, FirecrawlClient, type ResearchClients } from "@falorb/research";
 import { ElevenLabsClient } from "@falorb/elevenlabs-client";
+import { StripeClient } from "@falorb/stripe-client";
+import { GitHubBlogClient } from "@falorb/git-blog-client";
 import { MigaduClient } from "@falorb/migadu-client";
+import { OpenSeoClient } from "@falorb/openseo-client";
 import type { AiCredentials, AiProvider } from "@falorb/ai";
 
 /**
@@ -31,7 +34,17 @@ import type { AiCredentials, AiProvider } from "@falorb/ai";
  */
 async function activeConnection(
   organizationId: string,
-  provider: "linki" | "bund_ai" | "buffer" | "exa" | "firecrawl" | "elevenlabs" | "migadu",
+  provider:
+    | "linki"
+    | "bund_ai"
+    | "buffer"
+    | "exa"
+    | "firecrawl"
+    | "elevenlabs"
+    | "stripe"
+    | "github"
+    | "migadu"
+    | "openseo",
   projectId?: number,
 ) {
   if (projectId != null) {
@@ -79,6 +92,21 @@ export async function getBundAiClient(organizationId: string, projectId?: number
   return new BundAiClient({ baseUrl: row.baseUrl, apiKey });
 }
 
+/**
+ * A project's own OpenSEO connection if it has one, else the org's — used
+ * both when drafting a content page (`@/server/content-draft`) and by the
+ * per-project SEO monitoring page (`@/server/seo`). Project-scoped like
+ * `getLinkiClient`, not org-only like `getElevenLabsClient`: OpenSEO's data
+ * (rank tracking, domain keywords) is inherently about one property's own
+ * domain, not the organization as a whole.
+ */
+export async function getOpenSeoClient(organizationId: string, projectId?: number): Promise<OpenSeoClient | null> {
+  const row = await activeConnection(organizationId, "openseo", projectId);
+  if (!row) return null;
+  const apiKey = decryptCredential({ ciphertext: row.encryptedApiKey, iv: row.iv, authTag: row.authTag });
+  return new OpenSeoClient({ baseUrl: row.baseUrl, apiKey });
+}
+
 export async function getBufferClient(organizationId: string, projectId?: number): Promise<BufferClient | null> {
   const row = await activeConnection(organizationId, "buffer", projectId);
   if (!row) return null;
@@ -102,6 +130,53 @@ export async function getElevenLabsClient(organizationId: string): Promise<Eleve
   if (!row) return null;
   const apiKey = decryptCredential({ ciphertext: row.encryptedApiKey, iv: row.iv, authTag: row.authTag });
   return new ElevenLabsClient({ baseUrl: row.baseUrl, apiKey });
+}
+
+/**
+ * The org's Stripe connection, or one project's own override — same
+ * project-with-fallback shape as `getLinkiClient`/`getBundAiClient`, now
+ * that a project can connect its own separate Stripe account (a different
+ * DBA under the same Falorb organization; see FEATURES.md §20). `/billing`
+ * and `/p/[project]/billing` both read the mirror tables directly
+ * (`apps/web/src/server/billing.ts`), same as `/crm`/`/support` do for
+ * their own mirrors, so nothing in the web app calls this today. It exists
+ * for the write actions this integration deliberately doesn't have yet
+ * (FEATURES.md §20's "Not yet built") and for parity with every other
+ * provider getter in this file.
+ */
+export async function getStripeClient(organizationId: string, projectId?: number): Promise<StripeClient | null> {
+  const row = await activeConnection(organizationId, "stripe", projectId);
+  if (!row) return null;
+  const apiKey = decryptCredential({ ciphertext: row.encryptedApiKey, iv: row.iv, authTag: row.authTag });
+  return new StripeClient({ baseUrl: row.baseUrl, apiKey });
+}
+
+/**
+ * The connected blog repo, paired with its client — every caller of a
+ * GitHub-publish action needs both the client (to make the call) and the
+ * repo config (owner/repo/branch/path/frontmatter, from `blogPublishTargets`)
+ * together, so this returns them as one unit rather than making
+ * `publishContentDraft` fetch the target row separately. `null` when nothing
+ * is connected, or the connection has no repo config yet (shouldn't happen —
+ * connecting always writes both rows in one transaction — but a defensive
+ * null here beats a thrown error reaching the UI).
+ */
+export async function getGithubBlogClient(
+  organizationId: string,
+  projectId?: number,
+): Promise<{ client: GitHubBlogClient; target: typeof schema.blogPublishTargets.$inferSelect } | null> {
+  const row = await activeConnection(organizationId, "github", projectId);
+  if (!row) return null;
+
+  const [target] = await db()
+    .select()
+    .from(schema.blogPublishTargets)
+    .where(eq(schema.blogPublishTargets.integrationConnectionId, row.id))
+    .limit(1);
+  if (!target) return null;
+
+  const apiKey = decryptCredential({ ciphertext: row.encryptedApiKey, iv: row.iv, authTag: row.authTag });
+  return { client: new GitHubBlogClient({ baseUrl: row.baseUrl, apiKey }), target };
 }
 
 /**
@@ -180,7 +255,10 @@ export type Provider =
   | "exa"
   | "firecrawl"
   | "elevenlabs"
+  | "stripe"
+  | "github"
   | "migadu"
+  | "openseo"
   | AiProvider;
 
 export const PROVIDERS: Provider[] = [
@@ -195,8 +273,19 @@ export const PROVIDERS: Provider[] = [
   "exa",
   "firecrawl",
   "elevenlabs",
+  "stripe",
+  "github",
   "migadu",
+  "openseo",
 ];
+
+export interface RepoConfigView {
+  owner: string;
+  repo: string;
+  branch: string;
+  pathTemplate: string;
+  frontmatterTemplate: string | null;
+}
 
 export interface ConnectionView {
   provider: Provider;
@@ -209,9 +298,14 @@ export interface ConnectionView {
   lastSyncedAt: string | null;
   lastError: string | null;
   updatedAt: string;
+  /** `github` only — the repo this connection publishes to. */
+  repoConfig: RepoConfigView | null;
 }
 
-function toConnectionView(r: typeof schema.integrationConnections.$inferSelect): ConnectionView {
+function toConnectionView(
+  r: typeof schema.integrationConnections.$inferSelect,
+  repoConfig?: typeof schema.blogPublishTargets.$inferSelect | null,
+): ConnectionView {
   return {
     provider: r.provider,
     baseUrl: r.baseUrl,
@@ -221,6 +315,15 @@ function toConnectionView(r: typeof schema.integrationConnections.$inferSelect):
     lastSyncedAt: r.lastSyncedAt?.toISOString() ?? null,
     lastError: r.lastError,
     updatedAt: r.updatedAt.toISOString(),
+    repoConfig: repoConfig
+      ? {
+          owner: repoConfig.owner,
+          repo: repoConfig.repo,
+          branch: repoConfig.branch,
+          pathTemplate: repoConfig.pathTemplate,
+          frontmatterTemplate: repoConfig.frontmatterTemplate,
+        }
+      : null,
   };
 }
 
@@ -232,8 +335,12 @@ function toConnectionView(r: typeof schema.integrationConnections.$inferSelect):
  */
 export async function listConnections(organizationId: string): Promise<ConnectionView[]> {
   const rows = await db()
-    .select()
+    .select({ connection: schema.integrationConnections, repoConfig: schema.blogPublishTargets })
     .from(schema.integrationConnections)
+    .leftJoin(
+      schema.blogPublishTargets,
+      eq(schema.blogPublishTargets.integrationConnectionId, schema.integrationConnections.id),
+    )
     .where(
       and(
         eq(schema.integrationConnections.organizationId, organizationId),
@@ -241,7 +348,7 @@ export async function listConnections(organizationId: string): Promise<Connectio
       ),
     );
 
-  return rows.map(toConnectionView);
+  return rows.map((r) => toConnectionView(r.connection, r.repoConfig));
 }
 
 export interface ProjectConnectionView {
@@ -262,8 +369,12 @@ export async function listProjectConnections(
   projectId: number,
 ): Promise<ProjectConnectionView[]> {
   const rows = await db()
-    .select()
+    .select({ connection: schema.integrationConnections, repoConfig: schema.blogPublishTargets })
     .from(schema.integrationConnections)
+    .leftJoin(
+      schema.blogPublishTargets,
+      eq(schema.blogPublishTargets.integrationConnectionId, schema.integrationConnections.id),
+    )
     .where(
       and(
         eq(schema.integrationConnections.organizationId, organizationId),
@@ -271,8 +382,16 @@ export async function listProjectConnections(
       ),
     );
 
-  const overrides = new Map(rows.filter((r) => r.projectId === projectId).map((r) => [r.provider, toConnectionView(r)]));
-  const inherited = new Map(rows.filter((r) => r.projectId === null).map((r) => [r.provider, toConnectionView(r)]));
+  const overrides = new Map(
+    rows
+      .filter((r) => r.connection.projectId === projectId)
+      .map((r) => [r.connection.provider, toConnectionView(r.connection, r.repoConfig)]),
+  );
+  const inherited = new Map(
+    rows
+      .filter((r) => r.connection.projectId === null)
+      .map((r) => [r.connection.provider, toConnectionView(r.connection, r.repoConfig)]),
+  );
 
   return PROVIDERS.map((provider) => ({
     provider,

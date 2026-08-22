@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { decryptCredential, resolveAiCredentials, schema } from "@falorb/db";
-import { complete, AiSignalError } from "@falorb/ai";
+import { complete, synthesizeSpeech, AiSignalError, AiTtsError } from "@falorb/ai";
 import {
   ElevenLabsClient,
   ElevenLabsApiError,
@@ -31,6 +31,15 @@ import type { WorkerContext } from "../context";
  * Runs frequently (registered at a short interval in `index.ts`) since this
  * is user-facing: someone is on the review page waiting to see their video
  * finish.
+ *
+ * The avatar chain's voiceover step has one fallback: if ElevenLabs'
+ * `textToSpeech` call itself fails and the org has a Google Gemini AI
+ * connection (`@falorb/ai`'s `synthesizeSpeech`, resolved the same way
+ * `complete()` resolves credentials for the script step), the voiceover is
+ * generated there instead rather than failing the row outright. ElevenLabs
+ * remains the vendor the composer's voice picker asks for — the fallback
+ * only ever fires on an ElevenLabs failure, never in preference to it, and
+ * `voiceProvider` on the row records which one actually spoke.
  */
 
 const MAX_PER_ORG_PER_RUN = 5;
@@ -234,18 +243,42 @@ async function advanceOne(
         );
         return true;
       }
-      let speech: Awaited<ReturnType<ElevenLabsClient["textToSpeech"]>>;
+      let speech: { audioBase64: string; mimeType: string };
+      let voiceProvider: string;
       try {
         speech = await client.textToSpeech(row.script, row.voiceId);
-      } catch (error) {
-        await fail(context, row.id, describeElevenLabsError(error));
-        return true;
+        voiceProvider = "elevenlabs";
+      } catch (elevenLabsError) {
+        // ElevenLabs is and remains the voiceover vendor the composer asks
+        // for — this only runs when that call itself failed, and only gets
+        // anywhere if the org happens to have a Gemini AI connection to
+        // fall back to (see `synthesizeSpeech`'s own docblock). No Gemini
+        // connection means no fallback is possible, so the row fails on
+        // the original ElevenLabs error rather than a confusing second one.
+        const credentials = await resolveAiCredentials(context.db, row.organizationId, row.projectId);
+        if (!credentials || credentials.provider !== "gemini") {
+          await fail(context, row.id, describeElevenLabsError(elevenLabsError));
+          return true;
+        }
+        try {
+          speech = await synthesizeSpeech(row.script, { credentials });
+          voiceProvider = "gemini";
+        } catch (geminiError) {
+          await fail(
+            context,
+            row.id,
+            `ElevenLabs voiceover failed (${describeElevenLabsError(elevenLabsError)}); Gemini fallback also ` +
+              `failed: ${geminiError instanceof AiTtsError ? geminiError.message : String(geminiError)}`,
+          );
+          return true;
+        }
       }
       await context.db
         .update(schema.ugcVideos)
         .set({
           audioBase64: speech.audioBase64,
           audioMimeType: speech.mimeType,
+          voiceProvider,
           status: "voice_ready",
           updatedAt: new Date(),
         })

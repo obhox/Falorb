@@ -71,7 +71,14 @@ async function syncOrg(
   const posts: BufferPost[] = [];
   for (const channel of channels) {
     try {
-      posts.push(...(await client.listPosts({ channelId: channel.id })));
+      // `listChannels()` walks every organization the account belongs to and
+      // tags each channel with the org it actually lives in. `posts` is
+      // scoped per-organization too, so it must be queried with *that*
+      // channel's org, not whichever org happens to be first — otherwise
+      // Buffer correctly rejects the mismatch as FORBIDDEN.
+      posts.push(
+        ...(await client.listPosts({ channelId: channel.id, organizationId: channel.organizationId ?? undefined })),
+      );
     } catch (error) {
       // `channels` and `posts` enforce access separately — a channel the key
       // can list is not always one it can list posts for (Buffer's team-plan

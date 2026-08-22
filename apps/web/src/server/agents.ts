@@ -21,6 +21,8 @@ export interface AgentSummary extends AgentRow {
   pendingApprovals: number;
   lastSummary: string | null;
   lastRunStatus: string | null;
+  /** Its own address, when it has a live mailbox. */
+  email: string | null;
 }
 
 export async function listAgents(organizationId: string): Promise<AgentSummary[]> {
@@ -36,7 +38,9 @@ export async function listAgents(organizationId: string): Promise<AgentSummary[]
   const ids = agents.map((a) => a.id);
   const weekAgo = new Date(Date.now() - 7 * 86_400_000);
 
-  const [runCounts, taskCounts, approvalCounts, lastRuns] = await Promise.all([
+  const mailboxIds = agents.map((a) => a.emailAccountId).filter((id): id is string => Boolean(id));
+
+  const [runCounts, taskCounts, approvalCounts, lastRuns, mailboxes] = await Promise.all([
     db()
       .select({ agentId: schema.agentRuns.agentId, n: count() })
       .from(schema.agentRuns)
@@ -78,7 +82,14 @@ export async function listAgents(organizationId: string): Promise<AgentSummary[]
       .where(inArray(schema.agentRuns.agentId, ids))
       .orderBy(schema.agentRuns.agentId, desc(schema.agentRuns.createdAt))
       .limit(1000),
+    mailboxIds.length
+      ? db()
+          .select({ id: schema.emailAccounts.id, address: schema.emailAccounts.address })
+          .from(schema.emailAccounts)
+          .where(and(inArray(schema.emailAccounts.id, mailboxIds), eq(schema.emailAccounts.status, "active")))
+      : Promise.resolve([] as { id: string; address: string }[]),
   ]);
+  const mailboxBy = new Map(mailboxes.map((m) => [m.id, m.address]));
 
   const runsBy = new Map(runCounts.map((r) => [r.agentId, r.n]));
   const tasksBy = new Map(taskCounts.map((r) => [r.agentId, r.n]));
@@ -95,16 +106,22 @@ export async function listAgents(organizationId: string): Promise<AgentSummary[]
     pendingApprovals: approvalsBy.get(a.id) ?? 0,
     lastSummary: lastBy.get(a.id)?.summary ?? null,
     lastRunStatus: lastBy.get(a.id)?.status ?? null,
+    email: a.emailAccountId ? (mailboxBy.get(a.emailAccountId) ?? null) : null,
   }));
 }
 
-export async function getAgent(organizationId: string, agentId: string): Promise<AgentRow | null> {
+export async function getAgent(
+  organizationId: string,
+  agentId: string,
+): Promise<(AgentRow & { email: string | null }) | null> {
   const [row] = await db()
-    .select()
+    .select({ agent: schema.agents, email: schema.emailAccounts.address, emailStatus: schema.emailAccounts.status })
     .from(schema.agents)
+    .leftJoin(schema.emailAccounts, eq(schema.emailAccounts.id, schema.agents.emailAccountId))
     .where(and(eq(schema.agents.id, agentId), eq(schema.agents.organizationId, organizationId)))
     .limit(1);
-  return row ?? null;
+  if (!row) return null;
+  return { ...row.agent, email: row.emailStatus === "active" ? row.email : null };
 }
 
 export async function listRuns(organizationId: string, agentId: string, limit = 25) {

@@ -1,4 +1,4 @@
-import { AI_PROVIDER_DEFAULT_MODELS, AI_PROVIDER_LABELS, type AiCredentials } from "./credentials";
+import { AI_PROVIDER_DEFAULT_MODELS, AI_PROVIDER_LABELS, type AiCredentials, type AiProvider } from "./credentials";
 import { resolveModel } from "./resolve-model";
 import type { ChatMessage, ChatResult, ToolCall, ToolSpec } from "./types";
 
@@ -180,7 +180,12 @@ async function post(credentials: AiCredentials, path: string, body: unknown, tim
 interface ChatCompletionsChoice {
   message?: {
     content?: string | null;
-    tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }>;
+    tool_calls?: Array<{
+      id?: string;
+      function?: { name?: string; arguments?: string };
+      /** Gemini's OpenAI-compatibility layer carries the thought signature here. */
+      extra_content?: { google?: { thought_signature?: string } };
+    }>;
   };
   finish_reason?: string;
 }
@@ -235,7 +240,7 @@ async function callChatCompletions(credentials: AiCredentials, request: ModelReq
 
   const body: Record<string, unknown> = {
     ...chatCompletionsRouteSelector(credentials, resolveModel(requireModel(credentials, request.model))),
-    messages: request.messages.map(toChatCompletionsMessage),
+    messages: request.messages.map((m) => toChatCompletionsMessage(m, credentials.provider)),
     max_tokens: request.maxTokens,
   };
   if (isOpenRouter) body.usage = { include: true };
@@ -267,11 +272,16 @@ async function callChatCompletions(credentials: AiCredentials, request: ModelReq
 
   const toolCalls: ToolCall[] = (choice.message?.tool_calls ?? [])
     .filter((c) => c.function?.name)
-    .map((c, i) => ({
-      id: c.id ?? `call_${i}`,
-      name: c.function!.name!,
-      argumentsJson: c.function?.arguments ?? "{}",
-    }));
+    .map((c, i) => {
+      const call: ToolCall = {
+        id: c.id ?? `call_${i}`,
+        name: c.function!.name!,
+        argumentsJson: c.function?.arguments ?? "{}",
+      };
+      const signature = c.extra_content?.google?.thought_signature;
+      if (signature) call.thoughtSignature = signature;
+      return call;
+    });
 
   return {
     content: choice.message?.content?.trim() || null,
@@ -285,19 +295,39 @@ async function callChatCompletions(credentials: AiCredentials, request: ModelReq
   };
 }
 
+/**
+ * Placeholder Gemini accepts in place of a signature it never issued.
+ *
+ * Google documents this value for exactly the case of a function call that
+ * was recorded before its signature could be kept — here, an assistant step
+ * persisted by a worker running code older than this field, then replayed
+ * after a crash. Sending it trades the 400 for a turn with slightly weaker
+ * reasoning continuity, which is the right trade on a resume path.
+ */
+const GEMINI_MISSING_SIGNATURE = "skip_thought_signature_validator";
+
 /** Internal shape → OpenAI chat-completions wire shape. */
-function toChatCompletionsMessage(message: ChatMessage): Record<string, unknown> {
+function toChatCompletionsMessage(message: ChatMessage, provider: AiProvider): Record<string, unknown> {
   if (message.role === "tool") {
     return { role: "tool", tool_call_id: message.toolCallId, name: message.name, content: message.content };
   }
   if (message.role === "assistant") {
     const out: Record<string, unknown> = { role: "assistant", content: message.content };
     if (message.toolCalls?.length) {
-      out.tool_calls = message.toolCalls.map((c) => ({
-        id: c.id,
-        type: "function",
-        function: { name: c.name, arguments: c.argumentsJson },
-      }));
+      out.tool_calls = message.toolCalls.map((c) => {
+        const call: Record<string, unknown> = {
+          id: c.id,
+          type: "function",
+          function: { name: c.name, arguments: c.argumentsJson },
+        };
+        // Echoed only to the provider that issued it; OpenRouter forwards
+        // unknown fields upstream, where a stray `extra_content` can itself
+        // be a 400.
+        if (provider === "gemini") {
+          call.extra_content = { google: { thought_signature: c.thoughtSignature ?? GEMINI_MISSING_SIGNATURE } };
+        }
+        return call;
+      });
     }
     return out;
   }

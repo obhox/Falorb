@@ -14,6 +14,7 @@ import {
   buildSystemPrompt,
   buildUserPrompt,
   loadDecisionFeedback,
+  loadEmailAddress,
   loadMemories,
   loadRecentRuns,
 } from "./prompt";
@@ -115,12 +116,13 @@ export async function executeRun(deps: RunDeps, runId: string): Promise<RunOutco
     .set({ status: "running", startedAt: run.startedAt ?? new Date(), heartbeatAt: new Date() })
     .where(eq(schema.agentRuns.id, runId));
 
-  const [memories, recentRuns, decisions, activeGrants, task, credentials] = await Promise.all([
+  const [memories, recentRuns, decisions, activeGrants, task, emailAddress, credentials] = await Promise.all([
     loadMemories(db, agent.id),
     loadRecentRuns(db, agent.id),
     loadDecisionFeedback(db, agent.id),
     loadActiveGrants(db, agent.id),
     loadTask(db, run.taskId),
+    loadEmailAddress(db, agent.emailAccountId),
     // `@falorb/db`'s shared resolver, not a copy: the dashboard, the worker
     // and this runtime must agree on which gateway an org's AI runs against,
     // and two implementations of that eventually disagree. Resolved once per
@@ -173,6 +175,7 @@ export async function executeRun(deps: RunDeps, runId: string): Promise<RunOutco
     memories,
     recentRuns,
     decisions,
+    emailAddress,
   };
   const seed: ChatMessage[] = [
     { role: "system", content: buildSystemPrompt(briefing) },
@@ -239,6 +242,9 @@ export async function executeRun(deps: RunDeps, runId: string): Promise<RunOutco
                 id: c.id,
                 name: c.name,
                 args: c.argumentsJson,
+                // Gemini rejects a replayed call without its signature, so
+                // the resume path needs it as much as the live one.
+                ...(c.thoughtSignature ? { signature: c.thoughtSignature } : {}),
               })),
             }
           : null,
@@ -829,12 +835,15 @@ export function rebuildMessages(steps: ReplayableStep[]): ChatMessage[] {
   for (const step of steps) {
     if (step.kind === "assistant") {
       const raw = (
-        step.arguments as { toolCalls?: { id?: string; name: string; args: string }[] } | null
+        step.arguments as
+          | { toolCalls?: { id?: string; name: string; args: string; signature?: string }[] }
+          | null
       )?.toolCalls;
-      const toolCalls = (raw ?? []).map((c, i) => ({
+      const toolCalls: ToolCall[] = (raw ?? []).map((c, i) => ({
         id: c.id ?? `replay_${step.position}_${i}`,
         name: c.name,
         argumentsJson: c.args,
+        ...(c.signature ? { thoughtSignature: c.signature } : {}),
       }));
       unclaimed = toolCalls.map((c) => c.id);
       messages.push({

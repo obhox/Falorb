@@ -1,6 +1,6 @@
 {
-  "id": "d7096449-f4cd-42ca-9dd2-8d50eb599c70",
-  "prevId": "44e6ab72-e65a-4d76-8bfb-11e61b4613df",
+  "id": "4e37a30b-4055-4377-9b68-9106ce346de6",
+  "prevId": "d7096449-f4cd-42ca-9dd2-8d50eb599c70",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -456,6 +456,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'{}'"
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'admin'"
         },
         "last_used_at": {
           "name": "last_used_at",

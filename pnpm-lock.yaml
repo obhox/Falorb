@@ -389,6 +389,9 @@ importers:
       '@falorb/linki-client':
         specifier: workspace:*
         version: link:../linki-client
+      '@falorb/migadu-client':
+        specifier: workspace:*
+        version: link:../migadu-client
       '@falorb/queries':
         specifier: workspace:*
         version: link:../queries

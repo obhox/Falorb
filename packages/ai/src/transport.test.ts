@@ -163,6 +163,63 @@ describe("OpenRouter (chat completions)", () => {
   });
 });
 
+describe("Gemini thought signatures", () => {
+  it("keeps the signature a function call came with and echoes it on the next request", async () => {
+    const spy = mockFetch({
+      choices: [
+        {
+          message: {
+            content: null,
+            tool_calls: [
+              {
+                id: "c1",
+                function: { name: "list_tasks", arguments: "{}" },
+                extra_content: { google: { thought_signature: "sig-abc" } },
+              },
+            ],
+          },
+          finish_reason: "tool_calls",
+        },
+      ],
+    });
+    const first = await callModel(GEMINI, { messages: CONVERSATION.slice(0, 2), maxTokens: 10, timeoutMs: 100 });
+    expect(first.toolCalls).toEqual([{ id: "c1", name: "list_tasks", argumentsJson: "{}", thoughtSignature: "sig-abc" }]);
+
+    await callModel(GEMINI, {
+      messages: [
+        ...CONVERSATION.slice(0, 2),
+        { role: "assistant", content: null, toolCalls: first.toolCalls },
+        { role: "tool", toolCallId: "c1", name: "list_tasks", content: "[]" },
+      ],
+      maxTokens: 10,
+      timeoutMs: 100,
+    });
+    const sent = lastRequest(spy).body.messages[2].tool_calls[0];
+    expect(sent.extra_content).toEqual({ google: { thought_signature: "sig-abc" } });
+  });
+
+  it("sends Google's documented placeholder for a call persisted without a signature", async () => {
+    const spy = mockFetch({ choices: [{ message: { content: "ok" } }] });
+    await callModel(GEMINI, { messages: CONVERSATION, maxTokens: 10, timeoutMs: 100 });
+    const sent = lastRequest(spy).body.messages[2].tool_calls[0];
+    expect(sent.extra_content).toEqual({ google: { thought_signature: "skip_thought_signature_validator" } });
+  });
+
+  it("never sends extra_content to OpenRouter, which forwards unknown fields upstream", async () => {
+    const spy = mockFetch({ choices: [{ message: { content: "ok" } }] });
+    await callModel(OPENROUTER, {
+      messages: [
+        ...CONVERSATION.slice(0, 2),
+        { role: "assistant", content: null, toolCalls: [{ id: "c1", name: "x", argumentsJson: "{}", thoughtSignature: "sig" }] },
+        { role: "tool", toolCallId: "c1", name: "x", content: "[]" },
+      ],
+      maxTokens: 10,
+      timeoutMs: 100,
+    });
+    expect(lastRequest(spy).body.messages[2].tool_calls[0]).not.toHaveProperty("extra_content");
+  });
+});
+
 describe("Ramp Router (responses)", () => {
   it("posts to /responses with input items rather than messages", async () => {
     const spy = mockFetch({

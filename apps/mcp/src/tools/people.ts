@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { and, eq, ilike, isNull, or, sql } from "drizzle-orm";
+import { and, eq, ilike, isNull, or, sql, type SQL } from "drizzle-orm";
 import { schema } from "@falorb/db";
 import {
   RANGE_DESCRIPTION,
@@ -15,7 +15,7 @@ import {
   type Filter,
 } from "@falorb/queries";
 import type { McpContext } from "../context";
-import { projectName, resolveProjects } from "../context";
+import { projectName, requireLocalOperator, requireScope, resolveProjects } from "../context";
 import { ago, duration, failure, money, num, pct, table, text } from "../format";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -378,6 +378,250 @@ export function registerPeopleTools(server: McpServer, ctx: () => McpContext): v
               { header: "Source", get: (r) => r.source },
             ]),
         );
+      } catch (error) {
+        return failure(message(error));
+      }
+    },
+  );
+
+  server.registerTool(
+    "request_person_export",
+    {
+      title: "Request a GDPR export",
+      description:
+        "Queue a full-profile export for one person — everything known plus their entire event " +
+        "history. Processed asynchronously by a worker job; check back with get_person once " +
+        "complete. Requires the write scope.",
+      inputSchema: { person_id: z.string().describe("Person UUID.") },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+    },
+    async ({ person_id }) => {
+      const { db, scope } = ctx();
+      try {
+        requireScope(scope, "write");
+        if (!UUID.test(person_id)) return failure(`"${person_id}" is not a full person UUID.`);
+
+        const [person] = await db
+          .select({ id: schema.persons.id })
+          .from(schema.persons)
+          .where(and(eq(schema.persons.id, person_id), eq(schema.persons.organizationId, scope.organizationId)))
+          .limit(1);
+        if (!person) return failure("No such person in this workspace.");
+
+        await db.insert(schema.dataRequests).values({
+          organizationId: scope.organizationId,
+          personId: person_id,
+          kind: "export",
+        });
+
+        return text("Export queued. It will contain the full profile and event history.");
+      } catch (error) {
+        return failure(message(error));
+      }
+    },
+  );
+
+  server.registerTool(
+    "request_person_erasure",
+    {
+      title: "Request GDPR erasure",
+      description:
+        "Queue irreversible erasure of one person's profile and entire event history, across both " +
+        "stores. Local operator only (stdio): refused to every bearer API key, the same rule " +
+        "`POST /api/people/requests` enforces for this specific action — erasure needs a human to " +
+        "confirm the subject's identity, which a bearer credential handed to an assistant cannot do. " +
+        "Sign in to the dashboard to erase a person, or run this server over stdio as the local " +
+        "operator.",
+      inputSchema: { person_id: z.string().describe("Person UUID.") },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+    },
+    async ({ person_id }) => {
+      const { db, scope } = ctx();
+      try {
+        requireLocalOperator(scope, "erase a person");
+        if (!UUID.test(person_id)) return failure(`"${person_id}" is not a full person UUID.`);
+
+        const [person] = await db
+          .select({ id: schema.persons.id })
+          .from(schema.persons)
+          .where(and(eq(schema.persons.id, person_id), eq(schema.persons.organizationId, scope.organizationId)))
+          .limit(1);
+        if (!person) return failure("No such person in this workspace.");
+
+        await db.insert(schema.dataRequests).values({
+          organizationId: scope.organizationId,
+          personId: person_id,
+          kind: "delete",
+        });
+
+        return text(
+          "Erasure queued — removes the profile and the entire event history across both stores, not reversible.",
+        );
+      } catch (error) {
+        return failure(message(error));
+      }
+    },
+  );
+
+  server.registerTool(
+    "merge_people",
+    {
+      title: "Merge two profiles",
+      description:
+        "Merge a duplicate person into a survivor: aliases, totals, and identity fields " +
+        "combine onto the survivor, and the duplicate row is removed. Reversible with " +
+        "unmerge_people, which restores the removed row from a snapshot taken here — but device " +
+        "aliases are not moved back automatically on unmerge, so get this right rather than " +
+        "relying on the reverse. Use search_people first to find the right two people; a wrong " +
+        "merge is confusing to unwind even though it's technically reversible. Requires the " +
+        "write scope.",
+      inputSchema: {
+        survivor_id: z.string().describe("The person id that keeps its identity."),
+        merged_id: z.string().describe("The person id being absorbed and removed."),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false },
+    },
+    async ({ survivor_id, merged_id }) => {
+      const { db, clickhouse, scope } = ctx();
+      try {
+        requireScope(scope, "write");
+        if (!UUID.test(survivor_id) || !UUID.test(merged_id)) {
+          return failure("Both ids must be full person UUIDs — use search_people or list_people.");
+        }
+        if (survivor_id === merged_id) return failure("Cannot merge a person into themselves.");
+
+        const [survivor] = await db
+          .select()
+          .from(schema.persons)
+          .where(and(eq(schema.persons.id, survivor_id), eq(schema.persons.organizationId, scope.organizationId)))
+          .limit(1);
+        const [merged] = await db
+          .select()
+          .from(schema.persons)
+          .where(and(eq(schema.persons.id, merged_id), eq(schema.persons.organizationId, scope.organizationId)))
+          .limit(1);
+        if (!survivor || !merged) return failure("No such person in this workspace.");
+
+        const aliases = await db
+          .select()
+          .from(schema.personAliases)
+          .where(eq(schema.personAliases.personId, merged_id));
+
+        // A plain JS array/Date interpolated into `sql` as a single parameter
+        // is not reliably bound by this driver — build the array literal
+        // explicitly via sql.join, same fix FEATURES.md §18 documents for
+        // this exact operation.
+        const mergedProjectIds: SQL = sql.join(
+          merged.projectIds.map((id) => sql`${id}`),
+          sql.raw(", "),
+        );
+
+        await db.transaction(async (tx) => {
+          await tx
+            .update(schema.personAliases)
+            .set({ personId: survivor_id })
+            .where(eq(schema.personAliases.personId, merged_id));
+
+          await tx
+            .update(schema.persons)
+            .set({
+              firstSeenAt: sql`least(${schema.persons.firstSeenAt}, ${merged.firstSeenAt.toISOString()}::timestamptz)`,
+              totalSessions: sql`${schema.persons.totalSessions} + ${merged.totalSessions}`,
+              totalEvents: sql`${schema.persons.totalEvents} + ${merged.totalEvents}`,
+              totalPageviews: sql`${schema.persons.totalPageviews} + ${merged.totalPageviews}`,
+              totalRevenue: sql`${schema.persons.totalRevenue} + ${merged.totalRevenue}`,
+              email: sql`coalesce(${schema.persons.email}, ${merged.email})`,
+              name: sql`coalesce(${schema.persons.name}, ${merged.name})`,
+              identifiedId: sql`coalesce(${schema.persons.identifiedId}, ${merged.identifiedId})`,
+              companyId: sql`coalesce(${schema.persons.companyId}, ${merged.companyId})`,
+              projectIds: sql`(SELECT array_agg(DISTINCT x) FROM unnest(${schema.persons.projectIds} || ARRAY[${mergedProjectIds}]::integer[]) AS x)`,
+              updatedAt: new Date(),
+            })
+            .where(eq(schema.persons.id, survivor_id));
+
+          await tx.insert(schema.personMerges).values({
+            organizationId: scope.organizationId,
+            survivorId: survivor_id,
+            mergedId: merged_id,
+            reason: "manual",
+            aliasCount: aliases.length,
+            mergedSnapshot: merged as unknown as Record<string, unknown>,
+          });
+
+          await tx.delete(schema.persons).where(eq(schema.persons.id, merged_id));
+        });
+
+        if (aliases.length) {
+          await clickhouse.insert({
+            table: "person_overrides",
+            values: aliases.map((a) => ({
+              project_id: a.projectId,
+              distinct_id: a.distinctId,
+              person_id: survivor_id,
+              version: Date.now(),
+            })),
+            format: "JSONEachRow",
+          });
+        }
+
+        return text(
+          `Merged ${merged_id} into ${survivor_id}. History re-attributes within about a minute, once the identity dictionary reloads.`,
+        );
+      } catch (error) {
+        return failure(message(error));
+      }
+    },
+  );
+
+  server.registerTool(
+    "unmerge_people",
+    {
+      title: "Reverse a merge",
+      description:
+        "Restore a person removed by merge_people, from the snapshot taken at merge time. " +
+        "Device aliases are not moved back automatically — reassign them explicitly if needed. " +
+        "Requires the write scope.",
+      inputSchema: { merge_id: z.string().describe("From list_people's merge history, or the id returned by merge_people.") },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+    },
+    async ({ merge_id }) => {
+      const { db, scope } = ctx();
+      try {
+        requireScope(scope, "write");
+
+        const [record] = await db
+          .select()
+          .from(schema.personMerges)
+          .where(and(eq(schema.personMerges.id, merge_id), eq(schema.personMerges.organizationId, scope.organizationId)))
+          .limit(1);
+        if (!record) return failure("No such merge.");
+        if (record.revertedAt) return failure("That merge has already been reverted.");
+
+        const snapshot = record.mergedSnapshot as Record<string, unknown>;
+        if (!snapshot?.id) return failure("That merge has no snapshot and cannot be reversed.");
+
+        await db.transaction(async (tx) => {
+          await tx
+            .insert(schema.persons)
+            .values({
+              id: record.mergedId,
+              organizationId: record.organizationId,
+              identifiedId: (snapshot.identifiedId as string) ?? null,
+              email: (snapshot.email as string) ?? null,
+              name: (snapshot.name as string) ?? null,
+              projectIds: (snapshot.projectIds as number[]) ?? [],
+              firstSeenAt: new Date((snapshot.firstSeenAt as string) ?? Date.now()),
+              lastSeenAt: new Date((snapshot.lastSeenAt as string) ?? Date.now()),
+            })
+            .onConflictDoNothing();
+
+          await tx
+            .update(schema.personMerges)
+            .set({ revertedAt: new Date() })
+            .where(eq(schema.personMerges.id, record.id));
+        });
+
+        return text(`Reverted. ${record.mergedId} restored. Device aliases were not moved back automatically.`);
       } catch (error) {
         return failure(message(error));
       }

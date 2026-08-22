@@ -12,7 +12,7 @@
  * the compiler ever sees them. Values are not.
  */
 
-export const CHANNEL_KINDS = ["slack", "webhook", "email"] as const;
+export const CHANNEL_KINDS = ["slack", "webhook", "email", "agent"] as const;
 
 export type ChannelKind = (typeof CHANNEL_KINDS)[number];
 
@@ -20,4 +20,5 @@ export const CHANNEL_LABELS: Record<ChannelKind, string> = {
   slack: "Slack",
   webhook: "Webhook",
   email: "Email",
+  agent: "Agent",
 };

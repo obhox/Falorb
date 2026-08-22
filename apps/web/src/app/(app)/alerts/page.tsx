@@ -8,6 +8,7 @@ import {
   listChannels,
   type AlertKind,
 } from "@/server/alerts";
+import { listAssignees } from "@/server/agents";
 import { PageBody, PageHeader } from "@/components/shell/PageHeader";
 import { AlertsPanel, type AlertView } from "./AlertsPanel";
 import { ChannelsPanel, type ChannelView } from "./ChannelsPanel";
@@ -28,10 +29,12 @@ export const dynamic = "force-dynamic";
  */
 export default async function AlertsPage() {
   const session = await requireSession();
-  const [alerts, channels] = await Promise.all([
+  const [alerts, channels, assignees] = await Promise.all([
     listAlerts(session.workspace.organizationId),
     listChannels(session.workspace.organizationId),
+    listAssignees(session.workspace.organizationId),
   ]);
+  const agentsById = new Map(assignees.agents.map((a) => [a.id, a]));
   const now = Date.now();
 
   // Whether a mailer exists decides if an email channel actually delivers, so
@@ -50,7 +53,12 @@ export default async function AlertsPage() {
       name: channel.name,
       kind: channel.kind,
       // Never the signing secret — only where it points.
-      destination: channel.kind === "email" ? (config.to ?? "—") : (config.url ?? "—"),
+      destination:
+        channel.kind === "email"
+          ? (config.to ?? "—")
+          : channel.kind === "agent"
+            ? (config.agentId && agentsById.get(config.agentId)?.name) || "Unknown agent"
+            : (config.url ?? "—"),
       active: channel.active,
       ruleCount: ruleCounts.get(channel.id) ?? 0,
     };
@@ -93,6 +101,7 @@ export default async function AlertsPage() {
           channels={channelViews}
           canEdit={can.writeAnalysis(session.workspace.role)}
           emailConfigured={emailConfigured}
+          agents={assignees.agents.map((a) => ({ id: a.id, name: a.name, roleTitle: a.roleTitle }))}
         />
 
         <AlertsPanel

@@ -12,8 +12,13 @@ import { requireHumanSession, requireScope } from "../guards";
  * Automatic resolution is deliberately conservative — it merges only on a
  * deterministic signal — which means it will sometimes leave two profiles that
  * a human can see are the same person, and very occasionally join two that are
- * not. Both need an operator-facing fix, and neither is safe to hand to an
- * assistant, so these live in the API and are absent from the MCP surface.
+ * not. Both need an operator-facing fix. `/merge` and `/unmerge/:id` need
+ * only the `write` scope, reachable from `apps/mcp`'s `merge_people`/
+ * `unmerge_people` — a wrong merge is reversible from the snapshot taken
+ * here. GDPR erasure below is the one action in this file `write` alone does
+ * not authorize: `requireHumanSession` refuses it to every bearer key,
+ * `apps/mcp` included, because confirming the erasure subject's identity is
+ * not something a credential can do the way a signed-in human can.
  */
 
 type Vars = {

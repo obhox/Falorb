@@ -15,6 +15,7 @@ import { BufferClient, BUFFER_API_ENDPOINT } from "@falorb/buffer-client";
 import { ClayClient, CLAY_DEFAULT_BASE_URL } from "@falorb/clay-client";
 import { ExaClient, EXA_DEFAULT_BASE_URL, FirecrawlClient, FIRECRAWL_DEFAULT_BASE_URL } from "@falorb/research";
 import { ElevenLabsClient, ELEVENLABS_DEFAULT_BASE_URL } from "@falorb/elevenlabs-client";
+import { MigaduClient, MIGADU_API_ENDPOINT } from "@falorb/migadu-client";
 import type { Workspace } from "../onboarding";
 import { HttpError } from "../http";
 import { requireHumanSession } from "../guards";
@@ -65,9 +66,14 @@ const PROVIDERS = {
   exa: { label: "Exa", fixedBaseUrl: EXA_DEFAULT_BASE_URL },
   firecrawl: { label: "Firecrawl", fixedBaseUrl: FIRECRAWL_DEFAULT_BASE_URL },
   elevenlabs: { label: "ElevenLabs", fixedBaseUrl: ELEVENLABS_DEFAULT_BASE_URL },
+  migadu: { label: "Migadu", fixedBaseUrl: MIGADU_API_ENDPOINT },
 } as const satisfies Record<string, { label: string; fixedBaseUrl: string | null }>;
 
 type Provider = keyof typeof PROVIDERS;
+
+/** Migadu is the one provider whose management API needs a second secret
+ * (an admin email, alongside the API key) — see `packages/db/src/schema/integrations.ts`. */
+const NEEDS_USERNAME: Partial<Record<Provider, true>> = { migadu: true };
 
 function parseProvider(raw: string): Provider {
   if (raw in PROVIDERS) return raw as Provider;
@@ -85,6 +91,7 @@ async function pingProvider(
   if (provider === "clay") return new ClayClient({ baseUrl, apiKey }).verifyConnection();
   if (provider === "exa") return new ExaClient({ baseUrl, apiKey }).verifyConnection();
   if (provider === "firecrawl") return new FirecrawlClient({ baseUrl, apiKey }).verifyConnection();
+  if (provider === "migadu") return new MigaduClient({ baseUrl, apiKey }).verifyConnection();
   return new ElevenLabsClient({ baseUrl, apiKey }).verifyConnection();
 }
 
@@ -144,6 +151,8 @@ export function integrationsRoutes(db: Database): Hono<{ Variables: Vars }> {
   const connectSchema = z.object({
     baseUrl: z.string().url().optional(),
     apiKey: z.string().min(1),
+    /** Migadu only — its admin email, combined with `apiKey` below before storage. */
+    username: z.string().min(1).optional(),
   });
 
   app.post("/:provider/connection", async (c) => {
@@ -157,13 +166,21 @@ export function integrationsRoutes(db: Database): Hono<{ Variables: Vars }> {
     if (!fixedBaseUrl && !parsed.data.baseUrl) {
       throw new HttpError(422, "baseUrl is required.");
     }
+    if (NEEDS_USERNAME[provider] && !parsed.data.username) {
+      throw new HttpError(422, "username is required.");
+    }
     const baseUrl = fixedBaseUrl ?? parsed.data.baseUrl!;
+    // Migadu's management API is Basic Auth over two secrets; every other
+    // provider's `apiKey` is presented as-is. See the schema's module comment.
+    const credential = NEEDS_USERNAME[provider]
+      ? JSON.stringify({ username: parsed.data.username, apiKey: parsed.data.apiKey })
+      : parsed.data.apiKey;
 
     let check: { ok: boolean; detail: string };
     let encrypted: ReturnType<typeof encryptCredential>;
     try {
-      check = await pingProvider(provider, baseUrl, parsed.data.apiKey);
-      encrypted = encryptCredential(parsed.data.apiKey);
+      check = await pingProvider(provider, baseUrl, credential);
+      encrypted = encryptCredential(credential);
     } catch (error) {
       // pingProvider's own client always catches its network errors and
       // returns { ok: false }, so a throw here is almost always

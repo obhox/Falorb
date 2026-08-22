@@ -41,11 +41,14 @@ function ownerOf(host: string, domains: string[]): string | null {
  * Writes require the `write` scope, so a read-only key handed to an assistant
  * cannot change anything.
  *
- * Destructive operations are **not exposed at all** — no project deletion, no
- * person erasure, no data purge. Those are irreversible, and an assistant
- * acting on a misread instruction should not be able to reach them. Erasure in
- * particular is a GDPR obligation that needs a human to confirm the subject's
- * identity, so it stays a dashboard action.
+ * `archive_project` is the one project-lifecycle action this platform has —
+ * there is no hard delete anywhere in this codebase, dashboard included: a
+ * property is archived (its data kept, under its normal retention window)
+ * rather than destroyed, which is why a write-scope key may do it like any
+ * other write. Person erasure is a different case — see `people.ts`'s
+ * `request_person_erasure`, which needs the local operator, not just the
+ * write scope, because erasing a person's data is genuinely irreversible and
+ * a GDPR obligation that needs a human to confirm the subject's identity.
  */
 export function registerManagementTools(server: McpServer, ctx: () => McpContext): void {
   server.registerTool(
@@ -780,6 +783,40 @@ export function registerManagementTools(server: McpServer, ctx: () => McpContext
           .set({ weeklyDigestEnabled: enabled, updatedAt: new Date() })
           .where(eq(schema.organizations.id, scope.organizationId));
         return text(`Weekly digest turned **${enabled ? "on" : "off"}**.`);
+      } catch (error) {
+        return failure(message(error));
+      }
+    },
+  );
+
+  server.registerTool(
+    "archive_project",
+    {
+      title: "Archive a property",
+      description:
+        "Archive a property. Not a delete — there is no hard delete anywhere in this platform: " +
+        "the row and its event history stay, under their normal retention window, so a re-created " +
+        "property with the same slug can never silently inherit another one's history. An archived " +
+        "property drops off every dashboard list and every other tool's \"all\" scope. Requires the " +
+        "write scope.",
+      inputSchema: { project: z.string().describe("Project slug.") },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ project }) => {
+      const { db, scope } = ctx();
+      try {
+        requireScope(scope, "write");
+        const [id] = resolveProjects(scope, project);
+        const row = scope.projects.find((p) => p.id === id)!;
+
+        const [archived] = await db
+          .update(schema.projects)
+          .set({ archivedAt: new Date(), updatedAt: new Date() })
+          .where(and(eq(schema.projects.id, id!), eq(schema.projects.organizationId, scope.organizationId)))
+          .returning({ slug: schema.projects.slug });
+        if (!archived) return failure("No such property.");
+
+        return text(`Archived **${row.name}** (${archived.slug}). Its data is kept under its retention window.`);
       } catch (error) {
         return failure(message(error));
       }

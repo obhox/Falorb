@@ -1,11 +1,15 @@
 # Falorb
 
-Self-hosted, first-party product analytics for a portfolio of sites. Built for
-small-to-medium traffic, person-level detail, and one view across every project.
+Self-hosted, first-party product analytics for a portfolio of sites — and,
+increasingly, the rest of the business built on top of it: a native CRM,
+customer support, social publishing, AI-generated video, social-listening
+prospecting, and AI employees that work the same task board your team does.
+Built for small-to-medium traffic, person-level detail, and one view across
+every project.
 
 **Status:** the collection pipeline, storage layer, identity graph, query
 layer, background workers, self-serve account system and MCP server are
-complete and verified. The dashboard is built — 27 routes, light and dark,
+complete and verified. The dashboard is built — 33 routes, light and dark,
 role-enforced, driven end to end by Playwright. It does not yet cover the
 whole backend; see [FEATURES.md](FEATURES.md) for the gaps.
 
@@ -223,8 +227,29 @@ who used more than one of your products.
 
 ![Cross-project insights](docs/screenshots/insights.png)
 
+**CRM** — a native deal pipeline joined to the same person analytics already
+has a timeline for, plus a two-way Linki mirror for outreach.
+
+![CRM deal pipeline](docs/screenshots/crm.png)
+
+**Support** — Bund AI's conversations, escalations, leads and tickets,
+resolved from here without switching tabs.
+
+![Customer support escalations](docs/screenshots/support.png)
+
+**AI employees** — agents with a name, a job title and a brief, on the same
+task board your team works. A human decides anything that reaches a customer.
+
+![AI employee roster](docs/screenshots/agents.png)
+
+**Tasks** — one board for human work and agent work, because it's the same
+work. An agent hands off to a person with the reason attached.
+
+![Shared task board](docs/screenshots/tasks.png)
+
 More screens — retention cohorts, alerts, team and role management, the MCP
-connection panel, public share links — are in [FEATURES.md](FEATURES.md#14-dashboard--appsweb).
+connection panel, public share links, social publishing, AI video generation,
+prospecting — are in [FEATURES.md](FEATURES.md#14-dashboard--appsweb).
 
 ## Workers
 

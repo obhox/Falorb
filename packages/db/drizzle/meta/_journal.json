@@ -176,6 +176,13 @@
       "when": 1787344625941,
       "tag": "0024_early_trish_tilby",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1787359383611,
+      "tag": "0025_aspiring_maginty",
+      "breakpoints": true
     }
   ]
 }

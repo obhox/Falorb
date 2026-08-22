@@ -27,6 +27,7 @@ const LABELS: Record<Provider, string> = {
   firecrawl: "Firecrawl",
   elevenlabs: "ElevenLabs",
   github: "GitHub",
+  migadu: "Migadu",
 };
 
 const HAS_BASE_URL: Record<Provider, boolean> = {
@@ -41,6 +42,24 @@ const HAS_BASE_URL: Record<Provider, boolean> = {
   firecrawl: false,
   elevenlabs: false,
   github: false,
+  migadu: false,
+};
+
+/** Migadu is the one provider whose management API needs a second secret —
+ * an admin email, alongside the API key. */
+const HAS_USERNAME: Record<Provider, boolean> = {
+  openrouter: false,
+  router: false,
+  gemini: false,
+  linki: false,
+  bund_ai: false,
+  buffer: false,
+  clay: false,
+  exa: false,
+  firecrawl: false,
+  elevenlabs: false,
+  github: false,
+  migadu: true,
 };
 
 const KEY_PLACEHOLDERS: Record<Provider, string> = {
@@ -55,6 +74,7 @@ const KEY_PLACEHOLDERS: Record<Provider, string> = {
   firecrawl: "fc-…",
   elevenlabs: "Your ElevenLabs API key",
   github: "github_pat_…",
+  migadu: "Your Migadu API key",
 };
 
 const PROVIDERS: Provider[] = [
@@ -69,6 +89,7 @@ const PROVIDERS: Provider[] = [
   "firecrawl",
   "elevenlabs",
   "github",
+  "migadu",
 ];
 
 /**
@@ -129,6 +150,7 @@ function ProviderRow({
   const { run, pending } = useAction();
   const [open, setOpen] = useState(false);
   const [baseUrl, setBaseUrl] = useState("");
+  const [username, setUsername] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
   const [owner, setOwner] = useState(view.override?.repoConfig?.owner ?? "");
@@ -140,6 +162,7 @@ function ProviderRow({
   const connected = override?.status === "active";
   const errored = override?.status === "error";
   const needsBaseUrl = HAS_BASE_URL[provider];
+  const needsUsername = HAS_USERNAME[provider];
   const isAi = isAiProvider(provider);
   const isGithub = provider === "github";
   const defaultModel = isAi ? AI_DEFAULT_MODELS[provider] ?? null : null;
@@ -147,6 +170,7 @@ function ProviderRow({
   async function submit() {
     const data = new FormData();
     if (needsBaseUrl) data.set("baseUrl", baseUrl);
+    if (needsUsername) data.set("username", username);
     data.set("apiKey", apiKey);
     if (isAi) data.set("model", model);
     if (isGithub) {
@@ -159,6 +183,7 @@ function ProviderRow({
     if (result?.ok) {
       setOpen(false);
       setBaseUrl("");
+      setUsername("");
       setApiKey("");
       setModel("");
     }
@@ -268,6 +293,7 @@ function ProviderRow({
               disabled={
                 pending ||
                 (needsBaseUrl && !baseUrl.trim()) ||
+                (needsUsername && !username.trim()) ||
                 !apiKey.trim() ||
                 (isGithub && (!owner.trim() || !repo.trim()))
               }
@@ -285,6 +311,15 @@ function ProviderRow({
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBaseUrl(e.target.value)}
               placeholder="https://your-instance.example.com"
               hint={`Where your ${LABELS[provider]} deployment is reachable from this server.`}
+            />
+          )}
+          {needsUsername && (
+            <Input
+              label="Admin email"
+              value={username}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setUsername(e.target.value)}
+              placeholder="admin@yourdomain.com"
+              hint={`The ${LABELS[provider]} account login this API key belongs to.`}
             />
           )}
           <Input

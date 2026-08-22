@@ -1,5 +1,5 @@
 {
-  "id": "6a773ccb-db9a-4589-ae98-18c0f783c7f9",
+  "id": "650680ba-0cc6-43b7-9c24-529c0ce1bbd1",
   "prevId": "3995bd14-f9f4-4c75-8e18-f92cf81a5d16",
   "version": "7",
   "dialect": "postgresql",
@@ -2274,44 +2274,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "publish_status": {
-          "name": "publish_status",
-          "type": "content_draft_publish_status",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'draft'"
-        },
-        "published_at": {
-          "name": "published_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "published_url": {
-          "name": "published_url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "publish_commit_sha": {
-          "name": "publish_commit_sha",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "publish_file_path": {
-          "name": "publish_file_path",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "publish_error": {
-          "name": "publish_error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -4058,108 +4020,6 @@
           "tableTo": "projects",
           "columnsFrom": [
             "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.blog_publish_targets": {
-      "name": "blog_publish_targets",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "integration_connection_id": {
-          "name": "integration_connection_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "owner": {
-          "name": "owner",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "repo": {
-          "name": "repo",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "branch": {
-          "name": "branch",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'main'"
-        },
-        "path_template": {
-          "name": "path_template",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'content/blog/{slug}.md'"
-        },
-        "frontmatter_template": {
-          "name": "frontmatter_template",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "blog_publish_targets_connection_uq": {
-          "name": "blog_publish_targets_connection_uq",
-          "columns": [
-            {
-              "expression": "integration_connection_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "blog_publish_targets_integration_connection_id_integration_connections_id_fk": {
-          "name": "blog_publish_targets_integration_connection_id_integration_connections_id_fk",
-          "tableFrom": "blog_publish_targets",
-          "tableTo": "integration_connections",
-          "columnsFrom": [
-            "integration_connection_id"
           ],
           "columnsTo": [
             "id"
@@ -10075,6 +9935,13 @@
           "primaryKey": false,
           "notNull": false
         },
+        "delegation_depth": {
+          "name": "delegation_depth",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
         "related_type": {
           "name": "related_type",
           "type": "text",
@@ -10340,16 +10207,6 @@
         "manual"
       ]
     },
-    "public.content_draft_publish_status": {
-      "name": "content_draft_publish_status",
-      "schema": "public",
-      "values": [
-        "draft",
-        "publishing",
-        "published",
-        "failed"
-      ]
-    },
     "public.integration_provider": {
       "name": "integration_provider",
       "schema": "public",
@@ -10364,8 +10221,7 @@
         "elevenlabs",
         "openrouter",
         "router",
-        "gemini",
-        "github"
+        "gemini"
       ]
     },
     "public.integration_status": {

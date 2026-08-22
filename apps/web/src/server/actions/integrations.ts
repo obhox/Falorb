@@ -10,6 +10,7 @@ import { ClayClient, CLAY_DEFAULT_BASE_URL } from "@falorb/clay-client";
 import { ExaClient, EXA_DEFAULT_BASE_URL, FirecrawlClient, FIRECRAWL_DEFAULT_BASE_URL } from "@falorb/research";
 import { ElevenLabsClient, ELEVENLABS_DEFAULT_BASE_URL } from "@falorb/elevenlabs-client";
 import { GitHubBlogClient, GITHUB_API_ENDPOINT } from "@falorb/git-blog-client";
+import { MigaduClient, MIGADU_API_ENDPOINT } from "@falorb/migadu-client";
 import {
   AI_PROVIDER_BASE_URLS,
   AI_PROVIDER_DEFAULT_MODELS,
@@ -52,6 +53,7 @@ export type Provider =
   | "firecrawl"
   | "elevenlabs"
   | "github"
+  | "migadu"
   | AiProvider;
 
 const LABELS: Record<Provider, string> = {
@@ -63,10 +65,15 @@ const LABELS: Record<Provider, string> = {
   firecrawl: "Firecrawl",
   elevenlabs: "ElevenLabs",
   github: "GitHub",
+  migadu: "Migadu",
   openrouter: "OpenRouter",
   router: "Ramp Router",
   gemini: "Google Gemini",
 };
+
+/** Migadu is the one provider whose management API needs a second secret
+ * (an admin email, alongside the API key) — see `packages/db/src/schema/integrations.ts`. */
+const NEEDS_USERNAME: Partial<Record<Provider, true>> = { migadu: true };
 
 /**
  * Buffer, Clay, Exa, Firecrawl, ElevenLabs, GitHub, and both AI gateways each
@@ -81,6 +88,7 @@ const FIXED_BASE_URLS: Partial<Record<Provider, string>> = {
   firecrawl: FIRECRAWL_DEFAULT_BASE_URL,
   elevenlabs: ELEVENLABS_DEFAULT_BASE_URL,
   github: GITHUB_API_ENDPOINT,
+  migadu: MIGADU_API_ENDPOINT,
   openrouter: AI_PROVIDER_BASE_URLS.openrouter,
   router: AI_PROVIDER_BASE_URLS.router,
   gemini: AI_PROVIDER_BASE_URLS.gemini,
@@ -99,6 +107,7 @@ function clientFor(
   | FirecrawlClient
   | ElevenLabsClient
   | GitHubBlogClient
+  | MigaduClient
   | AiGatewayClient {
   if (isAiProvider(provider)) return new AiGatewayClient({ provider, baseUrl, apiKey });
   if (provider === "linki") return new LinkiClient({ baseUrl, apiKey });
@@ -108,6 +117,7 @@ function clientFor(
   if (provider === "exa") return new ExaClient({ baseUrl, apiKey });
   if (provider === "firecrawl") return new FirecrawlClient({ baseUrl, apiKey });
   if (provider === "github") return new GitHubBlogClient({ baseUrl, apiKey });
+  if (provider === "migadu") return new MigaduClient({ baseUrl, apiKey });
   return new ElevenLabsClient({ baseUrl, apiKey });
 }
 
@@ -121,7 +131,8 @@ function isProvider(value: string): value is Provider {
     value === "exa" ||
     value === "firecrawl" ||
     value === "elevenlabs" ||
-    value === "github"
+    value === "github" ||
+    value === "migadu"
   );
 }
 
@@ -146,6 +157,18 @@ function repoConfigFrom(provider: Provider, formData: FormData): RepoConfigInput
     pathTemplate: String(formData.get("pathTemplate") ?? "").trim() || undefined,
     frontmatterTemplate: String(formData.get("frontmatterTemplate") ?? "").trim() || undefined,
   };
+}
+
+/** Combines the connect form's `apiKey` with `username` for providers that need
+ * both (Migadu) into the single string this table's `encryptedApiKey` column
+ * stores — see `NEEDS_USERNAME`. */
+function credentialFor(provider: Provider, formData: FormData): { credential: string; error?: string } {
+  const apiKey = String(formData.get("apiKey") ?? "").trim();
+  if (!apiKey) return { credential: "", error: "Enter the API key." };
+  if (!NEEDS_USERNAME[provider]) return { credential: apiKey };
+  const username = String(formData.get("username") ?? "").trim();
+  if (!username) return { credential: "", error: "Enter the admin email." };
+  return { credential: JSON.stringify({ username, apiKey }) };
 }
 
 /**
@@ -524,11 +547,11 @@ export async function connectIntegration(provider: string, formData: FormData): 
 
   const fixedBaseUrl = FIXED_BASE_URLS[provider];
   const baseUrl = fixedBaseUrl ?? String(formData.get("baseUrl") ?? "").trim();
-  const apiKey = String(formData.get("apiKey") ?? "").trim();
   if (!fixedBaseUrl && !/^https?:\/\/.+/i.test(baseUrl)) {
     return { ok: false, message: "Enter a valid base URL." };
   }
-  if (!apiKey) return { ok: false, message: "Enter the API key." };
+  const { credential, error } = credentialFor(provider, formData);
+  if (error) return { ok: false, message: error };
   const repoConfig = repoConfigFrom(provider, formData);
   if (provider === "github" && !repoConfig) {
     return { ok: false, message: "Enter the repo owner and name to publish to." };
@@ -540,7 +563,7 @@ export async function connectIntegration(provider: string, formData: FormData): 
       { organizationId: session.workspace.organizationId, projectId: null },
       provider,
       baseUrl,
-      apiKey,
+      credential,
       modelFrom(provider, formData),
       session.user.id,
       repoConfig,
@@ -573,11 +596,11 @@ export async function connectProjectIntegration(
 
   const fixedBaseUrl = FIXED_BASE_URLS[provider];
   const baseUrl = fixedBaseUrl ?? String(formData.get("baseUrl") ?? "").trim();
-  const apiKey = String(formData.get("apiKey") ?? "").trim();
   if (!fixedBaseUrl && !/^https?:\/\/.+/i.test(baseUrl)) {
     return { ok: false, message: "Enter a valid base URL." };
   }
-  if (!apiKey) return { ok: false, message: "Enter the API key." };
+  const { credential, error } = credentialFor(provider, formData);
+  if (error) return { ok: false, message: error };
   const repoConfig = repoConfigFrom(provider, formData);
   if (provider === "github" && !repoConfig) {
     return { ok: false, message: "Enter the repo owner and name to publish to." };
@@ -589,7 +612,7 @@ export async function connectProjectIntegration(
       { organizationId: session.workspace.organizationId, projectId: project.id },
       provider,
       baseUrl,
-      apiKey,
+      credential,
       modelFrom(provider, formData),
       session.user.id,
       repoConfig,

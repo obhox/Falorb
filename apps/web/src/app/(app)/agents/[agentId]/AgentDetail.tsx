@@ -29,6 +29,7 @@ export interface DetailAgent {
   maxStepsPerRun: number;
   dailyRunLimit: number;
   unattended: boolean;
+  autoApproveToolkits: string[];
   nextRunAt: string | null;
   lastRunAt: string | null;
 }
@@ -430,6 +431,7 @@ function PowersEditor({
   const [enabled, setEnabled] = useState<string[]>(agent.toolkits);
   const [scope, setScope] = useState<number[]>(agent.projectIds);
   const [unattended, setUnattended] = useState(agent.unattended);
+  const [autoApproveToolkits, setAutoApproveToolkits] = useState<string[]>(agent.autoApproveToolkits);
   const [steps, setSteps] = useState(String(agent.maxStepsPerRun));
   const [shifts, setShifts] = useState(String(agent.dailyRunLimit));
 
@@ -474,16 +476,40 @@ function PowersEditor({
 
       <Card title="Skills" subtitle="Which tools it can reach for. This is what makes it a growth analyst rather than a support lead.">
         <div style={{ display: "grid", gap: 10 }}>
-          {toolkits.map((t) => (
-            <Checkbox
-              key={t.key}
-              checked={enabled.includes(t.key)}
-              onChange={() => setEnabled((prev) => toggle(prev, t.key))}
-              label={t.label}
-              description={t.description}
-              disabled={!canManage}
-            />
-          ))}
+          {toolkits.map((t) => {
+            const isEnabled = enabled.includes(t.key);
+            return (
+              <div key={t.key} style={{ display: "grid", gap: 4 }}>
+                <Checkbox
+                  checked={isEnabled}
+                  onChange={() =>
+                    setEnabled((prev) => {
+                      const next = toggle(prev, t.key);
+                      // A toolkit just turned off cannot stay auto-approved.
+                      if (!next.includes(t.key)) {
+                        setAutoApproveToolkits((waived) => waived.filter((k) => k !== t.key));
+                      }
+                      return next;
+                    })
+                  }
+                  label={t.label}
+                  description={t.description}
+                  disabled={!canManage}
+                />
+                {isEnabled && !unattended && (
+                  <div style={{ marginLeft: 28 }}>
+                    <Checkbox
+                      checked={autoApproveToolkits.includes(t.key)}
+                      onChange={() => setAutoApproveToolkits((prev) => toggle(prev, t.key))}
+                      label={`Skip approval for ${t.label.toLowerCase()}`}
+                      description="Every action in this skillset runs immediately instead of waiting in the approval queue — narrower than removing the gate entirely."
+                      disabled={!canManage}
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </Card>
 
@@ -567,6 +593,15 @@ function PowersEditor({
               formData.append("projectIds", "");
               for (const id of scope) formData.append("projectIds", String(id));
               if (viewerIsOwner) formData.set("autoApproveAll", unattended ? "on" : "off");
+              // Omitted entirely while unattended is on: the checkboxes are
+              // hidden in that state (a blanket waiver already covers every
+              // toolkit), and sending an empty selection would otherwise
+              // silently clear an owner-set "*" out from under a non-owner
+              // who never saw that setting at all.
+              if (!unattended) {
+                formData.append("autoApproveToolkits", "");
+                for (const key of autoApproveToolkits) formData.append("autoApproveToolkits", key);
+              }
               void run(() => updateAgentAction(agent.id, formData));
             }}
           >

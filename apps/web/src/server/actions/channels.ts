@@ -21,7 +21,8 @@ import { CHANNEL_KINDS, type ChannelKind } from "@/lib/channel-kinds";
  *
  * The config shapes here are exactly what `apps/worker/src/jobs/alerts.ts`
  * reads: `{ url }` for Slack and webhooks, `{ url, secret }` to sign a webhook,
- * `{ to }` for email.
+ * `{ to }` for email, `{ agentId, objective? }` for an agent — a fired alert
+ * queues a shift for that agent instead of sending a message anywhere.
  */
 
 export async function createChannel(formData: FormData): Promise<ActionResult> {
@@ -46,6 +47,20 @@ export async function createChannel(formData: FormData): Promise<ActionResult> {
       return { ok: false, message: "Enter the address alerts should go to." };
     }
     config = { to };
+  } else if (kind === "agent") {
+    const agentId = String(formData.get("agentId") ?? "").trim();
+    const [agent] = await db()
+      .select({ id: schema.agents.id, status: schema.agents.status })
+      .from(schema.agents)
+      .where(
+        and(eq(schema.agents.id, agentId), eq(schema.agents.organizationId, session.workspace.organizationId)),
+      )
+      .limit(1);
+    if (!agent) return { ok: false, message: "Choose an agent." };
+    if (agent.status !== "active") return { ok: false, message: "That agent is not active." };
+
+    const objective = String(formData.get("objective") ?? "").trim();
+    config = objective ? { agentId, objective } : { agentId };
   } else {
     const raw = String(formData.get("url") ?? "").trim();
 

@@ -62,6 +62,9 @@ export default async function AgentPage({
             maxStepsPerRun: agent.maxStepsPerRun,
             dailyRunLimit: agent.dailyRunLimit,
             unattended: agent.autoApproveTools.includes("*"),
+            autoApproveToolkits: agent.autoApproveTools
+              .filter((t) => t.startsWith("toolkit:"))
+              .map((t) => t.slice("toolkit:".length)),
             nextRunAt: agent.nextRunAt?.toISOString() ?? null,
             lastRunAt: agent.lastRunAt?.toISOString() ?? null,
           }}

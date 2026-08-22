@@ -183,6 +183,13 @@
       "when": 1787358968620,
       "tag": "0025_woozy_liz_osborn",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1787361195950,
+      "tag": "0026_wonderful_phalanx",
+      "breakpoints": true
     }
   ]
 }

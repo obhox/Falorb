@@ -121,18 +121,39 @@ importers:
       '@clickhouse/client':
         specifier: ^1.23.1
         version: 1.23.1
+      '@falorb/agents':
+        specifier: workspace:*
+        version: link:../../packages/agents
       '@falorb/ai':
         specifier: workspace:*
         version: link:../../packages/ai
+      '@falorb/buffer-client':
+        specifier: workspace:*
+        version: link:../../packages/buffer-client
+      '@falorb/bund-ai-client':
+        specifier: workspace:*
+        version: link:../../packages/bund-ai-client
+      '@falorb/clay-client':
+        specifier: workspace:*
+        version: link:../../packages/clay-client
       '@falorb/core':
         specifier: workspace:*
         version: link:../../packages/core
       '@falorb/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@falorb/elevenlabs-client':
+        specifier: workspace:*
+        version: link:../../packages/elevenlabs-client
+      '@falorb/linki-client':
+        specifier: workspace:*
+        version: link:../../packages/linki-client
       '@falorb/queries':
         specifier: workspace:*
         version: link:../../packages/queries
+      '@falorb/research':
+        specifier: workspace:*
+        version: link:../../packages/research
       '@modelcontextprotocol/sdk':
         specifier: ^1.30.0
         version: 1.30.0(zod@3.25.76)

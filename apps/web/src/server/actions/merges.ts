@@ -15,12 +15,16 @@ import { deny } from "./guard";
  * `POST /unmerge/:mergeId` in `apps/api/src/routes/people.ts`, same
  * reasoning as every other action in this directory (an already-authenticated
  * dashboard session writes directly rather than round-tripping through a
- * bearer-key API). Deliberately absent from MCP, per that route's own
- * docblock: neither direction is safe to hand to an assistant.
+ * bearer-key API). Also reachable via MCP (`merge_people`/`unmerge_people`
+ * in `apps/mcp/src/tools/people.ts`, requires the `write` scope) — a wrong
+ * merge is reversible via the snapshot below, unlike person erasure or a
+ * credential change, so it does not need the local-operator gate those two
+ * carry; get it right by resolving both ids through search_people first
+ * rather than relying on the reverse.
  *
- * Gated `manageProject` (admin+) — same tier as the GDPR requests above,
- * for the same reason: this rewrites another profile's identity, not an
- * analysis object.
+ * Gated `manageProject` (admin+) on the dashboard — same tier as the GDPR
+ * requests above, for the same reason: this rewrites another profile's
+ * identity, not an analysis object.
  */
 
 export interface MergeCandidate {

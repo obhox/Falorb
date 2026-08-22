@@ -9,7 +9,7 @@
  * component.
  */
 
-export { executeRun, executeApproval } from "./run";
+export { executeRun, executeApproval, haltReason } from "./run";
 export type { RunDeps, RunOutcome } from "./run";
 
 export {
@@ -26,7 +26,14 @@ export type { AgentPreset } from "./presets";
 
 export { ALL_TOOLS, getTool, isToolkit, toolsForAgent, toolsInToolkit, toSpecs } from "./tools/index";
 
-export { buildSystemPrompt, buildUserPrompt, loadMemories, loadRecentRuns } from "./prompt";
+export {
+  buildSystemPrompt,
+  buildUserPrompt,
+  loadDecisionFeedback,
+  loadMemories,
+  loadRecentRuns,
+} from "./prompt";
+export type { DecisionFeedback } from "./prompt";
 
 export {
   AUTONOMY_DESCRIPTIONS,

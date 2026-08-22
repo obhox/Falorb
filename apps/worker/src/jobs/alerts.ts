@@ -1,9 +1,7 @@
-import { createHmac } from "node:crypto";
-import { Mailer, alertMail } from "@falorb/mailer";
 import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { totals, type DateRange } from "@falorb/queries";
 import { schema, type WorkerContext } from "../context";
-import { postWebhook } from "../net";
+import { sendToChannel } from "../channels";
 
 /**
  * Alert evaluation and delivery.
@@ -296,40 +294,19 @@ async function deliver(
   const config = channel.config as Record<string, string>;
 
   try {
-    if (channel.kind === "slack" || channel.kind === "webhook") {
-      const url = config.url;
-      if (!url) return;
-
-      const body = JSON.stringify(
-        channel.kind === "slack" ? { text: message } : { alert: rule.name, message },
-      );
-
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      // Sign webhook deliveries so the receiver can verify they are genuine.
-      if (channel.kind === "webhook" && config.secret) {
-        headers["X-Falorb-Signature"] = createHmac("sha256", config.secret)
-          .update(body)
-          .digest("hex");
-      }
-
-      // Not a bare `fetch`. The destination is user-supplied and this call is
-      // made from inside the compose network, so every hop is resolved and
-      // screened against the private ranges first — see `../net`.
-      const response = await postWebhook(url, { headers, body });
-      await markDelivered(context, rule.id, response.ok);
-    } else if (channel.kind === "email") {
-      const to = config.to;
-      if (!to) {
-        console.warn(`[alerts] channel ${channel.id} has no recipient configured`);
-        return;
-      }
-      const dashboard = process.env.FALORB_APP_URL;
-      const sent = await mailer().send(
-        alertMail(to, rule.name, message, dashboard ? `${dashboard}/alerts` : undefined),
-      );
-      await markDelivered(context, rule.id, sent);
-    } else if (channel.kind === "agent") {
+    if (channel.kind === "agent") {
       await wakeAgent(context, rule, channel.id, config, message);
+    } else {
+      const dashboard = process.env.FALORB_APP_URL;
+      const ok = await sendToChannel(channel, {
+        title: `Falorb alert: ${rule.name}`,
+        message,
+        // Slack/webhook get the bare message, as before; only email carries
+        // the dashboard link, matching the previous `alertMail` template.
+        ...(channel.kind === "email" && dashboard ? { url: `${dashboard}/alerts` } : {}),
+        webhookBody: { alert: rule.name, message },
+      });
+      await markDelivered(context, rule.id, ok);
     }
   } catch (error) {
     console.error(`[alerts] delivery failed for ${rule.id}:`, String(error));
@@ -377,6 +354,21 @@ async function wakeAgent(
     return;
   }
 
+  // The workspace kill switch applies to alert-triggered shifts too. The run
+  // is simply not queued — an alert that fires during a pause is visible in
+  // `alert_events` regardless, and the agent will see the current state on
+  // its next scheduled shift rather than a backlog of stale wake-ups.
+  const [org] = await context.db
+    .select({ pausedAt: schema.organizations.automationPausedAt })
+    .from(schema.organizations)
+    .where(eq(schema.organizations.id, rule.organizationId))
+    .limit(1);
+  if (org?.pausedAt) {
+    console.log(`[alerts] automation is paused for ${rule.organizationId}, not waking agent`);
+    await markDelivered(context, rule.id, false);
+    return;
+  }
+
   await context.db.insert(schema.agentRuns).values({
     organizationId: rule.organizationId,
     agentId: agent.id,
@@ -388,13 +380,6 @@ async function wakeAgent(
   });
 
   await markDelivered(context, rule.id, true);
-}
-
-/** Shared transport; constructing one per alert would be wasteful. */
-let sharedMailer: Mailer | undefined;
-function mailer(): Mailer {
-  sharedMailer ??= new Mailer();
-  return sharedMailer;
 }
 
 /**

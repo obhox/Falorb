@@ -285,6 +285,41 @@ export function alertMail(to: string, alertName: string, message: string, url?: 
   };
 }
 
+/**
+ * "An agent is waiting on you." One mail per workspace per sweep, listing
+ * everything newly queued, rather than one per request — a shift that
+ * proposes five outreach messages should produce one email, not five.
+ */
+export function approvalsMail(
+  to: string,
+  orgName: string,
+  items: Array<{ agentName: string; title: string; risk: string; expiresAt: Date }>,
+  url?: string,
+): Mail {
+  const n = items.length;
+  const lines = items.map(
+    (i) =>
+      `• ${i.agentName}: ${i.title} (${i.risk} risk, expires ${i.expiresAt
+        .toISOString()
+        .slice(0, 16)
+        .replace("T", " ")} UTC)`,
+  );
+  return {
+    to,
+    subject:
+      n === 1
+        ? `${items[0]!.agentName} is waiting on your decision`
+        : `${n} agent actions are waiting on your decision`,
+    text: [
+      `In ${orgName}, ${n === 1 ? "an agent has" : `${n} agent requests have`} been queued for approval. ` +
+        "Nothing happens until someone decides; undecided requests expire.",
+      "",
+      ...lines,
+      ...(url ? ["", `Review them: ${url}`] : []),
+    ].join("\n"),
+  };
+}
+
 export function digestMail(
   to: string,
   sections: Array<{

@@ -80,6 +80,22 @@ describe("decide", () => {
     expect(decide(a, tool()).kind).toBe("deny");
   });
 
+  it("honours a time-boxed grant from the queue, and only for the named tool", () => {
+    const a = agent({ autonomy: "assisted" });
+    expect(decide(a, tool(), ["crm_create_contact"]).kind).toBe("allow");
+    expect(decide(a, tool({ name: "crm_push_signal" }), ["crm_create_contact"]).kind).toBe(
+      "approval",
+    );
+  });
+
+  it("a grant cannot relax the role check, and does nothing for an observer", () => {
+    expect(
+      decide(agent({ role: "viewer", autonomy: "autonomous" }), tool(), ["crm_create_contact"]).kind,
+    ).toBe("deny");
+    const internal = tool({ name: "create_task", capability: "manageTasks", effect: "internal" });
+    expect(decide(agent({ autonomy: "observer" }), internal, ["create_task"]).kind).toBe("deny");
+  });
+
   it("treats an unknown autonomy value as observer", () => {
     const internal = tool({ name: "create_task", capability: "manageTasks", effect: "internal" });
     expect(decide(agent({ autonomy: "yolo" }), internal).kind).toBe("deny");

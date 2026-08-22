@@ -313,6 +313,9 @@ importers:
       '@falorb/bund-ai-client':
         specifier: workspace:*
         version: link:../bund-ai-client
+      '@falorb/core':
+        specifier: workspace:*
+        version: link:../core
       '@falorb/db':
         specifier: workspace:*
         version: link:../db

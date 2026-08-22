@@ -5,8 +5,10 @@ import { TOOLKITS } from "../types";
 import { analyticsTools } from "./analytics";
 import { contentTools } from "./content";
 import { crmTools } from "./crm";
+import { leadsTools } from "./leads";
 import { memoryTools } from "./memory";
 import { peopleTools } from "./people";
+import { prospectsTools } from "./prospects";
 import { supportTools } from "./support";
 import { taskTools } from "./tasks";
 
@@ -24,6 +26,8 @@ import { taskTools } from "./tasks";
 export const ALL_TOOLS: AnyToolDefinition[] = [
   ...analyticsTools,
   ...peopleTools,
+  ...leadsTools,
+  ...prospectsTools,
   ...crmTools,
   ...supportTools,
   ...taskTools,

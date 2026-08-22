@@ -6,6 +6,7 @@ import { BundAiClient } from "@falorb/bund-ai-client";
 import { BufferClient } from "@falorb/buffer-client";
 import { ExaClient, FirecrawlClient, type ResearchClients } from "@falorb/research";
 import { ElevenLabsClient } from "@falorb/elevenlabs-client";
+import { GitHubBlogClient } from "@falorb/git-blog-client";
 import type { AiCredentials, AiProvider } from "@falorb/ai";
 
 /**
@@ -30,7 +31,7 @@ import type { AiCredentials, AiProvider } from "@falorb/ai";
  */
 async function activeConnection(
   organizationId: string,
-  provider: "linki" | "bund_ai" | "buffer" | "exa" | "firecrawl" | "elevenlabs",
+  provider: "linki" | "bund_ai" | "buffer" | "exa" | "firecrawl" | "elevenlabs" | "github",
   projectId?: number,
 ) {
   if (projectId != null) {
@@ -104,6 +105,34 @@ export async function getElevenLabsClient(organizationId: string): Promise<Eleve
 }
 
 /**
+ * The connected blog repo, paired with its client — every caller of a
+ * GitHub-publish action needs both the client (to make the call) and the
+ * repo config (owner/repo/branch/path/frontmatter, from `blogPublishTargets`)
+ * together, so this returns them as one unit rather than making
+ * `publishContentDraft` fetch the target row separately. `null` when nothing
+ * is connected, or the connection has no repo config yet (shouldn't happen —
+ * connecting always writes both rows in one transaction — but a defensive
+ * null here beats a thrown error reaching the UI).
+ */
+export async function getGithubBlogClient(
+  organizationId: string,
+  projectId?: number,
+): Promise<{ client: GitHubBlogClient; target: typeof schema.blogPublishTargets.$inferSelect } | null> {
+  const row = await activeConnection(organizationId, "github", projectId);
+  if (!row) return null;
+
+  const [target] = await db()
+    .select()
+    .from(schema.blogPublishTargets)
+    .where(eq(schema.blogPublishTargets.integrationConnectionId, row.id))
+    .limit(1);
+  if (!target) return null;
+
+  const apiKey = decryptCredential({ ciphertext: row.encryptedApiKey, iv: row.iv, authTag: row.authTag });
+  return { client: new GitHubBlogClient({ baseUrl: row.baseUrl, apiKey }), target };
+}
+
+/**
  * Builds `@falorb/research`'s `ResearchClients` bag from whichever of
  * Exa/Firecrawl this organization (or, when `projectId` is given, this
  * project — falling back to the org) has connected — either, both, or
@@ -165,6 +194,7 @@ export type Provider =
   | "exa"
   | "firecrawl"
   | "elevenlabs"
+  | "github"
   | AiProvider;
 
 export const PROVIDERS: Provider[] = [
@@ -179,7 +209,16 @@ export const PROVIDERS: Provider[] = [
   "exa",
   "firecrawl",
   "elevenlabs",
+  "github",
 ];
+
+export interface RepoConfigView {
+  owner: string;
+  repo: string;
+  branch: string;
+  pathTemplate: string;
+  frontmatterTemplate: string | null;
+}
 
 export interface ConnectionView {
   provider: Provider;
@@ -192,9 +231,14 @@ export interface ConnectionView {
   lastSyncedAt: string | null;
   lastError: string | null;
   updatedAt: string;
+  /** `github` only — the repo this connection publishes to. */
+  repoConfig: RepoConfigView | null;
 }
 
-function toConnectionView(r: typeof schema.integrationConnections.$inferSelect): ConnectionView {
+function toConnectionView(
+  r: typeof schema.integrationConnections.$inferSelect,
+  repoConfig?: typeof schema.blogPublishTargets.$inferSelect | null,
+): ConnectionView {
   return {
     provider: r.provider,
     baseUrl: r.baseUrl,
@@ -204,6 +248,15 @@ function toConnectionView(r: typeof schema.integrationConnections.$inferSelect):
     lastSyncedAt: r.lastSyncedAt?.toISOString() ?? null,
     lastError: r.lastError,
     updatedAt: r.updatedAt.toISOString(),
+    repoConfig: repoConfig
+      ? {
+          owner: repoConfig.owner,
+          repo: repoConfig.repo,
+          branch: repoConfig.branch,
+          pathTemplate: repoConfig.pathTemplate,
+          frontmatterTemplate: repoConfig.frontmatterTemplate,
+        }
+      : null,
   };
 }
 
@@ -215,8 +268,12 @@ function toConnectionView(r: typeof schema.integrationConnections.$inferSelect):
  */
 export async function listConnections(organizationId: string): Promise<ConnectionView[]> {
   const rows = await db()
-    .select()
+    .select({ connection: schema.integrationConnections, repoConfig: schema.blogPublishTargets })
     .from(schema.integrationConnections)
+    .leftJoin(
+      schema.blogPublishTargets,
+      eq(schema.blogPublishTargets.integrationConnectionId, schema.integrationConnections.id),
+    )
     .where(
       and(
         eq(schema.integrationConnections.organizationId, organizationId),
@@ -224,7 +281,7 @@ export async function listConnections(organizationId: string): Promise<Connectio
       ),
     );
 
-  return rows.map(toConnectionView);
+  return rows.map((r) => toConnectionView(r.connection, r.repoConfig));
 }
 
 export interface ProjectConnectionView {
@@ -245,8 +302,12 @@ export async function listProjectConnections(
   projectId: number,
 ): Promise<ProjectConnectionView[]> {
   const rows = await db()
-    .select()
+    .select({ connection: schema.integrationConnections, repoConfig: schema.blogPublishTargets })
     .from(schema.integrationConnections)
+    .leftJoin(
+      schema.blogPublishTargets,
+      eq(schema.blogPublishTargets.integrationConnectionId, schema.integrationConnections.id),
+    )
     .where(
       and(
         eq(schema.integrationConnections.organizationId, organizationId),
@@ -254,8 +315,16 @@ export async function listProjectConnections(
       ),
     );
 
-  const overrides = new Map(rows.filter((r) => r.projectId === projectId).map((r) => [r.provider, toConnectionView(r)]));
-  const inherited = new Map(rows.filter((r) => r.projectId === null).map((r) => [r.provider, toConnectionView(r)]));
+  const overrides = new Map(
+    rows
+      .filter((r) => r.connection.projectId === projectId)
+      .map((r) => [r.connection.provider, toConnectionView(r.connection, r.repoConfig)]),
+  );
+  const inherited = new Map(
+    rows
+      .filter((r) => r.connection.projectId === null)
+      .map((r) => [r.connection.provider, toConnectionView(r.connection, r.repoConfig)]),
+  );
 
   return PROVIDERS.map((provider) => ({
     provider,

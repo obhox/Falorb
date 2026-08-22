@@ -9,6 +9,7 @@ import { BufferClient, BUFFER_API_ENDPOINT } from "@falorb/buffer-client";
 import { ClayClient, CLAY_DEFAULT_BASE_URL } from "@falorb/clay-client";
 import { ExaClient, EXA_DEFAULT_BASE_URL, FirecrawlClient, FIRECRAWL_DEFAULT_BASE_URL } from "@falorb/research";
 import { ElevenLabsClient, ELEVENLABS_DEFAULT_BASE_URL } from "@falorb/elevenlabs-client";
+import { GitHubBlogClient, GITHUB_API_ENDPOINT } from "@falorb/git-blog-client";
 import {
   AI_PROVIDER_BASE_URLS,
   AI_PROVIDER_DEFAULT_MODELS,
@@ -50,6 +51,7 @@ export type Provider =
   | "exa"
   | "firecrawl"
   | "elevenlabs"
+  | "github"
   | AiProvider;
 
 const LABELS: Record<Provider, string> = {
@@ -60,14 +62,15 @@ const LABELS: Record<Provider, string> = {
   exa: "Exa",
   firecrawl: "Firecrawl",
   elevenlabs: "ElevenLabs",
+  github: "GitHub",
   openrouter: "OpenRouter",
   router: "Ramp Router",
   gemini: "Google Gemini",
 };
 
 /**
- * Buffer, Clay, Exa, Firecrawl, ElevenLabs, and both AI gateways each have
- * one fixed API root, unlike Linki/Bund AI's self-hosted deployments —
+ * Buffer, Clay, Exa, Firecrawl, ElevenLabs, GitHub, and both AI gateways each
+ * have one fixed API root, unlike Linki/Bund AI's self-hosted deployments —
  * their connect forms carry no baseUrl field at all, so the fixed root is
  * supplied here rather than asked of the user.
  */
@@ -77,6 +80,7 @@ const FIXED_BASE_URLS: Partial<Record<Provider, string>> = {
   exa: EXA_DEFAULT_BASE_URL,
   firecrawl: FIRECRAWL_DEFAULT_BASE_URL,
   elevenlabs: ELEVENLABS_DEFAULT_BASE_URL,
+  github: GITHUB_API_ENDPOINT,
   openrouter: AI_PROVIDER_BASE_URLS.openrouter,
   router: AI_PROVIDER_BASE_URLS.router,
   gemini: AI_PROVIDER_BASE_URLS.gemini,
@@ -94,6 +98,7 @@ function clientFor(
   | ExaClient
   | FirecrawlClient
   | ElevenLabsClient
+  | GitHubBlogClient
   | AiGatewayClient {
   if (isAiProvider(provider)) return new AiGatewayClient({ provider, baseUrl, apiKey });
   if (provider === "linki") return new LinkiClient({ baseUrl, apiKey });
@@ -102,6 +107,7 @@ function clientFor(
   if (provider === "clay") return new ClayClient({ baseUrl, apiKey });
   if (provider === "exa") return new ExaClient({ baseUrl, apiKey });
   if (provider === "firecrawl") return new FirecrawlClient({ baseUrl, apiKey });
+  if (provider === "github") return new GitHubBlogClient({ baseUrl, apiKey });
   return new ElevenLabsClient({ baseUrl, apiKey });
 }
 
@@ -114,8 +120,32 @@ function isProvider(value: string): value is Provider {
     value === "clay" ||
     value === "exa" ||
     value === "firecrawl" ||
-    value === "elevenlabs"
+    value === "elevenlabs" ||
+    value === "github"
   );
+}
+
+/** The repo config fields the GitHub connect form carries, beyond the generic apiKey/baseUrl every provider has. */
+interface RepoConfigInput {
+  owner: string;
+  repo: string;
+  branch?: string;
+  pathTemplate?: string;
+  frontmatterTemplate?: string;
+}
+
+function repoConfigFrom(provider: Provider, formData: FormData): RepoConfigInput | null {
+  if (provider !== "github") return null;
+  const owner = String(formData.get("owner") ?? "").trim();
+  const repo = String(formData.get("repo") ?? "").trim();
+  if (!owner || !repo) return null;
+  return {
+    owner,
+    repo,
+    branch: String(formData.get("branch") ?? "").trim() || undefined,
+    pathTemplate: String(formData.get("pathTemplate") ?? "").trim() || undefined,
+    frontmatterTemplate: String(formData.get("frontmatterTemplate") ?? "").trim() || undefined,
+  };
 }
 
 /**
@@ -146,77 +176,116 @@ async function upsertConnection(
   apiKey: string,
   model: string | null,
   actorId: string,
+  repoConfig?: RepoConfigInput | null,
 ): Promise<{ id: string; verified: boolean; detail: string }> {
-  const check = await clientFor(provider, baseUrl, apiKey).verifyConnection();
+  const client = clientFor(provider, baseUrl, apiKey);
+  const check =
+    provider === "github"
+      ? await (client as GitHubBlogClient).verifyConnection(repoConfig?.owner, repoConfig?.repo)
+      : await client.verifyConnection();
   const encrypted = encryptCredential(apiKey);
 
-  const [row] = await db()
-    .insert(schema.integrationConnections)
-    .values({
-      organizationId: scope.organizationId,
-      projectId: scope.projectId,
-      provider,
-      baseUrl,
-      encryptedApiKey: encrypted.ciphertext,
-      iv: encrypted.iv,
-      authTag: encrypted.authTag,
-      model,
-      status: check.ok ? "active" : "error",
-      lastVerifiedAt: check.ok ? new Date() : null,
-      lastError: check.ok ? null : check.detail,
-      createdBy: actorId,
-    })
-    .onConflictDoUpdate(
-      scope.projectId === null
-        ? {
-            target: [schema.integrationConnections.organizationId, schema.integrationConnections.provider],
-            targetWhere: sql`${schema.integrationConnections.projectId} is null`,
-            set: {
-              baseUrl,
-              encryptedApiKey: encrypted.ciphertext,
-              iv: encrypted.iv,
-              authTag: encrypted.authTag,
-              model,
-              status: check.ok ? "active" : "error",
-              lastVerifiedAt: check.ok ? new Date() : null,
-              lastError: check.ok ? null : check.detail,
-              revokedAt: null,
-              updatedAt: new Date(),
+  // The connection row and (for github) its `blogPublishTargets` row either
+  // both land or neither does — a connection with no repo config would pass
+  // `verifyConnection` but have nowhere to actually publish to.
+  const rowId = await db().transaction(async (tx) => {
+    const [row] = await tx
+      .insert(schema.integrationConnections)
+      .values({
+        organizationId: scope.organizationId,
+        projectId: scope.projectId,
+        provider,
+        baseUrl,
+        encryptedApiKey: encrypted.ciphertext,
+        iv: encrypted.iv,
+        authTag: encrypted.authTag,
+        model,
+        status: check.ok ? "active" : "error",
+        lastVerifiedAt: check.ok ? new Date() : null,
+        lastError: check.ok ? null : check.detail,
+        createdBy: actorId,
+      })
+      .onConflictDoUpdate(
+        scope.projectId === null
+          ? {
+              target: [schema.integrationConnections.organizationId, schema.integrationConnections.provider],
+              targetWhere: sql`${schema.integrationConnections.projectId} is null`,
+              set: {
+                baseUrl,
+                encryptedApiKey: encrypted.ciphertext,
+                iv: encrypted.iv,
+                authTag: encrypted.authTag,
+                model,
+                status: check.ok ? "active" : "error",
+                lastVerifiedAt: check.ok ? new Date() : null,
+                lastError: check.ok ? null : check.detail,
+                revokedAt: null,
+                updatedAt: new Date(),
+              },
+            }
+          : {
+              target: [
+                schema.integrationConnections.organizationId,
+                schema.integrationConnections.projectId,
+                schema.integrationConnections.provider,
+              ],
+              targetWhere: sql`${schema.integrationConnections.projectId} is not null`,
+              set: {
+                baseUrl,
+                encryptedApiKey: encrypted.ciphertext,
+                iv: encrypted.iv,
+                authTag: encrypted.authTag,
+                model,
+                status: check.ok ? "active" : "error",
+                lastVerifiedAt: check.ok ? new Date() : null,
+                lastError: check.ok ? null : check.detail,
+                revokedAt: null,
+                updatedAt: new Date(),
+              },
             },
-          }
-        : {
-            target: [
-              schema.integrationConnections.organizationId,
-              schema.integrationConnections.projectId,
-              schema.integrationConnections.provider,
-            ],
-            targetWhere: sql`${schema.integrationConnections.projectId} is not null`,
-            set: {
-              baseUrl,
-              encryptedApiKey: encrypted.ciphertext,
-              iv: encrypted.iv,
-              authTag: encrypted.authTag,
-              model,
-              status: check.ok ? "active" : "error",
-              lastVerifiedAt: check.ok ? new Date() : null,
-              lastError: check.ok ? null : check.detail,
-              revokedAt: null,
-              updatedAt: new Date(),
-            },
+      )
+      .returning();
+
+    if (provider === "github" && repoConfig) {
+      await tx
+        .insert(schema.blogPublishTargets)
+        .values({
+          integrationConnectionId: row!.id,
+          owner: repoConfig.owner,
+          repo: repoConfig.repo,
+          ...(repoConfig.branch ? { branch: repoConfig.branch } : {}),
+          ...(repoConfig.pathTemplate ? { pathTemplate: repoConfig.pathTemplate } : {}),
+          ...(repoConfig.frontmatterTemplate ? { frontmatterTemplate: repoConfig.frontmatterTemplate } : {}),
+        })
+        .onConflictDoUpdate({
+          target: schema.blogPublishTargets.integrationConnectionId,
+          set: {
+            owner: repoConfig.owner,
+            repo: repoConfig.repo,
+            // Blank on a reconnect means "leave as-is," not "clear it" — a PAT
+            // rotation shouldn't silently wipe a template someone configured
+            // via the API and never re-enters through this form.
+            ...(repoConfig.branch ? { branch: repoConfig.branch } : {}),
+            ...(repoConfig.pathTemplate ? { pathTemplate: repoConfig.pathTemplate } : {}),
+            ...(repoConfig.frontmatterTemplate ? { frontmatterTemplate: repoConfig.frontmatterTemplate } : {}),
+            updatedAt: new Date(),
           },
-    )
-    .returning();
+        });
+    }
+
+    return row!.id;
+  });
 
   audit(db(), {
     organizationId: scope.organizationId,
     actorId,
     action: AUDIT_ACTIONS.integrationConnected,
     targetType: "integration_connection",
-    targetId: row!.id,
+    targetId: rowId,
     metadata: { provider, baseUrl, model, verified: check.ok, projectId: scope.projectId },
   });
 
-  return { id: row!.id, verified: check.ok, detail: check.detail };
+  return { id: rowId, verified: check.ok, detail: check.detail };
 }
 
 /** `projectId: null` selects the org-level row; a project's WHERE clause always adds `isNull` exclusion so it never touches another property's override or the org's row. */
@@ -243,7 +312,17 @@ async function testConnection(
   let check: Awaited<ReturnType<ReturnType<typeof clientFor>["verifyConnection"]>>;
   try {
     const apiKey = decryptCredential({ ciphertext: row.encryptedApiKey, iv: row.iv, authTag: row.authTag });
-    check = await clientFor(provider, row.baseUrl, apiKey).verifyConnection();
+    const client = clientFor(provider, row.baseUrl, apiKey);
+    if (provider === "github") {
+      const [target] = await db()
+        .select({ owner: schema.blogPublishTargets.owner, repo: schema.blogPublishTargets.repo })
+        .from(schema.blogPublishTargets)
+        .where(eq(schema.blogPublishTargets.integrationConnectionId, row.id))
+        .limit(1);
+      check = await (client as GitHubBlogClient).verifyConnection(target?.owner, target?.repo);
+    } else {
+      check = await client.verifyConnection();
+    }
   } catch (error) {
     return {
       ok: false,
@@ -450,6 +529,10 @@ export async function connectIntegration(provider: string, formData: FormData): 
     return { ok: false, message: "Enter a valid base URL." };
   }
   if (!apiKey) return { ok: false, message: "Enter the API key." };
+  const repoConfig = repoConfigFrom(provider, formData);
+  if (provider === "github" && !repoConfig) {
+    return { ok: false, message: "Enter the repo owner and name to publish to." };
+  }
 
   let result: Awaited<ReturnType<typeof upsertConnection>>;
   try {
@@ -460,6 +543,7 @@ export async function connectIntegration(provider: string, formData: FormData): 
       apiKey,
       modelFrom(provider, formData),
       session.user.id,
+      repoConfig,
     );
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : `Could not connect ${LABELS[provider]}.` };
@@ -494,6 +578,10 @@ export async function connectProjectIntegration(
     return { ok: false, message: "Enter a valid base URL." };
   }
   if (!apiKey) return { ok: false, message: "Enter the API key." };
+  const repoConfig = repoConfigFrom(provider, formData);
+  if (provider === "github" && !repoConfig) {
+    return { ok: false, message: "Enter the repo owner and name to publish to." };
+  }
 
   let result: Awaited<ReturnType<typeof upsertConnection>>;
   try {
@@ -504,6 +592,7 @@ export async function connectProjectIntegration(
       apiKey,
       modelFrom(provider, formData),
       session.user.id,
+      repoConfig,
     );
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : `Could not connect ${LABELS[provider]}.` };

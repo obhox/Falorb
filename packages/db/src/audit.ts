@@ -45,6 +45,7 @@ export const AUDIT_ACTIONS = {
   crmDealUpdated: "crm.deal_updated",
   supportEscalationResolved: "support.escalation_resolved",
   socialPostCreated: "social.post_created",
+  contentDraftPublished: "content.draft_published",
   agentCreated: "agent.created",
   agentUpdated: "agent.updated",
   agentDeleted: "agent.deleted",

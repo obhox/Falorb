@@ -1,11 +1,14 @@
 import "server-only";
 import { and, desc, eq, gte, isNull, sql } from "drizzle-orm";
 import { db, schema } from "@falorb/db";
+import { markSyncRequested } from "./sync-demand";
 
 /**
  * The Stripe billing mirror, read-side — a read-only mirror of the
  * operator's own Stripe account (see FEATURES.md §20), written by
- * `apps/worker/src/jobs/stripe-sync.ts`. There is no `actions/billing.ts`:
+ * `apps/worker/src/jobs/stripe-sync.ts`. A read also flags the org for a
+ * fresh sync (see `sync-demand.ts`) — that sync happens on the worker's next
+ * tick, not before this read returns. There is no `actions/billing.ts`:
  * this integration has no write path at all yet (no refunds, no
  * subscription changes, no invoice creation — see FEATURES.md §20's "Not
  * yet built"), so there is nothing here to act on, only to read.
@@ -32,6 +35,7 @@ import { db, schema } from "@falorb/db";
  */
 
 export async function isStripeConnected(organizationId: string, projectId?: number): Promise<boolean> {
+  await markSyncRequested(organizationId, "stripe");
   const [row] = await db()
     .select({ id: schema.integrationConnections.id })
     .from(schema.integrationConnections)
@@ -55,6 +59,7 @@ export type StripeInvoiceRow = typeof schema.stripeInvoices.$inferSelect;
 export type StripeChargeRow = typeof schema.stripeCharges.$inferSelect;
 
 export async function listCustomers(organizationId: string, projectId?: number): Promise<StripeCustomerRow[]> {
+  await markSyncRequested(organizationId, "stripe");
   return db()
     .select()
     .from(schema.stripeCustomers)
@@ -74,6 +79,7 @@ export async function listSubscriptions(
   organizationId: string,
   projectId?: number,
 ): Promise<StripeSubscriptionRow[]> {
+  await markSyncRequested(organizationId, "stripe");
   return db()
     .select()
     .from(schema.stripeSubscriptions)
@@ -90,6 +96,7 @@ export async function listSubscriptions(
 }
 
 export async function listInvoices(organizationId: string, projectId?: number): Promise<StripeInvoiceRow[]> {
+  await markSyncRequested(organizationId, "stripe");
   return db()
     .select()
     .from(schema.stripeInvoices)
@@ -104,6 +111,7 @@ export async function listInvoices(organizationId: string, projectId?: number): 
 }
 
 export async function listCharges(organizationId: string, projectId?: number): Promise<StripeChargeRow[]> {
+  await markSyncRequested(organizationId, "stripe");
   return db()
     .select()
     .from(schema.stripeCharges)
@@ -134,6 +142,7 @@ export interface BillingSummary {
  * same as `/crm`/`/support`, and shows whatever `stripe-sync.ts` last wrote.
  */
 export async function getBillingSummary(organizationId: string, projectId?: number): Promise<BillingSummary> {
+  await markSyncRequested(organizationId, "stripe");
   const database = db();
 
   const [[customerCount], mrrRows, [openInvoiceCount], [failedChargeCount]] = await Promise.all([

@@ -23,8 +23,14 @@ import {
   type GatewayModel,
 } from "@falorb/ai";
 import { requireProject, requireSession } from "@/server/session";
+import { markSyncRequested } from "@/server/sync-demand";
 import type { ActionResult } from "./project";
 import { deny } from "./guard";
+
+/** Providers `apps/worker/src/jobs/*-sync.ts` mirrors — a successful connect
+ * flags an immediate sync instead of waiting for a page read; every other
+ * provider has no demand-driven mirror job to flag. */
+const DEMAND_SYNCED_PROVIDERS = new Set(["buffer", "linki", "bund_ai", "stripe", "migadu"]);
 
 /**
  * Connect, test, or revoke Falorb's connection to Linki, Bund AI, Buffer,
@@ -619,6 +625,9 @@ export async function connectIntegration(provider: string, formData: FormData): 
 
   revalidatePath("/settings/integrations");
   if (!result.verified) return { ok: false, message: `Saved, but ${LABELS[provider]} rejected it: ${result.detail}` };
+  if (DEMAND_SYNCED_PROVIDERS.has(provider)) {
+    await markSyncRequested(session.workspace.organizationId, provider);
+  }
   return { ok: true, message: `${LABELS[provider]} connected.` };
 }
 
@@ -666,6 +675,9 @@ export async function connectProjectIntegration(
 
   revalidatePath(`/p/${slug}/settings`);
   if (!result.verified) return { ok: false, message: `Saved, but ${LABELS[provider]} rejected it: ${result.detail}` };
+  if (DEMAND_SYNCED_PROVIDERS.has(provider)) {
+    await markSyncRequested(session.workspace.organizationId, provider);
+  }
   return { ok: true, message: `${LABELS[provider]} connected for this property.` };
 }
 

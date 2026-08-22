@@ -1,10 +1,13 @@
 import "server-only";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@falorb/db";
+import { markSyncRequested } from "./sync-demand";
 
 /**
  * The Bund AI support mirror, read-side. Written by
- * `apps/worker/src/jobs/bund-ai-sync.ts`; this file only reads it.
+ * `apps/worker/src/jobs/bund-ai-sync.ts`; this file only reads it. A read
+ * also flags the org for a fresh sync (see `sync-demand.ts`) — that sync
+ * happens on the worker's next tick, not before this read returns.
  */
 
 export type SupportEscalationRow = typeof schema.supportEscalations.$inferSelect;
@@ -13,6 +16,7 @@ export type SupportLeadRow = typeof schema.supportLeads.$inferSelect;
 export type SupportTicketRow = typeof schema.supportTickets.$inferSelect;
 
 export async function listEscalations(organizationId: string): Promise<SupportEscalationRow[]> {
+  await markSyncRequested(organizationId, "bund_ai");
   return db()
     .select()
     .from(schema.supportEscalations)
@@ -22,6 +26,7 @@ export async function listEscalations(organizationId: string): Promise<SupportEs
 }
 
 export async function listConversations(organizationId: string): Promise<SupportConversationRow[]> {
+  await markSyncRequested(organizationId, "bund_ai");
   return db()
     .select()
     .from(schema.supportConversations)
@@ -31,6 +36,7 @@ export async function listConversations(organizationId: string): Promise<Support
 }
 
 export async function listLeads(organizationId: string): Promise<SupportLeadRow[]> {
+  await markSyncRequested(organizationId, "bund_ai");
   return db()
     .select()
     .from(schema.supportLeads)
@@ -40,6 +46,7 @@ export async function listLeads(organizationId: string): Promise<SupportLeadRow[
 }
 
 export async function listTickets(organizationId: string): Promise<SupportTicketRow[]> {
+  await markSyncRequested(organizationId, "bund_ai");
   return db()
     .select()
     .from(schema.supportTickets)
@@ -49,6 +56,7 @@ export async function listTickets(organizationId: string): Promise<SupportTicket
 }
 
 export async function getEscalation(organizationId: string, id: string): Promise<SupportEscalationRow | null> {
+  await markSyncRequested(organizationId, "bund_ai");
   const [row] = await db()
     .select()
     .from(schema.supportEscalations)
@@ -58,6 +66,7 @@ export async function getEscalation(organizationId: string, id: string): Promise
 }
 
 export async function getConversation(organizationId: string, id: string): Promise<SupportConversationRow | null> {
+  await markSyncRequested(organizationId, "bund_ai");
   const [row] = await db()
     .select()
     .from(schema.supportConversations)
@@ -67,6 +76,7 @@ export async function getConversation(organizationId: string, id: string): Promi
 }
 
 export async function getLead(organizationId: string, id: string): Promise<SupportLeadRow | null> {
+  await markSyncRequested(organizationId, "bund_ai");
   const [row] = await db()
     .select()
     .from(schema.supportLeads)
@@ -76,6 +86,7 @@ export async function getLead(organizationId: string, id: string): Promise<Suppo
 }
 
 export async function getTicket(organizationId: string, id: string): Promise<SupportTicketRow | null> {
+  await markSyncRequested(organizationId, "bund_ai");
   const [row] = await db()
     .select()
     .from(schema.supportTickets)
@@ -95,6 +106,7 @@ export async function listConversationActivity(
   organizationId: string,
   conversationId: string,
 ): Promise<ConversationActivity> {
+  await markSyncRequested(organizationId, "bund_ai");
   const [escalations, leads, tickets] = await Promise.all([
     db()
       .select({ id: schema.supportEscalations.id, reason: schema.supportEscalations.reason, status: schema.supportEscalations.status })
@@ -124,6 +136,7 @@ export async function listConversationActivity(
 
 /** Org-level connection only — a property-only override doesn't light up this org-wide "Bund AI connected" check; see `packages/db/src/schema/integrations.ts`. */
 export async function isBundAiConnected(organizationId: string): Promise<boolean> {
+  await markSyncRequested(organizationId, "bund_ai");
   const [row] = await db()
     .select({ id: schema.integrationConnections.id })
     .from(schema.integrationConnections)

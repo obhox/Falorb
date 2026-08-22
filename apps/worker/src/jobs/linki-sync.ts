@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { decryptCredential, schema } from "@falorb/db";
 import {
   LinkiClient,
@@ -13,12 +13,19 @@ import {
   type LinkiSuppression,
   type LinkiWorkflow,
 } from "@falorb/linki-client";
+import { isSyncStale } from "@falorb/core";
 import type { WorkerContext } from "../context";
 
 /**
  * Mirrors Linki (sales/outreach) data into Falorb's own Postgres, per org.
  *
- * A full paginated poll every run, not an incremental watermark sweep —
+ * Demand-driven, not a blind sweep — see `buffer-sync.ts`'s doc comment for
+ * why. `context.syncDemand` is flagged by `apps/web/src/server/crm.ts` (a
+ * page load) and `.../actions/integrations.ts` (a fresh connect); this only
+ * calls Linki for orgs flagged since the last tick, further gated by
+ * `SYNC_COOLDOWN_MS` per org.
+ *
+ * A full paginated poll per synced org, not an incremental watermark sweep —
  * unlike `webhooks.ts`, Linki has no outbound event stream to consume
  * incrementally (confirmed during the Phase L2 API audit). Every table is
  * upserted on `(organizationId, linkiId)`, so re-polling is idempotent
@@ -27,12 +34,17 @@ import type { WorkerContext } from "../context";
  * "Watermark" here is connection health, not a cursor: `lastSyncedAt` on
  * `integrationConnections` records when a full sync last completed, stored in
  * Postgres alongside the connection itself rather than in Redis — this is
- * state worth keeping durably, not a cache.
+ * state worth keeping durably, not a cache. It also doubles as the cooldown
+ * clock above.
  */
 
 const PAGE_SIZE = 200;
+const SYNC_COOLDOWN_MS = 5 * 60_000;
 
 export async function syncLinki(context: WorkerContext): Promise<void> {
+  const requestedOrgIds = await context.syncDemand.drain("linki");
+  if (!requestedOrgIds.length) return;
+
   // Org-level connections only. A property's own override (see
   // `packages/db/src/schema/integrations.ts`) is used on demand by
   // `getLinkiClient`, not mirrored here — Linki's data isn't scoped to one
@@ -46,18 +58,25 @@ export async function syncLinki(context: WorkerContext): Promise<void> {
         isNull(schema.integrationConnections.projectId),
         eq(schema.integrationConnections.provider, "linki"),
         eq(schema.integrationConnections.status, "active"),
+        inArray(schema.integrationConnections.organizationId, requestedOrgIds),
       ),
     );
 
   for (const connection of connections) {
+    if (!isSyncStale(connection.lastSyncedAt, SYNC_COOLDOWN_MS)) continue;
     try {
       await syncOrg(context, connection);
     } catch (error) {
       console.error(`[linki-sync] org ${connection.organizationId} failed:`, String(error));
-      await context.db
-        .update(schema.integrationConnections)
-        .set({ status: "error", lastError: String(error), updatedAt: new Date() })
-        .where(eq(schema.integrationConnections.id, connection.id));
+      const status = (error as { status?: number })?.status;
+      if (status === 429) {
+        console.warn(`[linki-sync] org ${connection.organizationId} rate-limited, will retry later`);
+      } else {
+        await context.db
+          .update(schema.integrationConnections)
+          .set({ status: "error", lastError: String(error), updatedAt: new Date() })
+          .where(eq(schema.integrationConnections.id, connection.id));
+      }
     }
   }
 }

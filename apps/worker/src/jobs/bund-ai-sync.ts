@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { decryptCredential, schema } from "@falorb/db";
 import {
   BundAiClient,
@@ -7,25 +7,36 @@ import {
   type BundAiLead,
   type BundAiTicket,
 } from "@falorb/bund-ai-client";
+import { isSyncStale } from "@falorb/core";
 import type { WorkerContext } from "../context";
 
 /**
  * Mirrors Bund AI (customer support) data into Falorb's own Postgres, per
  * org — same shape as `linki-sync.ts`: full paginated poll, upsert on
  * `(organizationId, bundAiId)`, `lastSyncedAt` on `integrationConnections` as
- * the connection-health signal.
+ * the connection-health signal and the cooldown clock below.
+ *
+ * Demand-driven, not a blind sweep — see `buffer-sync.ts`'s doc comment for
+ * why. `context.syncDemand` is flagged by `apps/web/src/server/support.ts` (a
+ * page load) and `.../actions/integrations.ts` (a fresh connect); this only
+ * polls Bund AI for orgs flagged since the last tick, gated further by
+ * `SYNC_COOLDOWN_MS` per org.
  *
  * Bund AI's automations engine *can* push (`send_webhook`), but that push
  * carries no request signature, so it is never trusted as data on its own —
  * see `supportInboundEvents` in `packages/db/src/schema/support.ts`. This
  * poll is the sole writer to the mirror tables; a received push (once the
- * inbound receiver exists) only makes the next poll happen sooner, it never
- * writes support data itself.
+ * inbound receiver exists) only flags the org here to make the next poll
+ * happen sooner, it never writes support data itself.
  */
 
 const PAGE_SIZE = 200;
+const SYNC_COOLDOWN_MS = 5 * 60_000;
 
 export async function syncBundAi(context: WorkerContext): Promise<void> {
+  const requestedOrgIds = await context.syncDemand.drain("bund_ai");
+  if (!requestedOrgIds.length) return;
+
   // Org-level connections only — same reasoning as `linki-sync.ts`: a
   // property's own override is used on demand, not mirrored by this job.
   const connections = await context.db
@@ -36,18 +47,25 @@ export async function syncBundAi(context: WorkerContext): Promise<void> {
         isNull(schema.integrationConnections.projectId),
         eq(schema.integrationConnections.provider, "bund_ai"),
         eq(schema.integrationConnections.status, "active"),
+        inArray(schema.integrationConnections.organizationId, requestedOrgIds),
       ),
     );
 
   for (const connection of connections) {
+    if (!isSyncStale(connection.lastSyncedAt, SYNC_COOLDOWN_MS)) continue;
     try {
       await syncOrg(context, connection);
     } catch (error) {
       console.error(`[bund-ai-sync] org ${connection.organizationId} failed:`, String(error));
-      await context.db
-        .update(schema.integrationConnections)
-        .set({ status: "error", lastError: String(error), updatedAt: new Date() })
-        .where(eq(schema.integrationConnections.id, connection.id));
+      const status = (error as { status?: number })?.status;
+      if (status === 429) {
+        console.warn(`[bund-ai-sync] org ${connection.organizationId} rate-limited, will retry later`);
+      } else {
+        await context.db
+          .update(schema.integrationConnections)
+          .set({ status: "error", lastError: String(error), updatedAt: new Date() })
+          .where(eq(schema.integrationConnections.id, connection.id));
+      }
     }
   }
 }

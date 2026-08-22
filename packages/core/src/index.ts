@@ -10,3 +10,4 @@ export * from "./net";
 export * from "./prospect-sources";
 export * from "./rate-limit";
 export * from "./roles";
+export * from "./sync-demand";

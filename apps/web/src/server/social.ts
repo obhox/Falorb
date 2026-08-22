@@ -1,16 +1,21 @@
 import "server-only";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { db, schema } from "@falorb/db";
+import { markSyncRequested } from "./sync-demand";
 
 /**
  * The Buffer social mirror, read-side. Written by
- * `apps/worker/src/jobs/buffer-sync.ts`; this file only reads it.
+ * `apps/worker/src/jobs/buffer-sync.ts`; this file only reads it. A read
+ * also flags the org for a fresh sync (see `sync-demand.ts`) — that sync
+ * happens on the worker's next tick, not before this read returns, so the
+ * page still serves whatever's already cached.
  */
 
 export type SocialChannelRow = typeof schema.socialChannels.$inferSelect;
 export type SocialPostRow = typeof schema.socialPosts.$inferSelect;
 
 export async function listChannels(organizationId: string): Promise<SocialChannelRow[]> {
+  await markSyncRequested(organizationId, "buffer");
   return db()
     .select()
     .from(schema.socialChannels)
@@ -20,6 +25,7 @@ export async function listChannels(organizationId: string): Promise<SocialChanne
 }
 
 export async function listPosts(organizationId: string): Promise<SocialPostRow[]> {
+  await markSyncRequested(organizationId, "buffer");
   return db()
     .select()
     .from(schema.socialPosts)

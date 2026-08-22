@@ -4,12 +4,16 @@ import { and, desc, eq, isNull } from "drizzle-orm";
 import { AUDIT_ACTIONS, audit, db, encryptCredential, schema } from "@falorb/db";
 import { MigaduApiError } from "@falorb/migadu-client";
 import { getMigaduClient } from "@/server/integrations";
+import { markSyncRequested } from "./sync-demand";
 
 /**
  * The Migadu mailbox mirror, read-side. `emailAccounts` is written by
  * `apps/web/src/server/actions/email.ts` (mailbox create/archive);
  * `emailMessages` is written there too for outbound sends, and by
  * `apps/worker/src/jobs/migadu-sync.ts`'s IMAP poll for inbound ones.
+ * `listEmailMessages`/`isMigaduConnected` flag the org for a fresh IMAP poll
+ * on read (see `sync-demand.ts`) — that poll happens on the worker's next
+ * tick, not before the read returns.
  */
 
 export type EmailAccountRow = typeof schema.emailAccounts.$inferSelect;
@@ -25,6 +29,7 @@ export async function listEmailAccounts(organizationId: string): Promise<EmailAc
 }
 
 export async function listEmailMessages(organizationId: string, accountId?: string): Promise<EmailMessageRow[]> {
+  await markSyncRequested(organizationId, "migadu");
   return db()
     .select()
     .from(schema.emailMessages)
@@ -40,6 +45,7 @@ export async function listEmailMessages(organizationId: string, accountId?: stri
 
 /** Org-level connection only, same convention as `isBufferConnected` — a property-only override doesn't light up this org-wide check. */
 export async function isMigaduConnected(organizationId: string): Promise<boolean> {
+  await markSyncRequested(organizationId, "migadu");
   const [row] = await db()
     .select({ id: schema.integrationConnections.id })
     .from(schema.integrationConnections)

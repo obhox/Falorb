@@ -213,12 +213,20 @@ scheduler.add({
   },
 });
 
-// Full paginated poll per connected org — neither product has an event
-// stream Falorb can consume incrementally (confirmed for both during their
-// respective integration phases), so this is a sweep, not a watermark job.
+// Demand-driven, not a full sweep of every connected org: each job below
+// drains `context.syncDemand` (flagged by a page load or a fresh connect in
+// apps/web — see each job file's doc comment) and only calls out for orgs
+// actually flagged since the last tick, further gated by a per-connection
+// cooldown. The tick itself is cheap — an empty drain returns immediately,
+// no DB or provider call — so it can run often without the risk a blind
+// per-org sweep on the same short interval would carry (this is what used to
+// trip Buffer's 24h rate limit: every active org polled every 15 minutes
+// whether or not anyone was looking at its data). No periodic fallback sweep
+// on top of this: nothing else in the worker reads these tables, so data
+// nobody has asked for doesn't need to be kept fresh.
 scheduler.add({
   name: "linki-sync",
-  intervalMs: 15 * MINUTE,
+  intervalMs: 30_000,
   timeoutMs: 20 * MINUTE,
   run: async () => {
     await syncLinki(context);
@@ -227,7 +235,7 @@ scheduler.add({
 
 scheduler.add({
   name: "bund-ai-sync",
-  intervalMs: 15 * MINUTE,
+  intervalMs: 30_000,
   timeoutMs: 20 * MINUTE,
   run: async () => {
     await syncBundAi(context);
@@ -236,7 +244,7 @@ scheduler.add({
 
 scheduler.add({
   name: "buffer-sync",
-  intervalMs: 15 * MINUTE,
+  intervalMs: 30_000,
   timeoutMs: 20 * MINUTE,
   run: async () => {
     await syncBuffer(context);
@@ -245,19 +253,16 @@ scheduler.add({
 
 scheduler.add({
   name: "stripe-sync",
-  intervalMs: 15 * MINUTE,
+  intervalMs: 30_000,
   timeoutMs: 20 * MINUTE,
   run: async () => {
     await syncStripe(context);
   },
 });
 
-// Shorter than Buffer's interval: replies are the point of this
-// integration, and an IMAP poll is cheap per mailbox — still bounded to
-// avoid hammering Migadu's IMAP servers across many mailboxes at once.
 scheduler.add({
   name: "migadu-sync",
-  intervalMs: 5 * MINUTE,
+  intervalMs: 30_000,
   timeoutMs: 10 * MINUTE,
   run: async () => {
     await syncMigadu(context);

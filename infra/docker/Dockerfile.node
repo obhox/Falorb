@@ -32,16 +32,22 @@ COPY packages/core/package.json           packages/core/
 # package whose manifest isn't present yet is invisible to this install --
 # its dependencies never get linked, so an import from inside its own source
 # fails at build time with "Module not found: Can't resolve '<dep>'" (hit
-# this for packages/research -> @falorb/ai, and packages/agents -> zod/
-# zod-to-json-schema/@clickhouse/client; see Dockerfile.web for the build
-# failure this caused there -- apps/worker depends on both packages too).
-# Packages with no dependencies of their own (linki-client, bund-ai-client,
-# clay-client, buffer-client, elevenlabs-client) don't need to be listed
-# here for the same reason these two didn't, until they gained one.
+# this for packages/research -> @falorb/ai, packages/agents -> zod/
+# zod-to-json-schema/@clickhouse/client, packages/stripe-client -> stripe,
+# packages/migadu-client -> imapflow/mailparser/nodemailer, and
+# packages/openseo-client -> @modelcontextprotocol/sdk; see Dockerfile.web
+# for the build failure this caused there -- apps/worker depends on these
+# packages too). Packages with no dependencies of their own (linki-client,
+# bund-ai-client, clay-client, buffer-client, elevenlabs-client,
+# git-blog-client) don't need to be listed here for the same reason these
+# didn't, until they gain one.
 COPY packages/ai/package.json             packages/ai/
 COPY packages/research/package.json       packages/research/
 COPY packages/agents/package.json         packages/agents/
 COPY packages/db/package.json             packages/db/
+COPY packages/stripe-client/package.json  packages/stripe-client/
+COPY packages/migadu-client/package.json  packages/migadu-client/
+COPY packages/openseo-client/package.json packages/openseo-client/
 COPY packages/queries/package.json        packages/queries/
 COPY packages/auth/package.json           packages/auth/
 COPY packages/mailer/package.json         packages/mailer/

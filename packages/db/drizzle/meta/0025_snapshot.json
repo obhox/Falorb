@@ -1,5 +1,5 @@
 {
-  "id": "8a20c932-e7d2-4e10-8c70-3179e72d8a43",
+  "id": "650680ba-0cc6-43b7-9c24-529c0ce1bbd1",
   "prevId": "3995bd14-f9f4-4c75-8e18-f92cf81a5d16",
   "version": "7",
   "dialect": "postgresql",
@@ -9462,7 +9462,7 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "default": "'\ud83e\udd16'"
+          "default": "'🤖'"
         },
         "preset": {
           "name": "preset",
@@ -9935,6 +9935,13 @@
           "primaryKey": false,
           "notNull": false
         },
+        "delegation_depth": {
+          "name": "delegation_depth",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
         "related_type": {
           "name": "related_type",
           "type": "text",
@@ -10214,8 +10221,7 @@
         "elevenlabs",
         "openrouter",
         "router",
-        "gemini",
-        "openseo"
+        "gemini"
       ]
     },
     "public.integration_status": {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Badge, Button, Card, Dialog, Icon, IconButton, Input, SegmentedControl } from "@falorb/ui";
+import { Badge, Button, Card, Dialog, Icon, IconButton, Input, SegmentedControl, Select } from "@falorb/ui";
 import { Empty } from "@/components/Empty";
 import { createChannel, deleteChannel } from "@/server/actions/channels";
 import { CHANNEL_LABELS as KIND_LABELS, type ChannelKind } from "@/lib/channel-kinds";
@@ -28,10 +28,12 @@ export function ChannelsPanel({
   channels,
   canEdit,
   emailConfigured,
+  agents,
 }: {
   channels: ChannelView[];
   canEdit: boolean;
   emailConfigured: boolean;
+  agents: { id: string; name: string; roleTitle: string }[];
 }) {
   const [open, setOpen] = useState(false);
   const { run, pending } = useAction();
@@ -41,6 +43,8 @@ export function ChannelsPanel({
   const [url, setUrl] = useState("");
   const [secret, setSecret] = useState("");
   const [to, setTo] = useState("");
+  const [agentId, setAgentId] = useState("");
+  const [objective, setObjective] = useState("");
 
   async function submit() {
     const data = new FormData();
@@ -49,6 +53,8 @@ export function ChannelsPanel({
     data.set("url", url);
     data.set("secret", secret);
     data.set("to", to);
+    data.set("agentId", agentId);
+    data.set("objective", objective);
 
     const result = await run(() => createChannel(data), { success: "Channel added" });
     if (!result?.ok) return;
@@ -58,6 +64,8 @@ export function ChannelsPanel({
     setUrl("");
     setSecret("");
     setTo("");
+    setAgentId("");
+    setObjective("");
   }
 
   async function remove(id: string) {
@@ -231,6 +239,31 @@ export function ChannelsPanel({
                 </span>
               )}
             </>
+          ) : kind === "agent" ? (
+            agents.length === 0 ? (
+              <span style={{ fontSize: "var(--size-micro)", color: "var(--text-muted)" }}>
+                No active agents in this workspace yet — hire one from the Agents page first.
+              </span>
+            ) : (
+              <>
+                <Select
+                  label="Agent"
+                  value={agents.find((a) => a.id === agentId)?.name ?? ""}
+                  options={agents.map((a) => a.name)}
+                  onChange={(label: string) => {
+                    const match = agents.find((a) => a.name === label);
+                    if (match) setAgentId(match.id);
+                  }}
+                />
+                <Input
+                  label="What should it do"
+                  value={objective}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setObjective(e.target.value)}
+                  placeholder="Optional — defaults to investigating the alert and acting on whatever it needs."
+                  hint="This is a normal shift: the agent's own role, autonomy and approval gates still apply."
+                />
+              </>
+            )
           ) : (
             <>
               <Input

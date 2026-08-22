@@ -51,3 +51,22 @@ export function describeProspectSource(source: string): string {
 export function labelProspectSource(source: string): string {
   return PROSPECT_SOURCES[source]?.label ?? source;
 }
+
+/**
+ * Below this, a scored match (`prospects.relevanceScore`, set by
+ * `apps/worker/src/jobs/prospect-relevance.ts`) is noise rather than a real
+ * outreach opportunity — filtered out of every listing surface (dashboard,
+ * MCP, agent tools) instead of merely badge-shown, so nobody has to
+ * eyeball-skip low-relevance matches. An unscored prospect (`relevanceScore`
+ * null — freshly discovered, or scoring itself failed) is deliberately never
+ * filtered on this: every listener's comment is explicit that "a scoring
+ * failure must never drop the underlying discovery."
+ */
+export const MIN_PROSPECT_RELEVANCE_SCORE = 40;
+
+/** Shared predicate so "relevant enough to show" is defined once — used both
+ * in application code (`Array.prototype.filter`) and mirrored as a SQL
+ * condition in each listing query (`relevanceScore IS NULL OR >= threshold`). */
+export function isRelevantProspect(relevanceScore: number | null): boolean {
+  return relevanceScore === null || relevanceScore >= MIN_PROSPECT_RELEVANCE_SCORE;
+}

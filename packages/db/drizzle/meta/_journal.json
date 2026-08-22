@@ -180,8 +180,29 @@
     {
       "idx": 25,
       "version": "7",
-      "when": 1787345225941,
-      "tag": "0025_wet_champions",
+      "when": 1787358968620,
+      "tag": "0025_woozy_liz_osborn",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1787361195950,
+      "tag": "0026_wonderful_phalanx",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1787362088667,
+      "tag": "0027_brainy_speed",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1787362992425,
+      "tag": "0028_dashing_anita_blake",
       "breakpoints": true
     }
   ]

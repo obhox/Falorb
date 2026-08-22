@@ -328,10 +328,66 @@ async function deliver(
         alertMail(to, rule.name, message, dashboard ? `${dashboard}/alerts` : undefined),
       );
       await markDelivered(context, rule.id, sent);
+    } else if (channel.kind === "agent") {
+      await wakeAgent(context, rule, channel.id, config, message);
     }
   } catch (error) {
     console.error(`[alerts] delivery failed for ${rule.id}:`, String(error));
   }
+}
+
+/**
+ * Queue a shift for an agent instead of sending a message anywhere.
+ *
+ * The run that comes out of this is a completely ordinary queued
+ * `agent_runs` row — same pickup by `runQueuedAgentRuns`, same role and
+ * autonomy gates, same approval queue for anything that reaches outside
+ * Falorb. Being alert-triggered changes nothing about what the agent is
+ * then allowed to do.
+ *
+ * `config.agentId` is loosely-typed JSON on an admin-authored row, not a
+ * foreign key, so the agent's own `organizationId` is checked explicitly
+ * against the rule's rather than trusted implicitly.
+ */
+async function wakeAgent(
+  context: WorkerContext,
+  rule: typeof schema.alerts.$inferSelect,
+  channelId: string,
+  config: Record<string, string>,
+  message: string,
+): Promise<void> {
+  const agentId = config.agentId;
+  if (!agentId) {
+    console.warn(`[alerts] channel ${channelId} has no agent configured`);
+    return;
+  }
+
+  const [agent] = await context.db
+    .select({ id: schema.agents.id, organizationId: schema.agents.organizationId, status: schema.agents.status })
+    .from(schema.agents)
+    .where(eq(schema.agents.id, agentId))
+    .limit(1);
+
+  if (!agent || agent.organizationId !== rule.organizationId) {
+    console.warn(`[alerts] channel ${channelId} points at an agent outside this workspace`);
+    return;
+  }
+  if (agent.status !== "active") {
+    console.log(`[alerts] agent for channel ${channelId} is not active, skipping`);
+    return;
+  }
+
+  await context.db.insert(schema.agentRuns).values({
+    organizationId: rule.organizationId,
+    agentId: agent.id,
+    trigger: "alert",
+    triggerRef: rule.id,
+    objective:
+      config.objective?.trim() ||
+      `An alert fired: ${message}. Look into it and act on whatever it needs.`,
+  });
+
+  await markDelivered(context, rule.id, true);
 }
 
 /** Shared transport; constructing one per alert would be wasteful. */

@@ -15,6 +15,7 @@ export interface UgcVideoDetailData {
   script: string | null;
   videoPrompt: string | null;
   voiceName: string | null;
+  voiceProvider: string;
   videoModel: string;
   aspectRatio: string | null;
   resolution: string | null;
@@ -55,7 +56,14 @@ export function UgcVideoDetail({ video, queue }: { video: UgcVideoDetailData; qu
           caption is a real mistake — so each is labelled for what it is
           rather than sharing a generic heading. */}
       {video.script && (
-        <Card title="Script" subtitle="What the presenter says, voiced by your ElevenLabs voice">
+        <Card
+          title="Script"
+          subtitle={
+            video.voiceProvider === "gemini"
+              ? "What the presenter says — ElevenLabs was unavailable, so this was voiced by a Gemini fallback voice instead"
+              : "What the presenter says, voiced by your ElevenLabs voice"
+          }
+        >
           <CopyField value={video.script} />
         </Card>
       )}
@@ -152,7 +160,7 @@ function Recipe({ video }: { video: UgcVideoDetailData }) {
 
   const parts = [
     model?.label ?? video.videoModel,
-    isAvatar ? video.voiceName ?? "voice by ID" : null,
+    isAvatar ? (video.voiceProvider === "gemini" ? "Gemini fallback voice" : video.voiceName ?? "voice by ID") : null,
     video.aspectRatio,
     video.resolution,
     video.requestedDurationSecs ? `${video.requestedDurationSecs}s` : null,

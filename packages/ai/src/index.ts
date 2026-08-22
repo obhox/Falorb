@@ -24,6 +24,8 @@ export {
 export type { AiCredentials, AiProvider } from "./credentials";
 export { AiGatewayClient, AiGatewayError } from "./gateway-client";
 export type { GatewayModel, VerifyResult } from "./gateway-client";
+export { synthesizeSpeech, AiTtsError } from "./tts";
+export type { SpeechResult, SynthesizeSpeechOptions } from "./tts";
 
 /**
  * The platform's AI-gateway integration, shared by every caller that turns

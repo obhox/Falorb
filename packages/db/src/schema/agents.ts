@@ -222,7 +222,10 @@ export const agentRuns = pgTable(
     objective: text("objective").notNull(),
 
     /** "queued" | "running" | "waiting_approval" | "succeeded" | "failed"
-     * | "cancelled". */
+     * | "needs_attention" | "cancelled". `needs_attention` is a shift that
+     * ended normally but whose queued actions were never decided (expired)
+     * or could not be carried out — the agent did its job and the
+     * organisation dropped the ball, which must not be filed as a success. */
     status: text("status").notNull().default("queued"),
     /** The agent's own closing report. */
     summary: text("summary"),
@@ -474,8 +477,8 @@ export const agentApprovals = pgTable(
     status: text("status").notNull().default("pending"),
     decidedBy: text("decided_by").references(() => user.id, { onDelete: "set null" }),
     decidedAt: timestamp("decided_at", { withTimezone: true }),
-    /** A rejection reason is fed back to the agent as the tool result, so it
-     * can adapt rather than simply retry. */
+    /** A rejection reason, read back into the agent's next briefing (see
+     * `feedbackDeliveredAt`) so it can adapt rather than simply retry. */
     decisionNote: text("decision_note"),
 
     result: jsonb("result"),
@@ -483,12 +486,67 @@ export const agentApprovals = pgTable(
     error: text("error"),
 
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    /**
+     * When the people who can decide this were told it exists. Null until
+     * the worker's notification sweep has sent the email (and the optional
+     * Slack/webhook post). A queue nobody is told about is not a safety
+     * gate, it is a place actions go to expire.
+     */
+    notifiedAt: timestamp("notified_at", { withTimezone: true }),
+    /**
+     * When the outcome — approved and carried out, rejected and why, or
+     * expired undecided — was read back to the agent in a briefing. Null
+     * until then; set by the runtime the first time the agent starts a shift
+     * after the decision. This is what closes the loop: without it the human
+     * decides and the agent never hears.
+     */
+    feedbackDeliveredAt: timestamp("feedback_delivered_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index("agent_approvals_org_status_idx").on(t.organizationId, t.status),
     index("agent_approvals_run_idx").on(t.runId),
     index("agent_approvals_agent_idx").on(t.agentId, t.createdAt),
+  ],
+);
+
+/**
+ * A time-boxed standing approval: "yes, and don't ask me about this tool
+ * again for a while."
+ *
+ * `agents.autoApproveTools` is the permanent version, set from the agent's
+ * settings by an admin. This is the lighter one a reviewer reaches for from
+ * the queue itself — the fifth identical "push a signal to Linki" request of
+ * the week is the moment a person wants to say "just do these", and making
+ * them go and edit the agent's configuration to say it means they won't.
+ * Expiring by default keeps that convenience from silently becoming a
+ * permanent waiver nobody remembers granting.
+ *
+ * Consulted by `decide()` alongside `autoApproveTools`, and subject to the
+ * same ordering: the agent's role is checked first and nothing here relaxes
+ * it. Revoked by deleting the row.
+ */
+export const agentApprovalGrants = pgTable(
+  "agent_approval_grants",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    agentId: uuid("agent_id")
+      .notNull()
+      .references(() => agents.id, { onDelete: "cascade" }),
+    toolName: text("tool_name").notNull(),
+    grantedBy: text("granted_by").references(() => user.id, { onDelete: "set null" }),
+    /** The approval this was granted from, if any — a reviewer's "and the
+     * rest like it" carries its context. */
+    approvalId: uuid("approval_id").references(() => agentApprovals.id, { onDelete: "set null" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("agent_approval_grants_agent_tool_idx").on(t.agentId, t.toolName, t.expiresAt),
+    index("agent_approval_grants_org_idx").on(t.organizationId),
   ],
 );
 

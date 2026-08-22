@@ -1,6 +1,6 @@
 {
-  "id": "44e6ab72-e65a-4d76-8bfb-11e61b4613df",
-  "prevId": "c247ed3d-15cf-4fa1-ac5c-8f032a489dec",
+  "id": "d7096449-f4cd-42ca-9dd2-8d50eb599c70",
+  "prevId": "44e6ab72-e65a-4d76-8bfb-11e61b4613df",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -10875,6 +10875,12 @@
           "notNull": true,
           "default": "'🤖'"
         },
+        "email_account_id": {
+          "name": "email_account_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "preset": {
           "name": "preset",
           "type": "text",
@@ -11073,6 +11079,19 @@
             "id"
           ],
           "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "agents_email_account_id_email_accounts_id_fk": {
+          "name": "agents_email_account_id_email_accounts_id_fk",
+          "tableFrom": "agents",
+          "tableTo": "email_accounts",
+          "columnsFrom": [
+            "email_account_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
           "onUpdate": "no action"
         },
         "agents_created_by_user_id_fk": {

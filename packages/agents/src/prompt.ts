@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull } from "drizzle-orm";
 import { schema, type Database } from "@falorb/db";
 import { autonomyOf } from "./policy";
 import type { AgentProject, AgentRecord } from "./types";
@@ -48,6 +48,58 @@ export interface BriefingInput {
   /** The agent's own address, when a mailbox has been provisioned for it. */
   emailAddress?: string | null;
   recentRuns: { objective: string; summary: string | null; finishedAt: Date | null }[];
+  /** Outcomes of this agent's earlier approval requests it has not yet been told about. */
+  decisions?: DecisionFeedback[];
+}
+
+export interface DecisionFeedback {
+  id: string;
+  toolName: string;
+  title: string;
+  /** "executed" | "rejected" | "expired" | "failed". */
+  status: string;
+  decisionNote: string | null;
+  error: string | null;
+  decidedAt: Date | null;
+}
+
+/** How far back to look for undelivered decisions. Older ones are history. */
+const FEEDBACK_WINDOW_DAYS = 14;
+const FEEDBACK_BUDGET = 10;
+
+/**
+ * What happened to the things this agent asked permission for.
+ *
+ * The queue's whole design is that the agent carries on and a human decides
+ * later — which means the agent finishes its shift never knowing the
+ * answer. Without this, a rejection and its reason are written to a column
+ * nobody reads, and the next shift proposes the same thing again; with it,
+ * "no, and here is why" is the first thing the agent sees. Delivered once:
+ * the runtime stamps `feedbackDeliveredAt` after building the briefing.
+ */
+export async function loadDecisionFeedback(db: Database, agentId: string): Promise<DecisionFeedback[]> {
+  const since = new Date(Date.now() - FEEDBACK_WINDOW_DAYS * 86_400_000);
+  return db
+    .select({
+      id: schema.agentApprovals.id,
+      toolName: schema.agentApprovals.toolName,
+      title: schema.agentApprovals.title,
+      status: schema.agentApprovals.status,
+      decisionNote: schema.agentApprovals.decisionNote,
+      error: schema.agentApprovals.error,
+      decidedAt: schema.agentApprovals.decidedAt,
+    })
+    .from(schema.agentApprovals)
+    .where(
+      and(
+        eq(schema.agentApprovals.agentId, agentId),
+        isNull(schema.agentApprovals.feedbackDeliveredAt),
+        inArray(schema.agentApprovals.status, ["executed", "rejected", "expired", "failed"]),
+        gte(schema.agentApprovals.createdAt, since),
+      ),
+    )
+    .orderBy(desc(schema.agentApprovals.createdAt))
+    .limit(FEEDBACK_BUDGET);
 }
 
 /** The most important things this agent knows, within a fixed budget. */
@@ -136,6 +188,17 @@ export function buildSystemPrompt(input: BriefingInput): string {
     );
   }
 
+  if (input.decisions?.length) {
+    sections.push(
+      "## Decisions on your earlier requests\n\n" +
+        input.decisions.map(describeDecision).join("\n") +
+        "\n\nA rejection is a decision, not an obstacle: do not propose the same action again " +
+        "unless something material has changed, and if a reason was given, let it shape what " +
+        "you do next. An expired request means nobody decided in time — mention it in your " +
+        "report if it still matters, rather than silently re-queueing it.",
+    );
+  }
+
   if (input.recentRuns.length) {
     sections.push(
       "## Your recent shifts\n\n" +
@@ -217,6 +280,25 @@ export function buildUserPrompt(input: BriefingInput): string {
     `result describing what you did. If you cannot finish it, comment on it saying how far ` +
     `you got and hand the remainder over.`
   );
+}
+
+function describeDecision(d: DecisionFeedback): string {
+  const when = d.decidedAt ? d.decidedAt.toISOString().slice(0, 10) : "recently";
+  switch (d.status) {
+    case "executed":
+      return `- APPROVED and carried out (${when}): ${d.title}`;
+    case "rejected":
+      return (
+        `- REJECTED (${when}): ${d.title}` +
+        (d.decisionNote ? ` — reviewer's note: "${truncate(d.decisionNote, 400)}"` : " — no reason given.")
+      );
+    case "expired":
+      return `- EXPIRED undecided: ${d.title}. Nobody approved or rejected it within the time allowed.`;
+    case "failed":
+      return `- APPROVED but FAILED when carried out: ${d.title}${d.error ? ` — ${truncate(d.error, 300)}` : ""}`;
+    default:
+      return `- ${d.status}: ${d.title}`;
+  }
 }
 
 function truncate(text: string, max: number): string {

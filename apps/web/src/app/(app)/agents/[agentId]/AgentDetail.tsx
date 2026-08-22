@@ -65,6 +65,7 @@ const RUN_TONE: Record<string, "up" | "down" | "warn" | "neutral" | "accent"> = 
   succeeded: "up",
   failed: "down",
   waiting_approval: "warn",
+  needs_attention: "down",
   running: "accent",
   queued: "neutral",
   cancelled: "neutral",

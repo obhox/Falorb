@@ -197,6 +197,7 @@ export interface ApprovalRow {
   expiresAt: Date;
   createdAt: Date;
   decidedAt: Date | null;
+  decisionNote: string | null;
   error: string | null;
 }
 
@@ -221,6 +222,7 @@ export async function listApprovals(
       expiresAt: schema.agentApprovals.expiresAt,
       createdAt: schema.agentApprovals.createdAt,
       decidedAt: schema.agentApprovals.decidedAt,
+      decisionNote: schema.agentApprovals.decisionNote,
       error: schema.agentApprovals.error,
     })
     .from(schema.agentApprovals)
@@ -495,4 +497,70 @@ export async function countMyOpenTasks(organizationId: string, userId: string): 
       ),
     );
   return row?.n ?? 0;
+}
+
+export interface AutomationState {
+  paused: boolean;
+  pausedAt: Date | null;
+  /** Display name of whoever pulled the switch, if they still exist. */
+  pausedByName: string | null;
+  approvalNotifyChannelId: string | null;
+}
+
+/** The workspace kill switch and where approvals are announced. */
+export async function getAutomationState(organizationId: string): Promise<AutomationState> {
+  const [row] = await db()
+    .select({
+      pausedAt: schema.organizations.automationPausedAt,
+      pausedByName: schema.user.name,
+      approvalNotifyChannelId: schema.organizations.approvalNotifyChannelId,
+    })
+    .from(schema.organizations)
+    .leftJoin(schema.user, eq(schema.user.id, schema.organizations.automationPausedBy))
+    .where(eq(schema.organizations.id, organizationId))
+    .limit(1);
+  return {
+    paused: Boolean(row?.pausedAt),
+    pausedAt: row?.pausedAt ?? null,
+    pausedByName: row?.pausedByName ?? null,
+    approvalNotifyChannelId: row?.approvalNotifyChannelId ?? null,
+  };
+}
+
+export interface GrantRow {
+  id: string;
+  agentId: string;
+  agentName: string;
+  agentAvatar: string;
+  toolName: string;
+  grantedByName: string | null;
+  expiresAt: Date;
+  createdAt: Date;
+}
+
+/** Unexpired time-boxed waivers, newest first. */
+export async function listActiveGrants(organizationId: string, agentId?: string): Promise<GrantRow[]> {
+  return db()
+    .select({
+      id: schema.agentApprovalGrants.id,
+      agentId: schema.agentApprovalGrants.agentId,
+      agentName: schema.agents.name,
+      agentAvatar: schema.agents.avatar,
+      toolName: schema.agentApprovalGrants.toolName,
+      grantedByName: schema.user.name,
+      expiresAt: schema.agentApprovalGrants.expiresAt,
+      createdAt: schema.agentApprovalGrants.createdAt,
+    })
+    .from(schema.agentApprovalGrants)
+    .innerJoin(schema.agents, eq(schema.agentApprovalGrants.agentId, schema.agents.id))
+    .leftJoin(schema.user, eq(schema.user.id, schema.agentApprovalGrants.grantedBy))
+    .where(
+      and(
+        eq(schema.agentApprovalGrants.organizationId, organizationId),
+        sql`${schema.agentApprovalGrants.expiresAt} > now()`,
+        agentId ? eq(schema.agentApprovalGrants.agentId, agentId) : undefined,
+      ),
+    )
+    .orderBy(desc(schema.agentApprovalGrants.createdAt))
+    .limit(100);
 }

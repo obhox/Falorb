@@ -62,7 +62,9 @@ export default async function RunPage({
                     ? "down"
                     : run.status === "waiting_approval"
                       ? "warn"
-                      : "accent"
+                      : run.status === "needs_attention"
+                        ? "down"
+                        : "accent"
               }
             >
               {run.status.replace("_", " ")}

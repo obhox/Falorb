@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull } from "drizzle-orm";
 import {
   AGENT_PRESETS,
   canDecideApproval,
@@ -545,70 +545,292 @@ export async function decideApprovalAction(
   approvalId: string,
   decision: "approve" | "reject",
   note?: string,
+  /** Also waive approval for this tool on this agent, for this many days. */
+  grantDays?: number,
 ): Promise<ActionResult> {
-  const session = await requireSession();
-  const refusal = deny(session.workspace.role, "reviewAgentWork", "decide an agent's request");
-  if (refusal) return refusal;
-
-  const orgId = session.workspace.organizationId;
-  const [approval] = await db()
-    .select()
-    .from(schema.agentApprovals)
-    .where(
-      and(
-        eq(schema.agentApprovals.id, approvalId),
-        eq(schema.agentApprovals.organizationId, orgId),
-      ),
-    )
-    .limit(1);
-  if (!approval) return { ok: false, message: "No such request." };
-  if (approval.status !== "pending") {
-    return { ok: false, message: `That request is already ${approval.status}.` };
-  }
-  if (approval.expiresAt.getTime() < Date.now()) {
-    return { ok: false, message: "That request has expired. Ask the agent to propose it again." };
-  }
-
-  if (!canDecideApproval(session.workspace.role, approval.requiredCapability)) {
-    return {
-      ok: false,
-      message:
-        "You cannot approve this — it is an action you could not perform yourself. " +
-        "Ask an admin or owner to decide it.",
-    };
-  }
-
-  await db()
-    .update(schema.agentApprovals)
-    .set({
-      status: decision === "approve" ? "approved" : "rejected",
-      decidedBy: session.user.id,
-      decidedAt: new Date(),
-      decisionNote: note?.trim() || null,
-    })
-    .where(eq(schema.agentApprovals.id, approvalId));
-
-  audit(db(), {
-    organizationId: orgId,
-    actorId: session.user.id,
-    actorAgentId: approval.agentId,
-    action:
-      decision === "approve"
-        ? AUDIT_ACTIONS.agentActionApproved
-        : AUDIT_ACTIONS.agentActionRejected,
-    targetType: "agent_approval",
-    targetId: approvalId,
-    metadata: { tool: approval.toolName, title: approval.title, note: note?.trim() ?? null },
-  });
-
-  revalidatePath("/agents/approvals");
+  const result = await decideApprovalsAction([approvalId], decision, note, grantDays);
+  if (!result.ok) return result;
   return {
     ok: true,
     message:
       decision === "approve"
-        ? "Approved — it will be carried out within a minute."
-        : "Rejected. The agent will not retry it.",
+        ? grantDays
+          ? `Approved — and ${grantDays === 1 ? "for a day" : `for ${grantDays} days`} this agent won't ask again about this action.`
+          : "Approved — it will be carried out within a minute."
+        : "Rejected. The agent will be told, and will not retry it.",
   };
+}
+
+/** How long a from-the-queue grant may last. Anything longer belongs in the
+ * agent's own settings, where an admin will see it. */
+const MAX_GRANT_DAYS = 30;
+
+/**
+ * Decide several requests at once. Same checks as one — each row is
+ * re-verified for org, status, expiry and the reviewer's capability —
+ * so "approve all" can never wave through something the reviewer could
+ * not have approved individually. Rows that fail a check are skipped and
+ * named, not silently dropped, and do not block the rest.
+ */
+export async function decideApprovalsAction(
+  approvalIds: string[],
+  decision: "approve" | "reject",
+  note?: string,
+  grantDays?: number,
+): Promise<ActionResult> {
+  const session = await requireSession();
+  const refusal = deny(session.workspace.role, "reviewAgentWork", "decide an agent's request");
+  if (refusal) return refusal;
+  if (!approvalIds.length) return { ok: false, message: "Nothing selected." };
+  if (grantDays !== undefined && (grantDays < 1 || grantDays > MAX_GRANT_DAYS || !Number.isInteger(grantDays))) {
+    return { ok: false, message: `A standing approval lasts between 1 and ${MAX_GRANT_DAYS} days.` };
+  }
+  if (grantDays && decision !== "approve") {
+    return { ok: false, message: "A standing approval only makes sense when approving." };
+  }
+
+  const orgId = session.workspace.organizationId;
+  const rows = await db()
+    .select()
+    .from(schema.agentApprovals)
+    .where(
+      and(
+        inArray(schema.agentApprovals.id, approvalIds),
+        eq(schema.agentApprovals.organizationId, orgId),
+      ),
+    );
+
+  const skipped: string[] = [];
+  let decided = 0;
+  const trimmedNote = note?.trim() || null;
+
+  for (const approval of rows) {
+    if (approval.status !== "pending") {
+      skipped.push(`"${approval.title}" is already ${approval.status}`);
+      continue;
+    }
+    if (approval.expiresAt.getTime() < Date.now()) {
+      skipped.push(`"${approval.title}" has expired`);
+      continue;
+    }
+    if (!canDecideApproval(session.workspace.role, approval.requiredCapability)) {
+      skipped.push(`"${approval.title}" needs an admin or owner`);
+      continue;
+    }
+
+    const updated = await db()
+      .update(schema.agentApprovals)
+      .set({
+        status: decision === "approve" ? "approved" : "rejected",
+        decidedBy: session.user.id,
+        decidedAt: new Date(),
+        decisionNote: trimmedNote,
+      })
+      // Status re-checked in the WHERE: two reviewers deciding the same row
+      // at once must not both "win".
+      .where(and(eq(schema.agentApprovals.id, approval.id), eq(schema.agentApprovals.status, "pending")))
+      .returning({ id: schema.agentApprovals.id });
+    if (!updated.length) {
+      skipped.push(`"${approval.title}" was decided by someone else first`);
+      continue;
+    }
+    decided++;
+
+    audit(db(), {
+      organizationId: orgId,
+      actorId: session.user.id,
+      actorAgentId: approval.agentId,
+      action:
+        decision === "approve"
+          ? AUDIT_ACTIONS.agentActionApproved
+          : AUDIT_ACTIONS.agentActionRejected,
+      targetType: "agent_approval",
+      targetId: approval.id,
+      metadata: { tool: approval.toolName, title: approval.title, note: trimmedNote, batch: rows.length > 1 },
+    });
+
+    if (grantDays) {
+      const expiresAt = new Date(Date.now() + grantDays * 86_400_000);
+      // One grant per (agent, tool), not one per approved row: approving
+      // five identical requests "for a week" is one decision. An existing
+      // unexpired grant is extended rather than duplicated, so the
+      // "Standing approvals" list stays a list of decisions, not of clicks.
+      const [existing] = await db()
+        .select({ id: schema.agentApprovalGrants.id, expiresAt: schema.agentApprovalGrants.expiresAt })
+        .from(schema.agentApprovalGrants)
+        .where(
+          and(
+            eq(schema.agentApprovalGrants.agentId, approval.agentId),
+            eq(schema.agentApprovalGrants.toolName, approval.toolName),
+            gt(schema.agentApprovalGrants.expiresAt, new Date()),
+          ),
+        )
+        .limit(1);
+      if (existing) {
+        if (existing.expiresAt < expiresAt) {
+          await db()
+            .update(schema.agentApprovalGrants)
+            .set({ expiresAt, grantedBy: session.user.id, approvalId: approval.id })
+            .where(eq(schema.agentApprovalGrants.id, existing.id));
+        }
+      } else {
+        await db().insert(schema.agentApprovalGrants).values({
+          organizationId: orgId,
+          agentId: approval.agentId,
+          toolName: approval.toolName,
+          grantedBy: session.user.id,
+          approvalId: approval.id,
+          expiresAt,
+        });
+      }
+      audit(db(), {
+        organizationId: orgId,
+        actorId: session.user.id,
+        actorAgentId: approval.agentId,
+        action: AUDIT_ACTIONS.agentActionGranted,
+        targetType: "agent",
+        targetId: approval.agentId,
+        metadata: { tool: approval.toolName, days: grantDays, expiresAt: expiresAt.toISOString() },
+      });
+    }
+  }
+
+  const missing = approvalIds.length - rows.length;
+  if (missing > 0) skipped.push(`${missing} request(s) not found`);
+
+  revalidatePath("/agents/approvals");
+  revalidatePath("/agents");
+
+  if (!decided) {
+    return { ok: false, message: skipped[0] ?? "Nothing could be decided." };
+  }
+  const verb = decision === "approve" ? "Approved" : "Rejected";
+  const head =
+    decided === 1 && approvalIds.length === 1
+      ? `${verb}.`
+      : `${verb} ${decided} of ${approvalIds.length}.`;
+  return {
+    ok: true,
+    message: skipped.length ? `${head} Skipped: ${skipped.join("; ")}.` : head,
+  };
+}
+
+/** Withdraw a time-boxed grant early. */
+export async function revokeApprovalGrantAction(grantId: string): Promise<ActionResult> {
+  const session = await requireSession();
+  const refusal = deny(session.workspace.role, "reviewAgentWork", "withdraw a standing approval");
+  if (refusal) return refusal;
+
+  const deleted = await db()
+    .delete(schema.agentApprovalGrants)
+    .where(
+      and(
+        eq(schema.agentApprovalGrants.id, grantId),
+        eq(schema.agentApprovalGrants.organizationId, session.workspace.organizationId),
+      ),
+    )
+    .returning({ agentId: schema.agentApprovalGrants.agentId, toolName: schema.agentApprovalGrants.toolName });
+  if (!deleted.length) return { ok: false, message: "No such standing approval." };
+
+  audit(db(), {
+    organizationId: session.workspace.organizationId,
+    actorId: session.user.id,
+    actorAgentId: deleted[0]!.agentId,
+    action: AUDIT_ACTIONS.agentActionGrantRevoked,
+    targetType: "agent",
+    targetId: deleted[0]!.agentId,
+    metadata: { tool: deleted[0]!.toolName },
+  });
+
+  revalidatePath("/agents/approvals");
+  revalidatePath(`/agents/${deleted[0]!.agentId}`);
+  return { ok: true, message: "Withdrawn — the agent will ask again next time." };
+}
+
+/**
+ * The workspace kill switch.
+ *
+ * Pausing stops every agent in the workspace at once: nothing new is
+ * enqueued, queued shifts are not started, a shift in progress stops at its
+ * next turn, and approved actions are not carried out — all until resumed.
+ * Nothing is discarded. Gated on `manageAgents` like pausing one agent; the
+ * ability to stop everything is the one agent control that should be
+ * *easier* to reach, not harder.
+ */
+export async function setAutomationPausedAction(paused: boolean): Promise<ActionResult> {
+  const session = await requireSession();
+  const refusal = deny(session.workspace.role, "manageAgents", "pause or resume all automation");
+  if (refusal) return refusal;
+
+  const orgId = session.workspace.organizationId;
+  const updated = await db()
+    .update(schema.organizations)
+    .set(
+      paused
+        ? { automationPausedAt: new Date(), automationPausedBy: session.user.id, updatedAt: new Date() }
+        : { automationPausedAt: null, automationPausedBy: null, updatedAt: new Date() },
+    )
+    .where(
+      and(
+        eq(schema.organizations.id, orgId),
+        // Idempotent: pausing twice keeps the original timestamp and actor.
+        paused ? isNull(schema.organizations.automationPausedAt) : undefined,
+      ),
+    )
+    .returning({ id: schema.organizations.id });
+
+  if (updated.length) {
+    audit(db(), {
+      organizationId: orgId,
+      actorId: session.user.id,
+      action: paused ? AUDIT_ACTIONS.automationPaused : AUDIT_ACTIONS.automationResumed,
+      targetType: "organization",
+      targetId: orgId,
+      metadata: {},
+    });
+  }
+
+  revalidatePath("/agents");
+  revalidatePath("/agents/approvals");
+  revalidatePath("/settings");
+  return {
+    ok: true,
+    message: paused
+      ? "All automation paused. Agents will not run and approved actions will not be carried out until you resume."
+      : "Automation resumed.",
+  };
+}
+
+/**
+ * Where, besides owners' and admins' email, to announce a waiting approval.
+ * `null` clears it. Verified to be this workspace's own channel: the column
+ * is not a foreign key.
+ */
+export async function setApprovalNotifyChannelAction(channelId: string | null): Promise<ActionResult> {
+  const session = await requireSession();
+  const refusal = deny(session.workspace.role, "manageAgents", "change where approvals are announced");
+  if (refusal) return refusal;
+
+  const orgId = session.workspace.organizationId;
+  if (channelId) {
+    const [channel] = await db()
+      .select({ id: schema.alertChannels.id, kind: schema.alertChannels.kind })
+      .from(schema.alertChannels)
+      .where(and(eq(schema.alertChannels.id, channelId), eq(schema.alertChannels.organizationId, orgId)))
+      .limit(1);
+    if (!channel) return { ok: false, message: "No such channel." };
+    if (channel.kind === "agent") {
+      return { ok: false, message: "An agent cannot be told about approvals — pick a Slack, webhook or email channel." };
+    }
+  }
+
+  await db()
+    .update(schema.organizations)
+    .set({ approvalNotifyChannelId: channelId, updatedAt: new Date() })
+    .where(eq(schema.organizations.id, orgId));
+
+  revalidatePath("/settings");
+  return { ok: true, message: channelId ? "Approvals will be announced there too." : "Approvals are announced by email only." };
 }
 
 /** The roster, for the hire dialog. Server-side so presets stay one source. */

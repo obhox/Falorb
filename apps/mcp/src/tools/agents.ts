@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { and, desc, eq } from "drizzle-orm";
-import { schema } from "@falorb/db";
+import { and, desc, eq, isNull } from "drizzle-orm";
+import { AUDIT_ACTIONS, audit, schema } from "@falorb/db";
 import { AGENT_PRESETS, AUTONOMY_LEVELS, TOOLKITS, getPreset, isAutonomy, isToolkit } from "@falorb/agents";
 import type { McpContext } from "../context";
 import { requireScope } from "../context";
@@ -269,6 +269,54 @@ export function registerAgentTools(server: McpServer, ctx: () => McpContext): vo
           .returning({ name: schema.agents.name });
         if (!updated.length) return failure("No such agent.");
         return text(status === "paused" ? `${updated[0]!.name} paused.` : `${updated[0]!.name} back on shift.`);
+      } catch (error) {
+        return failure(message(error));
+      }
+    },
+  );
+
+  server.registerTool(
+    "set_automation_paused",
+    {
+      title: "Pause or resume all agents in the workspace",
+      description:
+        "The kill switch. Pausing stops every agent at once: nothing new is queued, queued shifts " +
+        "are not started, a shift in progress stops at its next step, and approved actions are not " +
+        "carried out — until resumed. Nothing is discarded. Requires the write scope.",
+      inputSchema: { paused: z.boolean() },
+      annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    },
+    async ({ paused }) => {
+      const { db, scope } = ctx();
+      try {
+        requireScope(scope, "write");
+        await db
+          .update(schema.organizations)
+          .set(
+            paused
+              ? { automationPausedAt: new Date(), updatedAt: new Date() }
+              : { automationPausedAt: null, automationPausedBy: null, updatedAt: new Date() },
+          )
+          .where(
+            and(
+              eq(schema.organizations.id, scope.organizationId),
+              // Idempotent: a second pause keeps the original timestamp.
+              paused ? isNull(schema.organizations.automationPausedAt) : undefined,
+            ),
+          );
+        audit(db, {
+          organizationId: scope.organizationId,
+          actorId: null,
+          action: paused ? AUDIT_ACTIONS.automationPaused : AUDIT_ACTIONS.automationResumed,
+          targetType: "organization",
+          targetId: scope.organizationId,
+          metadata: { via: "mcp" },
+        });
+        return text(
+          paused
+            ? "All automation paused. No agent will run and no approved action will be carried out until resumed."
+            : "Automation resumed.",
+        );
       } catch (error) {
         return failure(message(error));
       }

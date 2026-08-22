@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import { canDecideApproval } from "@falorb/agents";
+import { can } from "@falorb/db";
 import { requireSession } from "@/server/session";
-import { listApprovals } from "@/server/agents";
+import { listActiveGrants, listApprovals } from "@/server/agents";
 import { PageBody, PageHeader } from "@/components/shell/PageHeader";
 import { ApprovalQueue } from "./ApprovalQueue";
 
@@ -22,9 +23,10 @@ export default async function ApprovalsPage() {
   const session = await requireSession();
   const orgId = session.workspace.organizationId;
 
-  const [pending, recent] = await Promise.all([
+  const [pending, recent, grants] = await Promise.all([
     listApprovals(orgId, "pending"),
     listApprovals(orgId, "recent"),
+    listActiveGrants(orgId),
   ]);
 
   const decorate = (rows: Awaited<ReturnType<typeof listApprovals>>) =>
@@ -43,6 +45,7 @@ export default async function ApprovalsPage() {
       expiresAt: a.expiresAt.toISOString(),
       createdAt: a.createdAt.toISOString(),
       error: a.error,
+      decisionNote: a.decisionNote,
       canDecide: canDecideApproval(session.workspace.role, a.requiredCapability),
     }));
 
@@ -56,6 +59,16 @@ export default async function ApprovalsPage() {
         <ApprovalQueue
           pending={decorate(pending)}
           recent={decorate(recent)}
+          grants={grants.map((g) => ({
+            id: g.id,
+            agentId: g.agentId,
+            agentName: g.agentName,
+            agentAvatar: g.agentAvatar,
+            toolName: g.toolName,
+            grantedByName: g.grantedByName,
+            expiresAt: g.expiresAt.toISOString(),
+          }))}
+          canReview={can.reviewAgentWork(session.workspace.role)}
           now={Date.now()}
         />
       </PageBody>

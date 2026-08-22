@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, gt, isNull } from "drizzle-orm";
 import { AUDIT_ACTIONS, audit, schema } from "@falorb/db";
 import {
   AGENT_PRESETS,
@@ -361,6 +361,44 @@ export function registerAgentTools(server: McpServer, ctx: () => McpContext): vo
   );
 
   server.registerTool(
+    "get_automation_state",
+    {
+      title: "Read the workspace kill switch",
+      description:
+        "Whether all agent automation is currently paused for the workspace, since when, and by " +
+        "whom — the read side of set_automation_paused.",
+      inputSchema: {},
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async () => {
+      const { db, scope } = ctx();
+      try {
+        const [row] = await db
+          .select({
+            pausedAt: schema.organizations.automationPausedAt,
+            pausedByName: schema.user.name,
+            approvalNotifyChannelId: schema.organizations.approvalNotifyChannelId,
+          })
+          .from(schema.organizations)
+          .leftJoin(schema.user, eq(schema.user.id, schema.organizations.automationPausedBy))
+          .where(eq(schema.organizations.id, scope.organizationId))
+          .limit(1);
+
+        if (!row?.pausedAt) return text("Automation is running normally — nothing is paused.");
+
+        return text(
+          `Automation is **paused** — no agent will run and no approved action will be carried out.\n\n` +
+            `Paused ${ago(row.pausedAt.toISOString())}` +
+            (row.pausedByName ? ` by ${row.pausedByName}` : "") +
+            (row.approvalNotifyChannelId ? `\nApproval notify channel: \`${row.approvalNotifyChannelId}\`` : ""),
+        );
+      } catch (error) {
+        return failure(message(error));
+      }
+    },
+  );
+
+  server.registerTool(
     "retire_agent",
     {
       title: "Retire an agent",
@@ -508,6 +546,69 @@ export function registerAgentTools(server: McpServer, ctx: () => McpContext): vo
   );
 
   server.registerTool(
+    "list_agent_errors",
+    {
+      title: "Cross-agent error log",
+      description:
+        "Every failure any agent has hit, across every run — a thrown run error, a failing tool " +
+        "call, or a policy refusal — newest first. One place to check instead of opening each " +
+        "shift's transcript.",
+      inputSchema: {
+        agent_id: z.string().uuid().optional().describe("Omit for every agent."),
+        limit: z.number().int().min(1).max(200).default(50),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async ({ agent_id, limit }) => {
+      const { db, scope } = ctx();
+      try {
+        const conditions = [eq(schema.agentRuns.organizationId, scope.organizationId), eq(schema.agentSteps.ok, false)];
+        if (agent_id) conditions.push(eq(schema.agentRuns.agentId, agent_id));
+
+        const rows = await db
+          .select({
+            agentName: schema.agents.name,
+            kind: schema.agentSteps.kind,
+            toolName: schema.agentSteps.toolName,
+            content: schema.agentSteps.content,
+            result: schema.agentSteps.result,
+            objective: schema.agentRuns.objective,
+            createdAt: schema.agentSteps.createdAt,
+          })
+          .from(schema.agentSteps)
+          .innerJoin(schema.agentRuns, eq(schema.agentSteps.runId, schema.agentRuns.id))
+          .innerJoin(schema.agents, eq(schema.agentRuns.agentId, schema.agents.id))
+          .where(and(...conditions))
+          .orderBy(desc(schema.agentSteps.createdAt))
+          .limit(limit);
+
+        return text(
+          table(
+            rows,
+            [
+              { header: "Agent", get: (r) => r.agentName },
+              { header: "When", get: (r) => ago(r.createdAt.toISOString()) },
+              { header: "Kind", get: (r) => r.kind },
+              { header: "Tool", get: (r) => r.toolName },
+              {
+                header: "Error",
+                get: (r) => {
+                  const result = r.result as { error?: string; refused?: string } | null;
+                  return r.content ?? result?.error ?? result?.refused ?? "Unknown error";
+                },
+              },
+              { header: "Objective", get: (r) => r.objective },
+            ],
+            "No errors.",
+          ),
+        );
+      } catch (error) {
+        return failure(message(error));
+      }
+    },
+  );
+
+  server.registerTool(
     "list_agent_approvals",
     {
       title: "List queued agent approvals",
@@ -602,6 +703,59 @@ export function registerAgentTools(server: McpServer, ctx: () => McpContext): vo
           decision === "approve"
             ? "Approved — it will be carried out within a minute."
             : "Rejected. The agent will not retry it.",
+        );
+      } catch (error) {
+        return failure(message(error));
+      }
+    },
+  );
+
+  server.registerTool(
+    "list_agent_grants",
+    {
+      title: "List active approval waivers",
+      description:
+        "Unexpired time-boxed grants — 'approve, and the rest like it for a week' — that let an " +
+        "agent act on a specific tool without asking again until the grant expires.",
+      inputSchema: { agent_id: z.string().uuid().optional().describe("Omit for every agent.") },
+      annotations: { readOnlyHint: true, openWorldHint: false },
+    },
+    async ({ agent_id }) => {
+      const { db, scope } = ctx();
+      try {
+        const conditions = [
+          eq(schema.agentApprovalGrants.organizationId, scope.organizationId),
+          gt(schema.agentApprovalGrants.expiresAt, new Date()),
+        ];
+        if (agent_id) conditions.push(eq(schema.agentApprovalGrants.agentId, agent_id));
+
+        const rows = await db
+          .select({
+            agentName: schema.agents.name,
+            toolName: schema.agentApprovalGrants.toolName,
+            grantedByName: schema.user.name,
+            createdAt: schema.agentApprovalGrants.createdAt,
+            expiresAt: schema.agentApprovalGrants.expiresAt,
+          })
+          .from(schema.agentApprovalGrants)
+          .innerJoin(schema.agents, eq(schema.agentApprovalGrants.agentId, schema.agents.id))
+          .leftJoin(schema.user, eq(schema.user.id, schema.agentApprovalGrants.grantedBy))
+          .where(and(...conditions))
+          .orderBy(desc(schema.agentApprovalGrants.createdAt))
+          .limit(100);
+
+        return text(
+          table(
+            rows,
+            [
+              { header: "Agent", get: (r) => r.agentName },
+              { header: "Tool", get: (r) => r.toolName },
+              { header: "Granted by", get: (r) => r.grantedByName },
+              { header: "Granted", get: (r) => ago(r.createdAt.toISOString()) },
+              { header: "Expires", get: (r) => ago(r.expiresAt.toISOString()) },
+            ],
+            "No active waivers.",
+          ),
         );
       } catch (error) {
         return failure(message(error));

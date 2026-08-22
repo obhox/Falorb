@@ -70,7 +70,15 @@ async function syncOrg(
 
   const posts: BufferPost[] = [];
   for (const channel of channels) {
-    posts.push(...(await client.listPosts({ channelId: channel.id })));
+    try {
+      posts.push(...(await client.listPosts({ channelId: channel.id })));
+    } catch (error) {
+      // `channels` and `posts` enforce access separately — a channel the key
+      // can list is not always one it can list posts for (Buffer's team-plan
+      // per-channel permissions). One forbidden channel shouldn't cost the
+      // org every other channel's posts.
+      console.error(`[buffer-sync] org ${orgId} channel ${channel.id} posts failed:`, String(error));
+    }
   }
   await upsertPosts(context, orgId, posts);
 

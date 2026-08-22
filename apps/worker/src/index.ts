@@ -22,6 +22,7 @@ import { syncLinki } from "./jobs/linki-sync";
 import { syncBundAi } from "./jobs/bund-ai-sync";
 import { syncBuffer } from "./jobs/buffer-sync";
 import { syncStripe } from "./jobs/stripe-sync";
+import { syncMigadu } from "./jobs/migadu-sync";
 import { generateUgcVideos } from "./jobs/ugc-video-gen";
 import {
   enqueueAgentTasks,
@@ -250,6 +251,19 @@ scheduler.add({
     await syncStripe(context);
   },
 });
+
+// Shorter than Buffer's interval: replies are the point of this
+// integration, and an IMAP poll is cheap per mailbox — still bounded to
+// avoid hammering Migadu's IMAP servers across many mailboxes at once.
+scheduler.add({
+  name: "migadu-sync",
+  intervalMs: 5 * MINUTE,
+  timeoutMs: 10 * MINUTE,
+  run: async () => {
+    await syncMigadu(context);
+  },
+});
+
 
 // Short interval: this is user-facing, someone is on the review page
 // waiting for their video to finish rendering. No-ops with zero DB writes

@@ -27,6 +27,7 @@ const LABELS: Record<Provider, string> = {
   firecrawl: "Firecrawl",
   elevenlabs: "ElevenLabs",
   stripe: "Stripe",
+  migadu: "Migadu",
 };
 const BLURBS: Record<Provider, string> = {
   openrouter:
@@ -45,6 +46,8 @@ const BLURBS: Record<Provider, string> = {
   elevenlabs: "Script, voice, and talking-video generation for UGC videos (see UGC videos). Generate a key in ElevenLabs at Settings → API Keys.",
   stripe:
     "Read-only mirror of your own Stripe account — customers, subscriptions, invoices, and charges, for revenue and payment health (see Billing). Never used for Falorb's own billing. Generate a secret key in Stripe at Developers → API keys; a restricted key needs read access to Balance, Customers, Subscriptions, Invoices and Charges.",
+  migadu:
+    "Cold-outreach mailboxes — provision addresses, send, and track replies from Email. Generate an API key in Migadu at your account's API settings, and enter the admin email it belongs to.",
 };
 
 /** Buffer, Clay, Exa, Firecrawl, and ElevenLabs each have one fixed API
@@ -62,6 +65,25 @@ const HAS_BASE_URL: Record<Provider, boolean> = {
   firecrawl: false,
   elevenlabs: false,
   stripe: false,
+  migadu: false,
+};
+
+/** Migadu is the one provider whose management API needs a second secret —
+ * an admin email, alongside the API key — so its connect dialog carries an
+ * extra input the rest don't. */
+const HAS_USERNAME: Record<Provider, boolean> = {
+  openrouter: false,
+  router: false,
+  gemini: false,
+  linki: false,
+  bund_ai: false,
+  buffer: false,
+  clay: false,
+  exa: false,
+  firecrawl: false,
+  elevenlabs: false,
+  stripe: false,
+  migadu: true,
 };
 
 const KEY_PLACEHOLDERS: Record<Provider, string> = {
@@ -76,6 +98,7 @@ const KEY_PLACEHOLDERS: Record<Provider, string> = {
   firecrawl: "fc-…",
   elevenlabs: "Your ElevenLabs API key",
   stripe: "sk_live_… or sk_test_…",
+  migadu: "Your Migadu API key",
 };
 
 /** Shown when `lastSyncedAt` is null — Linki/Bund AI/Buffer/Clay are
@@ -94,6 +117,7 @@ const NEVER_SYNCED: Record<Provider, string> = {
   firecrawl: "not applicable — used on demand when drafting content or researching a company",
   elevenlabs: "never — used on demand each time you generate a UGC video, not on a schedule",
   stripe: "never — the mirror job runs every 15 minutes",
+  migadu: "not applicable — mailboxes sync individually, every 5 minutes (see Email)",
 };
 
 const PROVIDERS: Provider[] = [
@@ -108,6 +132,7 @@ const PROVIDERS: Provider[] = [
   "firecrawl",
   "elevenlabs",
   "stripe",
+  "migadu",
 ];
 
 /**
@@ -172,6 +197,7 @@ function ProviderCard({
   const { run, pending } = useAction();
   const [open, setOpen] = useState(false);
   const [baseUrl, setBaseUrl] = useState("");
+  const [username, setUsername] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
 
@@ -179,18 +205,21 @@ function ProviderCard({
   const errored = connection?.status === "error";
 
   const needsBaseUrl = HAS_BASE_URL[provider];
+  const needsUsername = HAS_USERNAME[provider];
   const isAi = isAiProvider(provider);
   const defaultModel = isAi ? AI_DEFAULT_MODELS[provider] ?? null : null;
 
   async function submit() {
     const data = new FormData();
     if (needsBaseUrl) data.set("baseUrl", baseUrl);
+    if (needsUsername) data.set("username", username);
     data.set("apiKey", apiKey);
     if (isAi) data.set("model", model);
     const result = await run(() => connectIntegration(provider, data));
     if (result?.ok) {
       setOpen(false);
       setBaseUrl("");
+      setUsername("");
       setApiKey("");
       setModel("");
     }
@@ -318,7 +347,9 @@ function ProviderCard({
             <Button
               variant="primary"
               onClick={submit}
-              disabled={pending || (needsBaseUrl && !baseUrl.trim()) || !apiKey.trim()}
+              disabled={
+                pending || (needsBaseUrl && !baseUrl.trim()) || (needsUsername && !username.trim()) || !apiKey.trim()
+              }
             >
               {pending ? "Connecting…" : "Connect"}
             </Button>
@@ -333,6 +364,15 @@ function ProviderCard({
               onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBaseUrl(e.target.value)}
               placeholder="https://your-instance.example.com"
               hint={`Where your ${LABELS[provider]} deployment is reachable from this server.`}
+            />
+          )}
+          {needsUsername && (
+            <Input
+              label="Admin email"
+              value={username}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setUsername(e.target.value)}
+              placeholder="admin@yourdomain.com"
+              hint={`The ${LABELS[provider]} account login this API key belongs to.`}
             />
           )}
           <Input

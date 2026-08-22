@@ -24,6 +24,7 @@
     "@falorb/elevenlabs-client": "workspace:*",
     "@falorb/linki-client": "workspace:*",
     "@falorb/mailer": "workspace:*",
+    "@falorb/migadu-client": "workspace:*",
     "@falorb/queries": "workspace:*",
     "@falorb/research": "workspace:*",
     "@falorb/stripe-client": "workspace:*",

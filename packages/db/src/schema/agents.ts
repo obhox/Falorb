@@ -102,8 +102,10 @@ export const agents = pgTable(
      * Empty means no tools at all, which is a usable state for an agent that
      * only writes reports from the context it is handed. */
     toolkits: text("toolkits").array().notNull().default([]),
-    /** Tools whose approval gate is waived for this agent. `["*"]` waives
-     * every gate. Never populated by default — see the module note. */
+    /** Tools whose approval gate is waived for this agent. An entry is
+     * either an exact tool name, `toolkit:<name>` to waive every tool in one
+     * skillset (e.g. `toolkit:crm`), or `"*"` to waive every gate. Never
+     * populated by default — see the module note. */
     autoApproveTools: text("auto_approve_tools").array().notNull().default([]),
 
     /** Properties this agent may touch. Empty means every project in the
@@ -347,6 +349,15 @@ export const tasks = pgTable(
     parentTaskId: uuid("parent_task_id").references((): AnyPgColumn => tasks.id, {
       onDelete: "cascade",
     }),
+    /** How many agent-to-agent hops produced this task: 0 for anything a
+     * human created or an agent opened on its own initiative, incrementing
+     * by one each time `delegate_task` hands it from one agent to another.
+     * The bound `@falorb/agents`' `MAX_DELEGATION_DEPTH` enforces against —
+     * a delegation loop between autonomous agents is the one failure mode
+     * here with no natural end, and a monotonically increasing counter caps
+     * it regardless of the loop's shape (chain or ping-pong) without needing
+     * cycle detection. */
+    delegationDepth: integer("delegation_depth").notNull().default(0),
     /** Loose pointer at whatever this concerns: "person" | "contact" |
      * "escalation" | "project" | "deal" | "prospect". Deliberately not a
      * foreign key — the referent lives across three schemas and two

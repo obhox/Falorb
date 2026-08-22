@@ -30,6 +30,40 @@ import { defineTool } from "./define";
 const STATUSES = ["todo", "in_progress", "blocked", "review", "done", "cancelled"] as const;
 const PRIORITIES = ["low", "normal", "high", "urgent"] as const;
 
+/**
+ * How many agent-to-agent hops a task may accumulate before `delegate_task`
+ * refuses and points at `hand_to_human` instead.
+ *
+ * A delegation chain (or a ping-pong between two agents) is the one failure
+ * mode here with no natural end on its own — unlike a human, an agent never
+ * gets tired of re-delegating. `tasks.delegationDepth` is monotonically
+ * increasing, so this one constant bounds every possible shape of loop
+ * without needing cycle detection.
+ */
+export const MAX_DELEGATION_DEPTH = 3;
+
+/**
+ * Pure precondition check for `delegate_task`, pulled out of `execute` so it
+ * can be tested without a database. Returns a refusal message, or null if
+ * the delegation may proceed.
+ */
+export function checkDelegation(
+  currentDepth: number,
+  requestingAgentId: string,
+  targetAgentId: string,
+): string | null {
+  if (targetAgentId === requestingAgentId) {
+    return "You cannot delegate a task to yourself.";
+  }
+  if (currentDepth + 1 > MAX_DELEGATION_DEPTH) {
+    return (
+      `This would be the ${currentDepth + 1}th hop in a delegation chain, past the limit of ` +
+      `${MAX_DELEGATION_DEPTH}. Hand this to a human instead of delegating it further.`
+    );
+  }
+  return null;
+}
+
 async function requireTask(ctx: AgentContext, taskId: string) {
   const [task] = await ctx.db
     .select()
@@ -221,6 +255,86 @@ export const taskTools: AnyToolDefinition[] = [
 
       ctx.log(`Handed to a human: ${a.title}`);
       return { taskId: row!.id, note: "A person will pick this up. Do not attempt it yourself." };
+    },
+  }),
+
+  defineTool({
+    name: "delegate_task",
+    toolkit: "tasks",
+    description:
+      "Assign a piece of work directly to another agent, the same way a human would pick a " +
+      "colleague from the assignee list. Use this only when the target agent's own toolkits " +
+      "genuinely cover the work — delegating something outside its skillset just becomes a " +
+      "handoff at one remove. Chains have a hard depth limit; past it, use hand_to_human.",
+    input: z.object({
+      title: z.string().min(3).max(200),
+      body: z.string().max(5000).optional().describe("The context, the evidence, what 'done' means."),
+      priority: z.enum(PRIORITIES).default("normal"),
+      assignToAgentId: z.string().uuid(),
+      relatedType: z.enum(["person", "contact", "escalation", "deal", "project"]).optional(),
+      relatedId: z.string().optional(),
+    }),
+    capability: "manageTasks",
+    effect: "internal",
+    risk: "low",
+    summarize: (a) => `Delegate to another agent: ${a.title}`,
+    execute: async (ctx, a) => {
+      const [run] = await ctx.db
+        .select({ taskId: schema.agentRuns.taskId })
+        .from(schema.agentRuns)
+        .where(eq(schema.agentRuns.id, ctx.runId))
+        .limit(1);
+
+      const currentTask = run?.taskId ? await requireTask(ctx, run.taskId) : null;
+      const currentDepth = currentTask?.delegationDepth ?? 0;
+
+      const refusal = checkDelegation(currentDepth, ctx.agent.id, a.assignToAgentId);
+      if (refusal) throw new Error(refusal);
+
+      const [target] = await ctx.db
+        .select({ id: schema.agents.id, name: schema.agents.name, status: schema.agents.status })
+        .from(schema.agents)
+        .where(
+          and(
+            eq(schema.agents.id, a.assignToAgentId),
+            eq(schema.agents.organizationId, ctx.organizationId),
+          ),
+        )
+        .limit(1);
+      if (!target) throw new Error("No such agent in this workspace.");
+      if (target.status !== "active") {
+        throw new Error(`${target.name} is not active and cannot pick up new work.`);
+      }
+
+      const [row] = await ctx.db
+        .insert(schema.tasks)
+        .values({
+          organizationId: ctx.organizationId,
+          title: a.title,
+          body: a.body ?? null,
+          priority: a.priority,
+          assigneeType: "agent",
+          assigneeAgentId: a.assignToAgentId,
+          creatorType: "agent",
+          creatorAgentId: ctx.agent.id,
+          parentTaskId: currentTask?.id ?? null,
+          delegationDepth: currentDepth + 1,
+          relatedType: a.relatedType ?? null,
+          relatedId: a.relatedId ?? null,
+        })
+        .returning({ id: schema.tasks.id });
+
+      audit(ctx.db, {
+        organizationId: ctx.organizationId,
+        actorAgentId: ctx.agent.id,
+        action: AUDIT_ACTIONS.taskAssigned,
+        targetType: "task",
+        targetId: row!.id,
+        metadata: { delegatedTo: a.assignToAgentId, runId: ctx.runId },
+      });
+
+      ctx.log(`Delegated to ${target.name}: ${a.title}`);
+      return { taskId: row!.id, delegatedTo: target.name };
     },
   }),
 

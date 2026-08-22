@@ -7,6 +7,7 @@ import { BufferClient } from "@falorb/buffer-client";
 import { ExaClient, FirecrawlClient, type ResearchClients } from "@falorb/research";
 import { ElevenLabsClient } from "@falorb/elevenlabs-client";
 import { StripeClient } from "@falorb/stripe-client";
+import { MigaduClient } from "@falorb/migadu-client";
 import type { AiCredentials, AiProvider } from "@falorb/ai";
 
 /**
@@ -31,7 +32,7 @@ import type { AiCredentials, AiProvider } from "@falorb/ai";
  */
 async function activeConnection(
   organizationId: string,
-  provider: "linki" | "bund_ai" | "buffer" | "exa" | "firecrawl" | "elevenlabs" | "stripe",
+  provider: "linki" | "bund_ai" | "buffer" | "exa" | "firecrawl" | "elevenlabs" | "stripe" | "migadu",
   projectId?: number,
 ) {
   if (projectId != null) {
@@ -124,6 +125,20 @@ export async function getStripeClient(organizationId: string, projectId?: number
 }
 
 /**
+ * The org's Migadu connection — used by `/email`'s mailbox provisioning
+ * (domain listing, mailbox create/delete) via
+ * `apps/web/src/server/actions/email.ts`. `apiKey` here is the JSON-encoded
+ * `{ username, apiKey }` pair `MigaduClient` expects; nothing outside that
+ * client and the connect flow ever needs to parse it apart.
+ */
+export async function getMigaduClient(organizationId: string, projectId?: number): Promise<MigaduClient | null> {
+  const row = await activeConnection(organizationId, "migadu", projectId);
+  if (!row) return null;
+  const apiKey = decryptCredential({ ciphertext: row.encryptedApiKey, iv: row.iv, authTag: row.authTag });
+  return new MigaduClient({ baseUrl: row.baseUrl, apiKey });
+}
+
+/**
  * Builds `@falorb/research`'s `ResearchClients` bag from whichever of
  * Exa/Firecrawl this organization (or, when `projectId` is given, this
  * project — falling back to the org) has connected — either, both, or
@@ -186,6 +201,7 @@ export type Provider =
   | "firecrawl"
   | "elevenlabs"
   | "stripe"
+  | "migadu"
   | AiProvider;
 
 export const PROVIDERS: Provider[] = [
@@ -201,6 +217,7 @@ export const PROVIDERS: Provider[] = [
   "firecrawl",
   "elevenlabs",
   "stripe",
+  "migadu",
 ];
 
 export interface ConnectionView {

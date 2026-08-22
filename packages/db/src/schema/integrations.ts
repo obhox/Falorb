@@ -20,18 +20,28 @@ import { organizations, projects } from "./tenancy";
  * FEATURES.md §14k), ElevenLabs (UGC video generation, see FEATURES.md §18),
  * Stripe (a read-only mirror of the operator's own payment processing —
  * customers, subscriptions, invoices, charges — see FEATURES.md §20, *not*
- * Falorb's own SaaS billing for itself), and the two AI gateways —
- * OpenRouter and Ramp Router (router.com) — an organization can bring its
- * own account and model on (see FEATURES.md §19 and `@falorb/ai`'s
+ * Falorb's own SaaS billing for itself), Migadu (cold-outreach mailbox
+ * provisioning, see `packages/migadu-client` and `email.ts`), and the two AI
+ * gateways — OpenRouter and Ramp Router (router.com) — an organization can
+ * bring its own account and model on (see FEATURES.md §19 and `@falorb/ai`'s
  * `credentials.ts`) today, more over time. One table, not one per provider,
  * because the shape is identical: a base URL, an encrypted key, and a
  * status a sync job can check before calling out.
  *
- * Buffer's, Postiz's, Clay's, Exa/Firecrawl's, ElevenLabs', and Stripe's
- * `baseUrl` are each a fixed API root rather than user-entered (unlike
- * Linki/Bund AI's self-hosted deployments) — set server-side, not exposed
- * on their connect forms. Stored per-row anyway rather than special-cased,
- * so every provider fits this one table without a schema exception.
+ * Buffer's, Postiz's, Clay's, Exa/Firecrawl's, ElevenLabs', Stripe's, and
+ * Migadu's `baseUrl` are each a fixed API root rather than user-entered
+ * (unlike Linki/Bund AI's self-hosted deployments) — set server-side, not
+ * exposed on their connect forms. Stored per-row anyway rather than
+ * special-cased, so every provider fits this one table without a schema
+ * exception.
+ *
+ * Migadu is the one provider whose management API needs two secrets, not
+ * one — HTTP Basic Auth over an admin email plus an API key. Rather than add
+ * a column only this provider uses, `encryptedApiKey` holds
+ * `JSON.stringify({ username, apiKey })` for Migadu specifically; see
+ * `apps/api/src/routes/integrations.ts`'s connect handler for where that's
+ * assembled, and `MigaduClient`'s constructor for where it's parsed back
+ * out.
  *
  * The key is stored encrypted, not hashed, unlike `api_keys`. Those keys are
  * only ever compared against a caller-presented value; this key must be
@@ -53,6 +63,7 @@ export const integrationProviderEnum = pgEnum("integration_provider", [
   "firecrawl",
   "elevenlabs",
   "stripe",
+  "migadu",
   "openrouter",
   "router",
   "gemini",

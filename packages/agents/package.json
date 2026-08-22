@@ -19,6 +19,7 @@
     "@falorb/ai": "workspace:*",
     "@falorb/bund-ai-client": "workspace:*",
     "@falorb/db": "workspace:*",
+    "@falorb/elevenlabs-client": "workspace:*",
     "@falorb/linki-client": "workspace:*",
     "@falorb/queries": "workspace:*",
     "drizzle-orm": "^0.45.2",

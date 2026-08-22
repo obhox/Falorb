@@ -250,19 +250,33 @@ export async function updateAgentAction(
   }
 
   /**
-   * Blanket auto-approval is accepted only as its own explicit checkbox, and
-   * only from an owner. The entire safety model reduces to this one field, so
-   * the person switching it off should be the person who carries the
-   * consequences — an admin can already do a great deal, but "this agent may
-   * do anything to anyone, unattended" is an owner's call.
+   * Two tiers of auto-approval, and they compose by precedence rather than
+   * union: blanket (`"*"`) waives every gate and is owner-only, since the
+   * person switching off the entire safety model should be the person who
+   * carries the consequences. A per-toolkit waiver (`toolkit:<name>`) is
+   * strictly narrower — "trust this agent's CRM writes" rather than "trust
+   * it entirely" — so it stays at the same admin tier as the rest of agent
+   * management (`can.manageAgents`, already checked above). When both are
+   * submitted, blanket wins: the toolkit checkboxes are disabled in the UI
+   * whenever "unattended" is on, so this only matters if a client sends both
+   * anyway.
    */
+  let nextAutoApproveTools: string[] | undefined;
   if (formData.has("autoApproveAll")) {
     const wantsAll = String(formData.get("autoApproveAll")) === "on";
     if (wantsAll && session.workspace.role !== "owner") {
       return { ok: false, message: "Only an owner can let an agent act without any approvals." };
     }
-    patch.autoApproveTools = wantsAll ? ["*"] : [];
+    nextAutoApproveTools = wantsAll ? ["*"] : [];
   }
+  if (formData.has("autoApproveToolkits") && nextAutoApproveTools?.[0] !== "*") {
+    nextAutoApproveTools = formData
+      .getAll("autoApproveToolkits")
+      .map(String)
+      .filter(isToolkit)
+      .map((t) => `toolkit:${t}`);
+  }
+  if (nextAutoApproveTools) patch.autoApproveTools = nextAutoApproveTools;
 
   await db().update(schema.agents).set(patch).where(eq(schema.agents.id, agentId));
 

@@ -34,6 +34,9 @@ export const TOOLKITS = [
   "tasks",
   "memory",
   "content",
+  "prospecting",
+  "ugc",
+  "growth",
 ] as const;
 
 export type Toolkit = (typeof TOOLKITS)[number];
@@ -46,6 +49,9 @@ export const TOOLKIT_LABELS: Record<Toolkit, string> = {
   tasks: "Task board",
   memory: "Long-term memory",
   content: "Writing",
+  prospecting: "Prospecting",
+  ugc: "UGC video",
+  growth: "Referrals & signals",
 };
 
 export const TOOLKIT_DESCRIPTIONS: Record<Toolkit, string> = {
@@ -56,6 +62,9 @@ export const TOOLKIT_DESCRIPTIONS: Record<Toolkit, string> = {
   tasks: "Open, comment on, complete and hand off work on the shared board.",
   memory: "Keep and recall conclusions between shifts.",
   content: "Draft prose — outreach, briefs, summaries — as a step inside a larger job.",
+  prospecting: "Review people discovered off-site, qualify them, and draft the approach.",
+  ugc: "Generate a UGC video from a brief and queue a finished one for posting.",
+  growth: "Referral links, the AI growth-signal cache, and the waitlist queue.",
 };
 
 /**

@@ -2,7 +2,7 @@
 
 Living record of what exists, what is half-built, and what has not been started.
 
-**Last updated:** 2026-08-20
+**Last updated:** 2026-08-21
 
 | Status | Meaning |
 |---|---|
@@ -113,7 +113,7 @@ Verified end to end: one person, two devices, two products, both stores agreeing
 | ✅ | Merge audit + snapshot | `person_merges` allows a bad merge to be reversed |
 | ✅ | Alias → override consistency | Postgres and ClickHouse kept in agreement |
 | ✅ | **Cross-domain link stitching** | Token validated at ingest (where the freshness window is meaningful), then stitched by the resolver. Verified: an anonymous visitor clicking acme→beacon becomes one person across both |
-| ✅ | Manual merge / unmerge API | `POST /api/people/merge` and `/unmerge/:id`; reversible from the audit snapshot. Absent from MCP by design |
+| ✅ | Manual merge / unmerge API | `POST /api/people/merge` and `/unmerge/:id`; reversible from the audit snapshot. Also in MCP — `merge_people`/`unmerge_people` (§11) |
 | ❌ | Cross-site tracking | **Out of scope permanently.** See [README](README.md#scope-boundary) |
 
 ## 6. Query layer — `packages/queries`
@@ -220,9 +220,10 @@ Verified end to end: one person, two devices, two products, both stores agreeing
 
 ## 11. MCP server — `apps/mcp`
 
-Lets any MCP-capable assistant query the platform directly. **25 tools, 2
-resources, 3 prompts — all verified** with a real MCP client
-(`pnpm --filter @falorb/mcp smoke` → 31/31).
+Lets any MCP-capable assistant query **and run** the platform directly. **133
+tools, 2 resources, 3 prompts — all verified** with a real MCP client
+(`pnpm --filter @falorb/mcp smoke` → 80/80, including that every
+local-operator-only tool below is genuinely refused to a bearer key).
 
 | | Feature | Notes |
 |---|---|---|
@@ -237,7 +238,18 @@ resources, 3 prompts — all verified** with a real MCP client
 | ✅ | Funnel tools | `run_funnel`, `get_funnel_dropoffs` |
 | ✅ | People tools | list, search, **full profile**, cross-project, sessions |
 | ✅ | Live/ops tools | live visitors, event stream, platform health, alerts, install snippet |
-| ✅ | Scoped write tool | `create_alert` (requires `write`) |
+| ✅ | Scoped write tools throughout | Most write tools (goals, alerts, referrals, sharing, team, waitlist, CRM/support/social actions, tasks, agents) require only the `write` scope — a read-only key cannot call any of them |
+| ✅ | **Local-operator-only tools** | A second, narrower gate (`requireLocalOperator`) on top of `write`, for the handful of actions the dashboard's own bearer-key-facing API refuses to *every* API key with no scope exception: connecting/testing/revoking/rotating an integration credential, and GDPR person erasure. Verified: a bearer key with full `write` scope is still refused all five |
+| ✅ | CRM tools | Read: `list_crm_contacts`, `get_crm_contact`, `list_crm_deals`, `list_crm_lists`, `list_crm_workflows`, `list_crm_runs`, `list_crm_signal_rules`, `list_crm_sent_messages`, `list_crm_suppressions` (the mirrored Linki data). Write: `create_crm_contact`, `push_crm_signal` — reach Linki itself, enforcing the same suppression-list and duplicate-contact checks as the agent runtime's equivalent tools |
+| ✅ | Support tools | Read: `list_support_conversations`, `list_support_escalations`, `list_support_leads`, `list_support_tickets`. Write: `resolve_support_escalation` — closes one out in Bund AI |
+| ✅ | Social tools | Read: `list_social_channels`, `list_social_posts`. Write: `create_social_post` (queue/draft/schedule/publish to Buffer), `delete_social_post` |
+| ✅ | Integration tools | `get_integration_status` (read, any scope) — connected/healthy/last-synced per provider, never the credential itself. `connect_integration`, `test_integration_connection`, `revoke_integration_connection`, `set_integration_model` (local operator only) — store, verify, rotate, or clear a credential, org- or property-scoped |
+| ✅ | Task-board tools | `list_tasks`, `get_task`, `create_task`, `update_task`, `assign_task`, `set_task_status`, `comment_on_task`, `delete_task` — the same `tasks`/`task_comments` tables the dashboard and the agent runtime both use; assigning to an agent starts its shift within a minute via the worker's existing sweep |
+| ✅ | AI-employee tools | `list_agents`, `get_agent`, `hire_agent`, `update_agent`, `set_agent_status`, `retire_agent`, `run_agent_now`, `list_agent_runs`, `get_agent_run`, `list_agent_approvals`, `decide_agent_approval`. An agent hired or edited through this server is capped at role "member" — never admin/owner — since a write-scope key carries no per-human role for `canGrantAgentRole` to check against |
+| ✅ | `archive_project` | The one project-lifecycle action there is — there is no hard delete anywhere in this codebase, so a write-scope key may do it like any other write |
+| ✅ | Person export/erasure | `request_person_export` (write scope), `request_person_erasure` (local operator only, mirroring `requireHumanSession` on `POST /api/people/requests`'s `delete` kind) |
+| ✅ | Merge/unmerge | `merge_people`, `unmerge_people` (write scope) — the same reversible-via-snapshot mechanism `POST /api/people/merge`/`/unmerge/:id` expose, including the array/timestamp `sql` literal fix (§18) |
+| ✅ | UGC video tools | `list_ugc_video_models`, `list_ugc_videos`, `get_ugc_video` (read); `create_ugc_video`, `queue_ugc_video_post`, `set_ugc_post_status` (write) — spends real ElevenLabs credits per generation, same as the other paid-generation write tools above |
 | ✅ | Resources | `falorb://projects`, `falorb://capabilities` |
 | ✅ | Prompts | `weekly_review`, `conversion_audit`, `lead_research` |
 | ✅ | LLM-shaped output | Markdown tables, pre-formatted numbers, relative times |
@@ -245,7 +257,7 @@ resources, 3 prompts — all verified** with a real MCP client
 | ✅ | Injection-safe | Verified: `evil; DROP TABLE events` rejected as a dimension |
 | ✅ | Server instructions | Steer the model away from guessing event names and from overclaiming |
 | ⬜ | OAuth for MCP | Currently bearer API keys only; fine for connectors that accept a token |
-| ❌ | Destructive tools | **Deliberately excluded** — no project deletion or person erasure. Irreversible actions should not be reachable by an assistant acting on a misread instruction; erasure also needs a human to confirm the subject's identity. |
+| ✅ | Hard delete stays unreachable, because it doesn't exist | There is no hard delete anywhere in this codebase — `archive_project` is genuinely the whole capability, dashboard included, so exposing it is not a new risk. Person erasure is the one true irreversible action, and it is gated to the local operator only (`requireLocalOperator`), never a bearer key, matching `requireHumanSession` on the dashboard's own API — an assistant connected over a remote/hosted bearer key can never erase a person; one running locally over stdio already holds the database credentials to do so directly, so the gate adds no protection there and isn't asked to |
 
 ## 12. Accounts & onboarding — `apps/api`
 
@@ -529,9 +541,17 @@ same `integrationConnections` table every other provider uses.
 - **Buffer aggregated analytics.** Per-post metrics mirror into
   `socialPosts.metrics`, but Buffer's `aggregatedPostMetrics` query (rollups
   across a filtered post set) isn't pulled — no dashboard view needs it yet.
-- **MCP exposure** — no `list_crm_contacts`/`get_sync_status`-style tools yet,
-  matching the old design's intent that connect/disconnect and any write stay
-  out of MCP's reach regardless.
+- ~~**MCP exposure** — no `list_crm_contacts`/`get_sync_status`-style tools,
+  and connect/disconnect/write stay out of MCP's reach regardless.~~ Built,
+  and superseded: `apps/mcp/src/tools/{crm,support,social,integrations}.ts`
+  add read tools over every mirror table, write tools that reach Linki/Bund
+  AI/Buffer themselves (`create_crm_contact`, `push_crm_signal`,
+  `resolve_support_escalation`, `create_social_post`, `delete_social_post`),
+  and integration-credential tools (`connect_integration` and its siblings) —
+  see §11. What the old design got right and this keeps: connecting a
+  credential is a materially different, higher-trust act than using an
+  already-connected one, so it is gated more narrowly than a plain write —
+  to the local operator only, not any bearer key regardless of scope.
 
 ### Design constraints carried over from the old plan, honored
 
@@ -545,9 +565,11 @@ same `integrationConnections` table every other provider uses.
   outside `person_aliases` — a prospect is not a resolved identity.)
 - Sync failures are visible (`integrationConnections.status`/`lastError`),
   not silently indistinguishable from "nothing changed."
-- Connect/disconnect stays a dashboard-only action for every provider,
-  including Clay and ElevenLabs — no MCP tool can create, rotate, or revoke
-  a credential.
+- Connect/disconnect/rotate is a dashboard-**or local-operator-MCP** action
+  for every provider, including Clay and ElevenLabs, never a bearer key's —
+  `apps/mcp/src/tools/integrations.ts`'s `connect_integration` and its
+  siblings require `requireLocalOperator`, the same rule
+  `requireHumanSession` enforces on the dashboard's own API (§11).
 
 ### Not planned
 
@@ -811,7 +833,7 @@ externally-discovered person does not fit.
 | ✅ | `clay-enrichment` worker job | 30m. Per-org loop over connected Clay `integrationConnections`, each org's own try/catch so one bad/rotated key can't stop the sweep; negative-result caching like `enrichCompanies`. Sync health lives on the connection row (`lastSyncedAt`/`lastError`), same convention as `linki-sync`/`bund-ai-sync` — no separate run-history table. Deliberately **excluded** from `verify:jobs` — unlike every other job there, a live run spends a connected org's own paid Clay credits. Covered instead by a unit test of the response parsing (`packages/clay-client/src/index.test.ts`) |
 | ✅ | `/prospecting` | Top-level route, not a per-project tab — a prospect is discovered via one project's keywords but the useful view is portfolio-wide, same reasoning as `hotLeads`'s `"portfolio"` scope. Source badges carry each source's description as a tooltip. Mark contacted, dismiss, draft outreach (AI, grounded in the specific public post/posting and — when crawled — the property's own profile; never implies an on-site relationship that never happened) |
 | ✅ | Clay on `/settings/integrations` | A third `ProviderCard` alongside Linki/Bund AI, not a bespoke panel — reuses the generic connect/test/revoke actions unchanged. Its connect dialog has no Base URL field (Clay has one fixed API root, set server-side); gated `manageIntegrations` (admin+), the same tier every other integration credential uses |
-| ✅ | MCP tools | `apps/mcp/src/tools/prospects.ts` — `list_prospect_sources` (what each source is), `list_prospects`, `get_prospect`, `list_prospect_keywords` (read); `mark_prospect_contacted`, `dismiss_prospect`, `draft_prospect_outreach` (now grounded in the property's crawled profile when one exists), `add_prospect_keyword`, `remove_prospect_keyword` (write). `list_projects` (`discovery.ts`) now includes each property's crawled summary. Connect/disconnect, and triggering a re-crawl, deliberately **not** exposed, per §13's stated integrations rule and the same "spends real money per call" reasoning `ugc-video-gen` MCP exposure stays out for |
+| ✅ | MCP tools | `apps/mcp/src/tools/prospects.ts` — `list_prospect_sources` (what each source is), `list_prospects`, `get_prospect`, `list_prospect_keywords` (read); `mark_prospect_contacted`, `dismiss_prospect`, `draft_prospect_outreach` (now grounded in the property's crawled profile when one exists), `add_prospect_keyword`, `remove_prospect_keyword` (write). `list_projects` (`discovery.ts`) now includes each property's crawled summary. Connecting Clay is possible via `integrations.ts`'s `connect_integration` (local operator only, same as every other credential — see §11), but triggering a re-crawl on demand is still **not** exposed — same "spends a connected org's own paid credits per call" reasoning `ugc-video-gen` MCP exposure stays out for |
 | ✅ | Verified | Full monorepo typecheck + test suite (`prospect-relevance.test.ts`, `hackernews-listener.test.ts`, `job-listener.test.ts`, `property-profile.test.ts` cover the new parsing/hashing logic), `verify:jobs` (`reddit-listener`/`hackernews-listener` run cleanly; `job-listener`/`property-profiler` excluded for the cost reasons above, matching `clay-enrichment`'s precedent) |
 | 🟡 | Playwright coverage | Verified via typecheck/tests/`verify:jobs` as above; no automated end-to-end coverage yet, same gap as every other §14d–§14j feature; no live walkthrough against a running dev stack for this pass |
 | ⬜ | Comment/social platforms beyond Reddit/Hacker News | X/LinkedIn need a paid API tier or a listening-as-a-service vendor; deliberately deferred to keep the free-tier sources at zero cost |
@@ -851,7 +873,7 @@ it's for, not an ownership scope.
 | ✅ | `/ugc-videos` | Brief + optional property tag + required voice ID + a required presenter photo upload in, a `status: "pending"` row out — generation is entirely the worker job's responsibility, never awaited inside the request/response cycle. Refuses to insert the row (with a link to Settings → Integrations) if the org has no active ElevenLabs connection, rather than accepting a brief that can never advance past `pending`. List shows every video with a status badge and an inline player once `ready` |
 | ✅ | `/ugc-videos/[id]` | Script, video player, and the queue-for-posting form (platform, caption, optional target date) once `ready`; existing queue entries with mark-posted/cancel actions |
 | ✅ | Capability | New `can.manageUgcVideos` (member tier) — same trust tier as `manageCrm`/`writeAnalysis` for *using* an already-connected account; connecting/revoking the ElevenLabs credential itself is `manageIntegrations` (admin+), the same split every other provider draws between "connect it" and "use it" |
-| ⬜ | MCP tools | Not exposed — generation spends real money per call, same reasoning integrations' write actions stay out of MCP's reach (§13) |
+| ✅ | MCP tools | `apps/mcp/src/tools/ugc-videos.ts` — `list_ugc_video_models`, `list_ugc_videos`, `get_ugc_video` (read); `create_ugc_video`, `queue_ugc_video_post`, `set_ugc_post_status` (write, requires the `write` scope). Generation spends real ElevenLabs credits per call, the same class of cost `draft_content_page`/`regenerate_signal`/`run_agent_now` already carry elsewhere in the server — the tool description says so explicitly rather than gating it further |
 | ⬜ | Automated posting | Deliberately out of scope until Postiz (§13's queued third integration) lands. The post queue exists so a finished video isn't lost track of while that's built, not so it can fire anywhere today |
 | ⬜ | Durable video storage | `videoUrl` is ElevenLabs' own hosted URL; its retention window isn't confirmed. Mirroring finished videos into an object store is a natural follow-up once Falorb has one for any feature, not something to stand up solely for this |
 | 🟡 | Verified | Typechecks and builds; never exercised against a live ElevenLabs connection — no live account was available to confirm the Flows video API's actual completed-generation response shape (see the client's caveat above) or the `creatify-aurora` request contract end to end |
@@ -881,10 +903,10 @@ or something that happens outside software entirely.
 another a support lead is only which *toolkits* it holds. There is no
 `agentType` enum the runtime switches on, because that would make "an SDR who
 also watches support tickets" inexpressible — and that combination is the
-normal shape of a job at a small company. `AGENT_PRESETS` ships six starting
+normal shape of a job at a small company. `AGENT_PRESETS` ships seven starting
 points (chief of staff, growth analyst, SDR, support lead, content
-strategist, revenue ops); after creation an agent is just an agent, and
-`preset` is provenance only.
+strategist, revenue ops, growth marketer); after creation an agent is just an
+agent, and `preset` is provenance only.
 
 ### The autonomy dial, and why it is graded on *effect*
 
@@ -907,6 +929,19 @@ that, but it is never a default, never implied, and settable only by an
 owner. Independently of all of this, the agent's `role` bounds it from above
 — a `viewer` agent set to `autonomous` with a blanket waiver still cannot
 write, because the role check runs first and nothing relaxes it.
+
+`autoApproveTools` also accepts `toolkit:<name>` (e.g. `toolkit:crm`),
+waiving every tool in one skillset without the all-or-nothing choice between
+naming each tool and waiving everything with `"*"`. It sits at the same
+admin tier as the rest of agent management (`can.manageAgents`) rather than
+owner-only — it is strictly narrower than blanket approval, the same
+reasoning that keeps `manageCrm`/`manageUgcVideos` at member tier while only
+the credential-holding `manageIntegrations` sits at admin. On the agent
+detail page, the per-toolkit "skip approval" checkbox is hidden whenever the
+owner-only "act with no approvals at all" checkbox is on, and the client
+omits the toolkit selection from that save entirely in that state — sending
+an empty selection would otherwise silently clear an owner-set `"*"` out
+from under an admin who never saw that setting.
 
 ### Approvals do not block the shift
 
@@ -934,7 +969,7 @@ while somebody demoted the agent does not still fire.
 | ✅ | `agent_memories` schema | What an agent still knows next week — conclusions and corrections, written by the agent itself through a tool. Without it an agent re-derives the same findings every shift and never accumulates judgement, which is the difference between a scheduled script and an employee. Scoped per agent, not per org: two agents holding contradictory beliefs is legible, whereas a shared pool would let one agent's mistake silently steer another's work |
 | ✅ | `auditLog.actorAgentId` | Agent actions land in the same log as human ones. A separate "agent activity" table would mean answering "who changed this deal" required reading two places and merging by timestamp — and the whole point is that both kinds of colleague are accountable the same way |
 | ✅ | `@falorb/agents` | The runtime: `policy.ts` (one `decide()` every gate funnels through — UI, worker, and approval-resume all call it, so they cannot drift apart), `run.ts` (the loop, resume, budget, approval raising, `executeApproval`), `prompt.ts` (briefing assembly), `presets.ts`, and the tool registry. Server-only, same boundary `@falorb/ai`/`@falorb/mailer` draw |
-| ✅ | Seven toolkits, 22 tools | `analytics` (through `@falorb/queries`, the same layer the dashboard and MCP server read — an agent computing its own aggregates would eventually report a figure a human cannot reproduce), `people`, `crm` (reads the mirror, writes to Linki), `support` (reads the mirror, resolves in Bund AI), `tasks`, `memory`, `content`. Suppression-list and duplicate-contact checks are enforced *in the tool*, not left to the prompt — putting do-not-contact in a prompt makes it a suggestion |
+| ✅ | Ten toolkits, 41 tools | `analytics` (through `@falorb/queries`, the same layer the dashboard and MCP server read — an agent computing its own aggregates would eventually report a figure a human cannot reproduce), `people`, `crm` (reads the mirror, writes to Linki), `support` (reads the mirror, resolves in Bund AI), `tasks`, `memory`, `content`, `prospecting` (off-site leads found by social listening, §17), `ugc` (text-to-video generation and a posting checklist, §18), `growth` (referral links, the cached AI signal library, and a read-only waitlist view). Suppression-list and duplicate-contact checks are enforced *in the tool*, not left to the prompt — putting do-not-contact in a prompt makes it a suggestion. The three newer toolkits reuse only what `@falorb/queries` already exposes to both the dashboard and the agent runtime, and query `@falorb/db` directly rather than importing `apps/web/src/server/*` — `@falorb/agents` does not depend on the Next.js app. Regenerating a cached signal and enabling/disabling the waitlist are deliberately left out: the former is a bespoke, app-layer analytics pipeline per signal kind, and the latter is gated by `can.share` (admin-tier, since it changes what's publicly reachable) rather than the `writeAnalysis` tier everything else here sits at |
 | ✅ | `chat()` in `@falorb/ai` | Tool-calling turn beside the existing `complete()`, separate rather than a flag on it: different shape of interaction, and folding them together would push a `tool_calls` branch into four call sites that will never take it. Both are now thin wrappers over `transport.ts`'s `callModel`, so agents work against either supported gateway. Agents run on `openrouter/auto` like everything else — no pinned model to go stale, no per-deployment model list to maintain. What makes that safe is `provider.require_parameters`, sent whenever tools are present, so auto only considers models that support function calling; without it an agent silently degrades into one that writes prose *about* the action it would have taken |
 | ✅ | Shifts bill to the organization's own gateway | Through `@falorb/db`'s shared `resolveAiCredentials`, not a copy — the dashboard, the worker and the agent runtime have to agree on which gateway an org's AI runs against, and two implementations of that eventually disagree. The result is carried on `AgentContext`, resolved once per shift rather than per turn, because it decrypts a stored key and a gateway swapped mid-run would bill half a conversation to each. Without it every shift would quietly fall through to the deployment-wide `OPENROUTER_API_KEY`, ignoring both the connection an org configured and the model it chose. `draft_text` reads the same credentials, so a tool that itself calls a model spends the same key the shift does |
 | ✅ | `agents-enqueue` / `agents-run` / `agents-approvals` worker jobs | Enqueue is a cheap indexed lookup on a 1m beat so assigning a task feels immediate; execution costs real model calls, so it runs on its own 2m beat with a small per-sweep cap and `skipOnBoot` (a restart loop must not fire a paid shift on every boot). `nextRunAt` advances at enqueue, not completion, so a wedged run cannot push a daily agent into being a weekly one. Stalled runs are reclaimed by heartbeat and *resume* from `agent_steps` rather than re-running a billed shift |
@@ -942,8 +977,8 @@ while somebody demoted the agent does not still fire.
 | ✅ | `/tasks`, `/tasks/[id]` | The shared board, with one assignee dropdown containing people and agents together. That is the smallest UI decision here and the most load-bearing: choosing who does a piece of work should not begin with choosing what *kind of thing* does it |
 | ✅ | Escalation routes closed | `canGrantAgentRole` caps an agent's role at the granter's own (otherwise an admin creates an `owner` agent and drives it); `canDecideApproval` requires the reviewer to hold the tool's capability; blanket auto-approval is owner-only. 12 unit tests in `policy.test.ts` cover each |
 | ✅ | Resume tested without a database | `rebuildMessages` is pure and exported precisely so the post-crash path can be asserted (`run.test.ts`) — see §19a |
-| ⬜ | Agent-to-agent delegation | The schema supports it (`trigger: "delegation"`, `parentTaskId`), and an agent can already create a task — but nothing lets it *assign* one to another agent. Deliberate: a delegation loop between two autonomous agents is the failure mode with no natural bound, and it needs its own depth limit before the tool exists |
-| ⬜ | Event-triggered shifts | `trigger: "alert"` is in the vocabulary and nothing emits it yet. A fired alert waking the relevant agent is the obvious next step — the alerts worker already knows when something broke |
+| ✅ | Agent-to-agent delegation | `delegate_task` (tasks toolkit) assigns work directly to another agent, the same `manageTasks`/`internal` grade as `create_task`. `tasks.delegationDepth` bounds it — `MAX_DELEGATION_DEPTH = 3` in `packages/agents/src/tools/tasks.ts`, checked by the pure, unit-tested `checkDelegation` — rather than cycle detection: the counter is monotonically increasing, so it caps any loop shape (chain or ping-pong) regardless. Self-delegation is refused outright. The worker (`enqueueAgentTasks`) tells a human-assigned task from a delegated one by `creatorType`, writing `trigger: "delegation"` only for the latter |
+| ✅ | Event-triggered shifts | `alertChannels.kind` gained `"agent"` (`config: { agentId, objective? }`); when a rule fires, `apps/worker/src/jobs/alerts.ts`'s `deliver()` queues a normal `agent_runs` row (`trigger: "alert"`) instead of sending a message anywhere. Nothing about being alert-triggered bypasses policy — same role/autonomy gates, same approval queue for anything external. The looked-up agent's `organizationId` is checked against the rule's explicitly, since `config` is loosely-typed JSON on an admin-authored row rather than a foreign key |
 | ✅ | Task editing and deletion | `updateTaskAction` / `deleteTaskAction`, plus an edit card on the task page. Status and assignee are deliberately excluded from that form — both are one-click controls elsewhere on the same page, and duplicating them into a Save-button form would give one thing two ways to change that disagree about whether the change has landed |
 | ✅ | Verified against a live model | `pnpm --filter @falorb/agents verify` drives a real shift end to end. Confirmed working: the loop (43 steps, 8 turns, $0.005), tool dispatch through the real query layer, transcript persistence, the budget backstop, **the approval gate holding** under `assisted` (a `create_task` was queued, not performed), the approve → worker-execute round trip actually creating the task, and agent attribution in `audit_log`. See §19a for what that run exposed and what is still unproven |
 

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { requireSession } from "@/server/session";
-import { isLinkiConnected } from "@/server/actions/crm";
+import { isLinkiConnected } from "@/server/crm";
 import {
   ensureDealStages,
   listCrmProfiles,

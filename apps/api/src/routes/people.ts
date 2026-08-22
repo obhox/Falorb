@@ -4,7 +4,7 @@ import { and, eq, sql, type SQL } from "drizzle-orm";
 import { AUDIT_ACTIONS, audit, createClickHouse, schema, type Database } from "@falorb/db";
 import type { Workspace } from "../onboarding";
 import { HttpError } from "../http";
-import { requireHumanSession, requireScope } from "../guards";
+import { requireCapability, requireHumanSession, requireScope, type Credential } from "../guards";
 
 /**
  * Manual identity corrections and GDPR requests.
@@ -25,6 +25,7 @@ type Vars = {
   userId: string | null;
   workspace: Workspace | null;
   scopes: string[];
+  credential: Credential | null;
 };
 
 export function peopleRoutes(db: Database): Hono<{ Variables: Vars }> {
@@ -59,7 +60,10 @@ export function peopleRoutes(db: Database): Hono<{ Variables: Vars }> {
   });
 
   app.post("/merge", async (c) => {
-    const workspace = requireWorkspace(c);
+    // Merging rewrites who two histories belong to across both stores. The
+    // dashboard gates the same operation on `manageProject`; scope alone made
+    // it reachable by anyone holding a write credential.
+    const workspace = requireCapability(c, "manageProject", "merge two profiles");
     requireScope(c, "write");
     const parsed = mergeSchema.safeParse(await c.req.json().catch(() => ({})));
     if (!parsed.success) throw new HttpError(422, "survivorId and mergedId must both be UUIDs.");
@@ -164,7 +168,7 @@ export function peopleRoutes(db: Database): Hono<{ Variables: Vars }> {
    * two profiles that are both wrong.
    */
   app.post("/unmerge/:mergeId", async (c) => {
-    const workspace = requireWorkspace(c);
+    const workspace = requireCapability(c, "manageProject", "reverse a merge");
     requireScope(c, "write");
 
     const [record] = await db
@@ -231,7 +235,9 @@ export function peopleRoutes(db: Database): Hono<{ Variables: Vars }> {
    * and must not be attempted inside a request that can time out halfway.
    */
   app.post("/requests", async (c) => {
-    const workspace = requireWorkspace(c);
+    // Export and erasure both hand out or destroy one person's entire history,
+    // which is property-owner territory rather than ordinary analysis work.
+    const workspace = requireCapability(c, "manageProject", "act on a data-subject request");
     requireScope(c, "write");
 
     const parsed = requestSchema.safeParse(await c.req.json().catch(() => ({})));

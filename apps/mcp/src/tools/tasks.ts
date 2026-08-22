@@ -3,7 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { schema, type Database } from "@falorb/db";
 import type { McpContext } from "../context";
-import { requireScope } from "../context";
+import { requireCapability, requireScope } from "../context";
 import { ago, failure, table, text } from "../format";
 
 const STATUSES = ["todo", "in_progress", "blocked", "review", "done", "cancelled"] as const;
@@ -208,6 +208,7 @@ export function registerTaskTools(server: McpServer, ctx: () => McpContext): voi
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "manageTasks", "create a task");
 
         const resolved = await resolveAssignee(db, scope.organizationId, assignee);
         if (resolved.error) return failure(resolved.error);
@@ -270,6 +271,7 @@ export function registerTaskTools(server: McpServer, ctx: () => McpContext): voi
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "manageTasks", "edit a task");
         const task = await requireTask(db, scope.organizationId, task_id);
         if (!task) return failure("No such task in this workspace.");
 
@@ -322,6 +324,7 @@ export function registerTaskTools(server: McpServer, ctx: () => McpContext): voi
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "manageTasks", "reassign a task");
         const task = await requireTask(db, scope.organizationId, task_id);
         if (!task) return failure("No such task in this workspace.");
 
@@ -365,6 +368,7 @@ export function registerTaskTools(server: McpServer, ctx: () => McpContext): voi
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "manageTasks", "change a task's status");
         const done = status === "done" || status === "cancelled";
         const updated = await db
           .update(schema.tasks)
@@ -391,6 +395,7 @@ export function registerTaskTools(server: McpServer, ctx: () => McpContext): voi
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "manageTasks", "comment on a task");
         const task = await requireTask(db, scope.organizationId, task_id);
         if (!task) return failure("No such task in this workspace.");
 
@@ -414,6 +419,7 @@ export function registerTaskTools(server: McpServer, ctx: () => McpContext): voi
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "manageTasks", "delete a task");
         const deleted = await db
           .delete(schema.tasks)
           .where(and(eq(schema.tasks.id, task_id), eq(schema.tasks.organizationId, scope.organizationId)))

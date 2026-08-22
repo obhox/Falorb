@@ -4,7 +4,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { and, eq, isNotNull, sql } from "drizzle-orm";
 import { schema } from "@falorb/db";
 import type { McpContext } from "../context";
-import { requireScope, resolveProjects } from "../context";
+import { requireCapability, requireScope, resolveProjects } from "../context";
 import { ago, failure, num, table, text } from "../format";
 
 const REFERRAL_BOOST = 3;
@@ -108,6 +108,7 @@ export function registerWaitlistTools(server: McpServer, ctx: () => McpContext):
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "share", "turn on the waitlist");
         const [id] = resolveProjects(scope, project);
 
         const token = randomBytes(32).toString("base64url");
@@ -135,6 +136,7 @@ export function registerWaitlistTools(server: McpServer, ctx: () => McpContext):
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "share", "turn off the waitlist");
         const [id] = resolveProjects(scope, project);
 
         await db

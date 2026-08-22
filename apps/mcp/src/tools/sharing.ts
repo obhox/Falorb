@@ -5,7 +5,7 @@ import { and, eq, isNotNull, isNull } from "drizzle-orm";
 import { schema } from "@falorb/db";
 import { RANGE_DESCRIPTION, benchmarkReport, parseRange } from "@falorb/queries";
 import type { McpContext } from "../context";
-import { requireScope, resolveProjects } from "../context";
+import { requireCapability, requireScope, resolveProjects } from "../context";
 import { duration, failure, num, pct, table, text } from "../format";
 
 const TOKEN_BYTES = 32;
@@ -73,6 +73,7 @@ export function registerSharingTools(server: McpServer, ctx: () => McpContext): 
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "share", "create a public link");
         const [id] = resolveProjects(scope, project);
         const row = scope.projects.find((p) => p.id === id)!;
 
@@ -113,6 +114,7 @@ export function registerSharingTools(server: McpServer, ctx: () => McpContext): 
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "share", "revoke a public link");
         const [id] = resolveProjects(scope, project);
 
         const [updated] = await db
@@ -184,6 +186,7 @@ export function registerSharingTools(server: McpServer, ctx: () => McpContext): 
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "share", "create a public benchmark report");
 
         const token = randomBytes(TOKEN_BYTES).toString("base64url");
         const [existing] = await db
@@ -222,6 +225,7 @@ export function registerSharingTools(server: McpServer, ctx: () => McpContext): 
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "share", "revoke the public benchmark report");
 
         const [updated] = await db
           .update(schema.dashboards)

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
-import { AUDIT_ACTIONS, audit, db, generateApiKey, schema } from "@falorb/db";
+import { AUDIT_ACTIONS, audit, capForRole, db, generateApiKey, isMemberRole, schema } from "@falorb/db";
 import { requireSession } from "@/server/session";
 import type { ActionResult } from "./project";
 import { deny } from "./guard";
@@ -19,6 +19,14 @@ import { deny } from "./guard";
  *   Keys default to read-only. An assistant reading analytics is the ordinary
  *   case; one that can also create alerts is a deliberate escalation, so `write`
  *   has to be asked for.
+ *
+ * A key also carries a **role**, and it is a `viewer` unless asked otherwise.
+ * Scope and role are different questions — scope says read-or-write, role says
+ * which of those operations the holder is entitled to — and a key that had only
+ * the first was, in practice, an owner: `write` was enough to promote a member
+ * to owner over MCP. `capForRole` additionally refuses to issue a key above the
+ * issuer's own role, because an actor cannot delegate authority they do not
+ * hold and the key would outlive their membership.
  */
 
 export interface IssuedKeyResult extends ActionResult {
@@ -41,6 +49,19 @@ export async function createApiKey(formData: FormData): Promise<IssuedKeyResult>
   }
 
   const scopes = formData.get("write") === "on" ? ["read", "write"] : ["read"];
+
+  const requestedRole = String(formData.get("role") ?? "viewer");
+  if (!isMemberRole(requestedRole)) return { ok: false, message: "Unknown role." };
+  const role = capForRole(session.workspace.role, requestedRole);
+  if (role !== requestedRole) {
+    // Refused rather than silently clamped here, unlike the API: a person is
+    // looking at this form and should be told they asked for something they
+    // cannot give, not handed a key quietly weaker than the one they picked.
+    return {
+      ok: false,
+      message: `You are ${session.workspace.role}, so you cannot issue a key with the role “${requestedRole}”.`,
+    };
+  }
 
   // Optional single-project restriction, so a key handed to one team cannot
   // read the rest of the portfolio.
@@ -68,6 +89,7 @@ export async function createApiKey(formData: FormData): Promise<IssuedKeyResult>
       name,
       keyHash: issued.keyHash,
       keyPrefix: issued.keyPrefix,
+      role,
       scopes,
       expiresAt,
     })
@@ -84,7 +106,7 @@ export async function createApiKey(formData: FormData): Promise<IssuedKeyResult>
     targetId: created!.id,
     // The plaintext never enters this object; `audit` also redacts key-shaped
     // fields as a second line of defence.
-    metadata: { name, scopes, projectId },
+    metadata: { name, scopes, role, projectId },
   });
 
   revalidatePath("/settings/mcp");

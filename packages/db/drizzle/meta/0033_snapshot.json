@@ -1,5 +1,5 @@
 {
-  "id": "83db9843-4e15-49ae-8111-dfb946ac3612",
+  "id": "4e37a30b-4055-4377-9b68-9106ce346de6",
   "prevId": "d7096449-f4cd-42ca-9dd2-8d50eb599c70",
   "version": "7",
   "dialect": "postgresql",
@@ -456,6 +456,13 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'{}'"
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'admin'"
         },
         "last_used_at": {
           "name": "last_used_at",
@@ -12022,192 +12029,6 @@
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
-    },
-    "public.mcp_connections": {
-      "name": "mcp_connections",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "organization_id": {
-          "name": "organization_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "url": {
-          "name": "url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "encrypted_api_key": {
-          "name": "encrypted_api_key",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "iv": {
-          "name": "iv",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "auth_tag": {
-          "name": "auth_tag",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "key_version": {
-          "name": "key_version",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 1
-        },
-        "status": {
-          "name": "status",
-          "type": "mcp_connection_status",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'active'"
-        },
-        "last_verified_at": {
-          "name": "last_verified_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_error": {
-          "name": "last_error",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "tools_cache": {
-          "name": "tools_cache",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "tools_cached_at": {
-          "name": "tools_cached_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "revoked_at": {
-          "name": "revoked_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "mcp_connections_org_name_uq": {
-          "name": "mcp_connections_org_name_uq",
-          "columns": [
-            {
-              "expression": "organization_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "name",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"mcp_connections\".\"revoked_at\" is null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "mcp_connections_org_idx": {
-          "name": "mcp_connections_org_idx",
-          "columns": [
-            {
-              "expression": "organization_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "mcp_connections_organization_id_organizations_id_fk": {
-          "name": "mcp_connections_organization_id_organizations_id_fk",
-          "tableFrom": "mcp_connections",
-          "tableTo": "organizations",
-          "columnsFrom": [
-            "organization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "mcp_connections_created_by_user_id_fk": {
-          "name": "mcp_connections_created_by_user_id_fk",
-          "tableFrom": "mcp_connections",
-          "tableTo": "user",
-          "columnsFrom": [
-            "created_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
     }
   },
   "enums": {
@@ -12302,15 +12123,6 @@
       "values": [
         "inbound",
         "outbound"
-      ]
-    },
-    "public.mcp_connection_status": {
-      "name": "mcp_connection_status",
-      "schema": "public",
-      "values": [
-        "active",
-        "revoked",
-        "error"
       ]
     }
   },

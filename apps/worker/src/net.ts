@@ -21,7 +21,7 @@ import { assertSafeWebhookUrl, isPrivateAddress, UnsafeUrlError } from "@falorb/
  */
 
 const MAX_REDIRECTS = 3;
-const TIMEOUT_MS = 5_000;
+const DEFAULT_TIMEOUT_MS = 5_000;
 
 /**
  * Resolve a host and refuse anything that is not public unicast.
@@ -54,7 +54,7 @@ async function assertResolvesPublic(hostname: string): Promise<void> {
  */
 export async function postWebhook(
   rawUrl: string,
-  init: { headers: Record<string, string>; body: string },
+  init: { headers: Record<string, string>; body: string; timeoutMs?: number },
 ): Promise<Response> {
   let url = assertSafeWebhookUrl(rawUrl);
 
@@ -68,7 +68,9 @@ export async function postWebhook(
       // Redirects are walked by hand so each hop is re-screened. `fetch`'s own
       // following would jump straight past this guard.
       redirect: "manual",
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      // Per hop rather than for the whole chain. A destination that stalls on
+      // every redirect still finishes bounded, because the hop count is.
+      signal: AbortSignal.timeout(init.timeoutMs ?? DEFAULT_TIMEOUT_MS),
     });
 
     const location = response.headers.get("location");

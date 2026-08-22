@@ -1,6 +1,7 @@
 import type { ClickHouseClient } from "@clickhouse/client";
 import { and, eq, isNull } from "drizzle-orm";
 import {
+  can,
   createClickHouse,
   createDatabase,
   schema,
@@ -39,6 +40,18 @@ export interface Scope {
   projects: ProjectInfo[];
   projectIds: number[];
   scopes: string[];
+  /**
+   * The membership role this caller acts with — `api_keys.role` for a bearer
+   * key, `owner` for the stdio local operator.
+   *
+   * Tools used to authorise on `scopes` alone, which meant `write` was
+   * effectively `owner`: `change_member_role` could promote anyone, and
+   * `archive_project` could hide a property, both of which the dashboard
+   * reserves for owners. Scope says read-or-write; this says whether the
+   * holder is entitled to that class of change. `requireCapability` checks it
+   * against the same `can.*` predicates the dashboard's `deny` helper uses.
+   */
+  role: string;
   /** Label for logs and the server instructions. */
   label: string;
   /**
@@ -122,6 +135,7 @@ export async function resolveScope(
       projects,
       projectIds: projects.map((p) => p.id),
       scopes: verified.scopes.length ? verified.scopes : ["read"],
+      role: verified.role,
       label: `api key ${verified.id.slice(0, 8)}`,
       isLocalOperator: false,
     };
@@ -159,6 +173,11 @@ export async function resolveScope(
     projects,
     projectIds: projects.map((p) => p.id),
     scopes: ["read", "write"],
+    // The operator launched this process with the database credentials already
+    // in their environment; a capability check cannot contain someone who can
+    // write the rows directly, and pretending otherwise would only make the
+    // local transport behave differently from the dashboard for no gain.
+    role: "owner",
     label: `local stdio (${org.name})`,
     isLocalOperator: true,
   };
@@ -172,6 +191,31 @@ export function requireScope(scope: Scope, required: string): void {
   if (!hasScope(scope, required)) {
     throw new ScopeError(
       `This action needs the "${required}" scope; this API key has [${scope.scopes.join(", ")}].`,
+    );
+  }
+}
+
+/**
+ * Refuse an action the caller's *role* does not reach.
+ *
+ * The companion to `requireScope`, and both are needed: scope bounds what the
+ * credential may do, role bounds what its holder is entitled to. The
+ * capability names come from `@falorb/db`'s `can`, which is also what the
+ * dashboard's server actions check — so a tool here and the button that does
+ * the same thing there cannot drift into permitting different things. Before
+ * this existed every tool in this server authorised on scope alone, and a
+ * `write` key could do anything the dashboard reserved for an owner.
+ */
+export function requireCapability(
+  scope: Scope,
+  capability: keyof typeof can,
+  action: string,
+): void {
+  if (!can[capability](scope.role)) {
+    throw new ScopeError(
+      `This credential's role is "${scope.role}", which cannot ${action} — the same rule the ` +
+        "dashboard enforces for this action. Ask an owner or admin, or use a key issued with a " +
+        "higher role.",
     );
   }
 }

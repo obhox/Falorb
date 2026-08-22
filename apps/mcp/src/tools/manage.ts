@@ -5,7 +5,7 @@ import { createProject, normalizeDomain, schema } from "@falorb/db";
 import { assertSafeWebhookUrl, UnsafeUrlError } from "@falorb/core";
 import { hostStatus, installStatus } from "@falorb/queries";
 import type { McpContext } from "../context";
-import { requireScope, resolveProjects } from "../context";
+import { requireCapability, requireScope, resolveProjects } from "../context";
 import { ago, failure, num, table, text } from "../format";
 
 const CHANNEL_KINDS = ["slack", "webhook", "email"] as const;
@@ -132,6 +132,7 @@ export function registerManagementTools(server: McpServer, ctx: () => McpContext
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "writeAnalysis", "create an alert");
 
         if (args.channel_id) {
           const [channel] = await db
@@ -343,6 +344,7 @@ export function registerManagementTools(server: McpServer, ctx: () => McpContext
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "manageProject", "add a property");
 
         const project = await createProject(db, {
           organizationId: scope.organizationId,
@@ -525,6 +527,7 @@ export function registerManagementTools(server: McpServer, ctx: () => McpContext
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "writeAnalysis", "add a delivery channel");
 
         let config: Record<string, string>;
         if (kind === "email") {
@@ -570,6 +573,7 @@ export function registerManagementTools(server: McpServer, ctx: () => McpContext
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "writeAnalysis", "remove a delivery channel");
 
         const [stillUsing] = await db
           .select({ id: schema.alerts.id, name: schema.alerts.name })
@@ -608,6 +612,7 @@ export function registerManagementTools(server: McpServer, ctx: () => McpContext
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "writeAnalysis", "change alert delivery");
 
         if (channel_id) {
           const [channel] = await db
@@ -647,6 +652,7 @@ export function registerManagementTools(server: McpServer, ctx: () => McpContext
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "writeAnalysis", "change an alert");
 
         const [updated] = await db
           .update(schema.alerts)
@@ -674,6 +680,7 @@ export function registerManagementTools(server: McpServer, ctx: () => McpContext
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "writeAnalysis", "remove an alert");
 
         const [deleted] = await db
           .delete(schema.alerts)
@@ -778,6 +785,7 @@ export function registerManagementTools(server: McpServer, ctx: () => McpContext
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "manageProject", "change the weekly digest setting");
         await db
           .update(schema.organizations)
           .set({ weeklyDigestEnabled: enabled, updatedAt: new Date() })
@@ -806,6 +814,7 @@ export function registerManagementTools(server: McpServer, ctx: () => McpContext
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "archiveProject", "archive a property");
         const [id] = resolveProjects(scope, project);
         const row = scope.projects.find((p) => p.id === id)!;
 

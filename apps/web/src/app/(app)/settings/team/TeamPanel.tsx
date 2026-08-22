@@ -21,7 +21,7 @@ import {
   ROLE_DESCRIPTIONS,
   ROLE_LABELS,
   type MemberRole,
-} from "@falorb/db/roles";
+} from "@falorb/core";
 import { CopyField } from "@/components/CopyField";
 import { Empty } from "@/components/Empty";
 import {

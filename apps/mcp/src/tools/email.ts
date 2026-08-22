@@ -5,7 +5,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { decryptCredential, encryptCredential, schema } from "@falorb/db";
 import { MigaduApiError, sendMail } from "@falorb/migadu-client";
 import type { McpContext } from "../context";
-import { requireLocalOperator, requireScope, resolveProjects } from "../context";
+import { requireCapability, requireLocalOperator, requireScope, resolveProjects } from "../context";
 import { getMigaduClient } from "../clients";
 import { ago, failure, table, text } from "../format";
 
@@ -169,6 +169,7 @@ export function registerEmailTools(server: McpServer, ctx: () => McpContext): vo
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "actOnIntegrations", "send an email");
 
         const [account] = await db
           .select()

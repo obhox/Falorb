@@ -163,6 +163,8 @@ export function WorkspaceSwitcher({
             display: "grid",
             gap: 1,
             padding: 4,
+            maxHeight: 320,
+            overflowY: "auto",
             borderRadius: "var(--radius-control)",
             border: "1px solid var(--border-subtle)",
             background: "var(--surface-raised, var(--surface-panel))",

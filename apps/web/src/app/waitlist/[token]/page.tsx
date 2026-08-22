@@ -44,7 +44,8 @@ export default async function WaitlistJoinPage({
   return (
     <main
       style={{
-        minHeight: "100dvh",
+        height: "100%",
+        overflowY: "auto",
         display: "grid",
         placeItems: "center",
         background: "var(--bg-app)",

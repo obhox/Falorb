@@ -4,7 +4,7 @@ import { and, asc, eq, inArray, isNotNull } from "drizzle-orm";
 import { schema } from "@falorb/db";
 import { RANGE_DESCRIPTION, parseRange, referralClicks } from "@falorb/queries";
 import type { McpContext } from "../context";
-import { requireScope, resolveProjects } from "../context";
+import { requireCapability, requireScope, resolveProjects } from "../context";
 import { failure, num, pct, table, text } from "../format";
 
 const CODE_PATTERN = /^[a-z0-9](?:[a-z0-9-]{1,62}[a-z0-9])?$/;
@@ -163,6 +163,7 @@ export function registerReferralTools(server: McpServer, ctx: () => McpContext):
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "writeAnalysis", "create a referral link");
         const [id] = resolveProjects(scope, project);
 
         const finalCode = code || slugify(label);
@@ -224,6 +225,7 @@ export function registerReferralTools(server: McpServer, ctx: () => McpContext):
       const { db, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "writeAnalysis", "revoke a referral link");
         const [id] = resolveProjects(scope, project);
 
         const [revoked] = await db

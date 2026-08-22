@@ -6,7 +6,7 @@ import { AiSignalError, complete } from "@falorb/ai";
 import { contentInterests, parseRange } from "@falorb/queries";
 import { OpenSeoApiError } from "@falorb/openseo-client";
 import type { McpContext } from "../context";
-import { requireScope, resolveProjects } from "../context";
+import { requireCapability, requireScope, resolveProjects } from "../context";
 import { resolveOpenSeoClient } from "../integrations";
 import { ago, failure, table, text } from "../format";
 
@@ -165,6 +165,7 @@ export function registerContentTools(server: McpServer, ctx: () => McpContext): 
       const { db, clickhouse, scope } = ctx();
       try {
         requireScope(scope, "write");
+        requireCapability(scope, "writeAnalysis", "draft a content page");
         const [id] = resolveProjects(scope, project);
         const row = scope.projects.find((p) => p.id === id)!;
 

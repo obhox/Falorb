@@ -78,3 +78,10 @@ shots/
 # Scratch files
 *.tmp
 .cache/
+
+# Generated at container start-up by the ClickHouse entrypoint, into the
+# writable users.d bind mount, from CLICKHOUSE_USER/CLICKHOUSE_PASSWORD.
+# Never commit it: a checked-in copy is a credential baked into the published
+# image (see infra/docker/Dockerfile.clickhouse), live wherever those
+# environment variables are absent.
+infra/clickhouse/users.d/default-user.xml

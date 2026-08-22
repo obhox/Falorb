@@ -1,7 +1,9 @@
 import { createHmac } from "node:crypto";
 import { and, eq, lt, sql } from "drizzle-orm";
 import { goalCondition, type GoalDefinition } from "@falorb/queries";
+import { UnsafeUrlError } from "@falorb/core";
 import { chDateTime, schema, type WorkerContext } from "../context";
+import { postWebhook } from "../net";
 import type { Watermarks } from "../scheduler";
 
 /**
@@ -15,6 +17,15 @@ import type { Watermarks } from "../scheduler";
  * receivers are expected to deduplicate on it; guaranteeing exactly-once over
  * HTTP to an endpoint we do not control is not achievable, and pretending
  * otherwise would just mean dropping events on ambiguous failures.
+ *
+ * Delivery goes through `postWebhook`, not a bare `fetch`. This job used to
+ * call `fetch(hook.url, …)` directly — with redirect following left on its
+ * default — while the alert-channel job next door used the hardened helper.
+ * That asymmetry was the whole vulnerability: a destination screened once at
+ * save time can be repointed at 127.0.0.1 an hour later, and a public host can
+ * 302 into the private range, so only a check immediately before the socket
+ * opens actually holds. `postWebhook` re-resolves every hop and walks
+ * redirects by hand.
  */
 
 const WATERMARK = "webhooks";
@@ -187,13 +198,8 @@ async function deliver(
     .update(`${timestamp}.${body}`)
     .digest("hex");
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
   try {
-    const response = await fetch(hook.url, {
-      method: "POST",
-      signal: controller.signal,
+    const response = await postWebhook(hook.url, {
       headers: {
         "Content-Type": "application/json",
         "User-Agent": "Falorb-Webhook/1",
@@ -203,6 +209,10 @@ async function deliver(
         "X-Falorb-Signature": `v1=${signature}`,
       },
       body,
+      // Conversion receivers are ordinary application endpoints and are
+      // routinely slower than an alert channel's chat webhook, so this job
+      // keeps the longer budget it always had.
+      timeoutMs: TIMEOUT_MS,
     });
 
     if (response.ok) {
@@ -216,10 +226,14 @@ async function deliver(
     await recordFailure(context, hook, `HTTP ${response.status}`);
     return false;
   } catch (error) {
-    await recordFailure(context, hook, String(error));
+    // A destination that has started resolving privately counts as a failure
+    // like any other, so `recordFailure` eventually disables the hook rather
+    // than the worker retrying a refused request every minute forever. The
+    // reason is recorded verbatim, because "resolves to 127.0.0.1" is the one
+    // failure whose cause is not obvious from the outside.
+    const reason = error instanceof UnsafeUrlError ? `Unsafe destination: ${error.message}` : String(error);
+    await recordFailure(context, hook, reason);
     return false;
-  } finally {
-    clearTimeout(timer);
   }
 }
 

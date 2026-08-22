@@ -670,3 +670,77 @@ export async function listDealsForPerson(organizationId: string, personId: strin
 
   return rows.map((r) => ({ ...r, updatedAt: r.updatedAt.toISOString() }));
 }
+
+export interface LinkedContactView {
+  linkiId: string;
+  fullName: string | null;
+  email: string | null;
+  company: string | null;
+  syncedAt: string;
+}
+
+/**
+ * The Linki contact a person is linked to, if any.
+ *
+ * These two live here rather than in `actions/crm.ts`, and the distinction is
+ * a security boundary rather than a filing preference. Next exposes **every**
+ * export of a `"use server"` module as a callable endpoint, so a function
+ * there that takes an `organizationId` and does not re-derive it from the
+ * session is a cross-tenant read anyone able to post to the action id can
+ * perform — for this one, another organization's contact name, email address
+ * and employer. They were only ever called from server components, which
+ * already hold a session, so the fix is to stop exposing them rather than to
+ * guard them: this module is `server-only`, which means it can be imported by
+ * a server component and cannot become an endpoint.
+ *
+ * The rule the dashboard follows: a `"use server"` export either derives its
+ * tenancy from `requireSession()`, or it does not belong in a `"use server"`
+ * file.
+ */
+export async function getLinkedContact(
+  organizationId: string,
+  personId: string,
+): Promise<LinkedContactView | null> {
+  const [row] = await db()
+    .select()
+    .from(schema.crmContacts)
+    .where(
+      and(
+        eq(schema.crmContacts.organizationId, organizationId),
+        eq(schema.crmContacts.personId, personId),
+      ),
+    )
+    .limit(1);
+
+  if (!row) return null;
+  return {
+    linkiId: row.linkiId,
+    fullName: row.fullName,
+    email: row.email,
+    company: row.company,
+    syncedAt: row.syncedAt.toISOString(),
+  };
+}
+
+/**
+ * Whether this organization has Linki connected at the org level.
+ *
+ * Org-level connection only — a property-only override doesn't light up this
+ * org-wide check; see `packages/db/src/schema/integrations.ts`.
+ */
+export async function isLinkiConnected(organizationId: string): Promise<boolean> {
+  const [row] = await db()
+    .select({ id: schema.integrationConnections.id })
+    .from(schema.integrationConnections)
+    .where(
+      and(
+        eq(schema.integrationConnections.organizationId, organizationId),
+        isNull(schema.integrationConnections.projectId),
+        eq(schema.integrationConnections.provider, "linki"),
+        eq(schema.integrationConnections.status, "active"),
+        isNull(schema.integrationConnections.revokedAt),
+      ),
+    )
+    .limit(1);
+  return Boolean(row);
+}

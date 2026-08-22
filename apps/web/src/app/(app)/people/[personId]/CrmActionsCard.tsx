@@ -4,12 +4,12 @@ import { useState } from "react";
 import Link from "next/link";
 import { Badge, Button, Card, Icon, Input, Select } from "@falorb/ui";
 import { useAction } from "@/lib/use-action";
-import {
-  createLinkiContact,
-  pushLinkiSignal,
-  updateLinkiContact,
-  type LinkedContactView,
-} from "@/server/actions/crm";
+import { createLinkiContact, pushLinkiSignal, updateLinkiContact } from "@/server/actions/crm";
+// Type-only, so it is erased before this reaches the browser — the same way
+// every other client component in this app imports a shape from a
+// `server-only` module. The read functions themselves moved out of
+// `actions/crm.ts` deliberately; see the note on `getLinkedContact`.
+import type { LinkedContactView } from "@/server/crm";
 
 const SIGNAL_TYPES = ["product_intent", "job_change", "funding", "hiring", "technology", "custom"];
 const SIGNAL_LABELS: Record<string, string> = {

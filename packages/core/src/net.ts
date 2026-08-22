@@ -117,12 +117,24 @@ const BLOCKED_SUFFIXES = [
 ];
 
 /**
- * Screen a user-supplied webhook URL on syntax alone.
+ * Screen a user-supplied outbound URL on syntax alone.
  *
- * Returns the parsed URL so callers do not re-parse. Throws `UnsafeUrlError`
- * with a message written for the person pasting the URL into the form.
+ * Anywhere this product takes a destination from a customer and then has a
+ * server open a connection to it, this is the first gate: alert channels,
+ * outbound webhooks, and the base URL of a self-hosted integration all reach
+ * the same private network from the inside, and all reach it identically.
+ * Having one screen rather than one per feature is the point — the ops-webhook
+ * path had none for exactly as long as it was the one feature that forgot.
+ *
+ * Syntax alone is deliberately not the whole defence. A hostname's resolution
+ * is not fixed and a public host can redirect into the private range, so
+ * anything that actually opens a socket must re-check at resolution time; see
+ * `apps/worker/src/net.ts`.
+ *
+ * `label` only shapes the error message, which is read by the person pasting
+ * the URL into a form. Returns the parsed URL so callers do not re-parse.
  */
-export function assertSafeWebhookUrl(raw: string): URL {
+export function assertSafeOutboundUrl(raw: string, label = "webhook target"): URL {
   let url: URL;
   try {
     url = new URL(raw.trim());
@@ -131,18 +143,20 @@ export function assertSafeWebhookUrl(raw: string): URL {
   }
 
   if (url.protocol !== "https:") {
-    throw new UnsafeUrlError("Webhooks must use https:// so alert contents are not sent in the clear.");
+    throw new UnsafeUrlError(
+      `A ${label} must use https:// so its contents and credentials are not sent in the clear.`,
+    );
   }
 
-  // Credentials in a webhook URL end up in logs and in the alert channel row.
+  // Credentials in the URL end up in logs and in the stored row.
   if (url.username || url.password) {
-    throw new UnsafeUrlError("Remove the username and password from the URL; use the signing secret instead.");
+    throw new UnsafeUrlError("Remove the username and password from the URL; use the secret field instead.");
   }
 
   const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
 
   if (host === "localhost" || BLOCKED_SUFFIXES.some((s) => host.endsWith(s))) {
-    throw new UnsafeUrlError("That host is on a private network and is not reachable as a webhook target.");
+    throw new UnsafeUrlError(`That host is on a private network and is not reachable as a ${label}.`);
   }
 
   // A bare hostname with no dot is a container or LAN name (`clickhouse`,
@@ -154,8 +168,18 @@ export function assertSafeWebhookUrl(raw: string): URL {
   // An IP literal can be classified right now, with no DNS involved.
   const looksLikeIp = /^[\d.]+$/.test(host) || host.includes(":");
   if (looksLikeIp && isPrivateAddress(host)) {
-    throw new UnsafeUrlError("That address is on a private network and is not reachable as a webhook target.");
+    throw new UnsafeUrlError(`That address is on a private network and is not reachable as a ${label}.`);
   }
 
   return url;
+}
+
+/**
+ * The webhook-worded spelling of `assertSafeOutboundUrl`.
+ *
+ * Kept as the name the alert-channel and webhook call sites use, so the check
+ * reads as what it is at those sites rather than as a generic utility.
+ */
+export function assertSafeWebhookUrl(raw: string): URL {
+  return assertSafeOutboundUrl(raw, "webhook target");
 }

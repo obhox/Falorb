@@ -9,8 +9,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./schema": "./src/schema/index.ts",
-    "./clickhouse": "./src/clickhouse/index.ts",
-    "./roles": "./src/roles.ts"
+    "./clickhouse": "./src/clickhouse/index.ts"
   },
   "scripts": {
     "generate": "drizzle-kit generate",

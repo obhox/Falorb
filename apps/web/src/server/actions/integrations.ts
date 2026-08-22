@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { AUDIT_ACTIONS, audit, db, decryptCredential, encryptCredential, schema } from "@falorb/db";
+import { assertSafeOutboundUrl, UnsafeUrlError } from "@falorb/core";
 import { LinkiClient } from "@falorb/linki-client";
 import { BundAiClient } from "@falorb/bund-ai-client";
 import { BufferClient, BUFFER_API_ENDPOINT } from "@falorb/buffer-client";
@@ -80,6 +81,38 @@ const LABELS: Record<Provider, string> = {
 /** Migadu is the one provider whose management API needs a second secret
  * (an admin email, alongside the API key) — see `packages/db/src/schema/integrations.ts`. */
 const NEEDS_USERNAME: Partial<Record<Provider, true>> = { migadu: true };
+
+/**
+ * Resolve a provider's base URL, screening it when the caller supplied one.
+ *
+ * A self-hosted deployment's base URL is a destination this server then
+ * connects to — with the credential attached, at connect time and again on
+ * every sync run. `^https?://.+` accepted `http://169.254.169.254/` and
+ * `http://redis:6379` alike, which made the connect form a server-side request
+ * forgery into the private network. `assertSafeOutboundUrl` is the same screen
+ * webhook destinations go through, for the same reason.
+ *
+ * The fixed roots are trusted constants from this repository and are not
+ * re-screened.
+ */
+function resolveBaseUrl(
+  provider: Provider,
+  formData: FormData,
+): { baseUrl: string } | { message: string } {
+  const fixed = FIXED_BASE_URLS[provider];
+  if (fixed) return { baseUrl: fixed };
+  try {
+    return {
+      baseUrl: assertSafeOutboundUrl(
+        String(formData.get("baseUrl") ?? ""),
+        `${LABELS[provider]} deployment`,
+      ).toString(),
+    };
+  } catch (error) {
+    if (error instanceof UnsafeUrlError) return { message: error.message };
+    throw error;
+  }
+}
 
 /**
  * Buffer, Clay, Exa, Firecrawl, ElevenLabs, Stripe, GitHub, Migadu, OpenSEO,
@@ -559,11 +592,9 @@ export async function connectIntegration(provider: string, formData: FormData): 
   const refusal = deny(session.workspace.role, "manageIntegrations", `connect ${LABELS[provider]}`);
   if (refusal) return refusal;
 
-  const fixedBaseUrl = FIXED_BASE_URLS[provider];
-  const baseUrl = fixedBaseUrl ?? String(formData.get("baseUrl") ?? "").trim();
-  if (!fixedBaseUrl && !/^https?:\/\/.+/i.test(baseUrl)) {
-    return { ok: false, message: "Enter a valid base URL." };
-  }
+  const resolved = resolveBaseUrl(provider, formData);
+  if ("message" in resolved) return { ok: false, message: resolved.message };
+  const { baseUrl } = resolved;
   const { credential, error } = credentialFor(provider, formData);
   if (error) return { ok: false, message: error };
   const repoConfig = repoConfigFrom(provider, formData);
@@ -608,11 +639,9 @@ export async function connectProjectIntegration(
   const refusal = deny(session.workspace.role, "manageIntegrations", `connect ${LABELS[provider]} for this property`);
   if (refusal) return refusal;
 
-  const fixedBaseUrl = FIXED_BASE_URLS[provider];
-  const baseUrl = fixedBaseUrl ?? String(formData.get("baseUrl") ?? "").trim();
-  if (!fixedBaseUrl && !/^https?:\/\/.+/i.test(baseUrl)) {
-    return { ok: false, message: "Enter a valid base URL." };
-  }
+  const resolved = resolveBaseUrl(provider, formData);
+  if ("message" in resolved) return { ok: false, message: resolved.message };
+  const { baseUrl } = resolved;
   const { credential, error } = credentialFor(provider, formData);
   if (error) return { ok: false, message: error };
   const repoConfig = repoConfigFrom(provider, formData);

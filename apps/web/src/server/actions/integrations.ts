@@ -12,6 +12,7 @@ import { ElevenLabsClient, ELEVENLABS_DEFAULT_BASE_URL } from "@falorb/elevenlab
 import { StripeClient, STRIPE_DEFAULT_BASE_URL } from "@falorb/stripe-client";
 import { GitHubBlogClient, GITHUB_API_ENDPOINT } from "@falorb/git-blog-client";
 import { MigaduClient, MIGADU_API_ENDPOINT } from "@falorb/migadu-client";
+import { OpenSeoClient, OPENSEO_DEFAULT_BASE_URL } from "@falorb/openseo-client";
 import {
   AI_PROVIDER_BASE_URLS,
   AI_PROVIDER_DEFAULT_MODELS,
@@ -26,7 +27,7 @@ import { deny } from "./guard";
 
 /**
  * Connect, test, or revoke Falorb's connection to Linki, Bund AI, Buffer,
- * Clay, Exa, Firecrawl, ElevenLabs, Stripe, or one of the three AI providers
+ * Clay, Exa, Firecrawl, ElevenLabs, Stripe, OpenSEO, or one of the three AI providers
  * (OpenRouter, Ramp Router, Google Gemini) — at the organization level (this file) or, via
  * the `*ProjectIntegration*` actions below, overriding it for one property.
  * A property with its own connection for a provider uses that one; a
@@ -56,6 +57,7 @@ export type Provider =
   | "stripe"
   | "github"
   | "migadu"
+  | "openseo"
   | AiProvider;
 
 const LABELS: Record<Provider, string> = {
@@ -69,6 +71,7 @@ const LABELS: Record<Provider, string> = {
   stripe: "Stripe",
   github: "GitHub",
   migadu: "Migadu",
+  openseo: "OpenSEO",
   openrouter: "OpenRouter",
   router: "Ramp Router",
   gemini: "Google Gemini",
@@ -79,8 +82,8 @@ const LABELS: Record<Provider, string> = {
 const NEEDS_USERNAME: Partial<Record<Provider, true>> = { migadu: true };
 
 /**
- * Buffer, Clay, Exa, Firecrawl, ElevenLabs, Stripe, GitHub, Migadu, and both
- * AI gateways each have one fixed API root, unlike Linki/Bund AI's
+ * Buffer, Clay, Exa, Firecrawl, ElevenLabs, Stripe, GitHub, Migadu, OpenSEO,
+ * and both AI gateways each have one fixed API root, unlike Linki/Bund AI's
  * self-hosted deployments — their connect forms carry no baseUrl field at
  * all, so the fixed root is supplied here rather than asked of the user.
  */
@@ -93,6 +96,7 @@ const FIXED_BASE_URLS: Partial<Record<Provider, string>> = {
   stripe: STRIPE_DEFAULT_BASE_URL,
   github: GITHUB_API_ENDPOINT,
   migadu: MIGADU_API_ENDPOINT,
+  openseo: OPENSEO_DEFAULT_BASE_URL,
   openrouter: AI_PROVIDER_BASE_URLS.openrouter,
   router: AI_PROVIDER_BASE_URLS.router,
   gemini: AI_PROVIDER_BASE_URLS.gemini,
@@ -113,6 +117,7 @@ function clientFor(
   | StripeClient
   | GitHubBlogClient
   | MigaduClient
+  | OpenSeoClient
   | AiGatewayClient {
   if (isAiProvider(provider)) return new AiGatewayClient({ provider, baseUrl, apiKey });
   if (provider === "linki") return new LinkiClient({ baseUrl, apiKey });
@@ -124,7 +129,8 @@ function clientFor(
   if (provider === "elevenlabs") return new ElevenLabsClient({ baseUrl, apiKey });
   if (provider === "github") return new GitHubBlogClient({ baseUrl, apiKey });
   if (provider === "migadu") return new MigaduClient({ baseUrl, apiKey });
-  return new StripeClient({ baseUrl, apiKey });
+  if (provider === "stripe") return new StripeClient({ baseUrl, apiKey });
+  return new OpenSeoClient({ baseUrl, apiKey });
 }
 
 function isProvider(value: string): value is Provider {
@@ -139,7 +145,8 @@ function isProvider(value: string): value is Provider {
     value === "elevenlabs" ||
     value === "stripe" ||
     value === "github" ||
-    value === "migadu"
+    value === "migadu" ||
+    value === "openseo"
   );
 }
 

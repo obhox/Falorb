@@ -29,6 +29,7 @@ const LABELS: Record<Provider, string> = {
   stripe: "Stripe",
   github: "GitHub",
   migadu: "Migadu",
+  openseo: "OpenSEO",
 };
 
 const HAS_BASE_URL: Record<Provider, boolean> = {
@@ -45,6 +46,7 @@ const HAS_BASE_URL: Record<Provider, boolean> = {
   stripe: false,
   github: false,
   migadu: false,
+  openseo: false,
 };
 
 /** Migadu is the one provider whose management API needs a second secret —
@@ -63,6 +65,7 @@ const HAS_USERNAME: Record<Provider, boolean> = {
   stripe: false,
   github: false,
   migadu: true,
+  openseo: false,
 };
 
 const KEY_PLACEHOLDERS: Record<Provider, string> = {
@@ -79,6 +82,7 @@ const KEY_PLACEHOLDERS: Record<Provider, string> = {
   stripe: "sk_live_… or sk_test_…",
   github: "github_pat_…",
   migadu: "Your Migadu API key",
+  openseo: "oseo_…",
 };
 
 const PROVIDERS: Provider[] = [
@@ -95,6 +99,7 @@ const PROVIDERS: Provider[] = [
   "stripe",
   "github",
   "migadu",
+  "openseo",
 ];
 
 /**

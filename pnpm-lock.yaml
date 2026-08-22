@@ -63,6 +63,9 @@ importers:
       '@falorb/migadu-client':
         specifier: workspace:*
         version: link:../../packages/migadu-client
+      '@falorb/openseo-client':
+        specifier: workspace:*
+        version: link:../../packages/openseo-client
       '@falorb/queries':
         specifier: workspace:*
         version: link:../../packages/queries
@@ -158,6 +161,9 @@ importers:
       '@falorb/linki-client':
         specifier: workspace:*
         version: link:../../packages/linki-client
+      '@falorb/openseo-client':
+        specifier: workspace:*
+        version: link:../../packages/openseo-client
       '@falorb/queries':
         specifier: workspace:*
         version: link:../../packages/queries
@@ -228,6 +234,9 @@ importers:
       '@falorb/migadu-client':
         specifier: workspace:*
         version: link:../../packages/migadu-client
+      '@falorb/openseo-client':
+        specifier: workspace:*
+        version: link:../../packages/openseo-client
       '@falorb/queries':
         specifier: workspace:*
         version: link:../../packages/queries
@@ -587,6 +596,22 @@ importers:
       '@types/nodemailer':
         specifier: ^8.0.1
         version: 8.0.1
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.5
+        version: 3.2.7(@types/node@22.20.1)(tsx@4.23.12)
+
+  packages/openseo-client:
+    dependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.30.0
+        version: 1.30.0(zod@4.4.3)
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.5
+        version: 22.20.1
       typescript:
         specifier: ^5.7.3
         version: 5.9.3
@@ -2928,6 +2953,28 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
+  '@modelcontextprotocol/sdk@1.30.0(zod@4.4.3)':
+    dependencies:
+      '@hono/node-server': 1.19.17(hono@4.13.2)
+      ajv: 8.20.0
+      ajv-formats: 3.0.1(ajv@8.20.0)
+      content-type: 1.0.5
+      cors: 2.8.6
+      cross-spawn: 7.0.6
+      eventsource: 3.0.7
+      eventsource-parser: 3.1.1
+      express: 5.2.1
+      express-rate-limit: 8.6.2(express@5.2.1)
+      hono: 4.13.2
+      jose: 6.2.9
+      json-schema-typed: 8.0.2
+      pkce-challenge: 5.0.1
+      raw-body: 3.0.2
+      zod: 4.4.3
+      zod-to-json-schema: 3.25.2(zod@4.4.3)
+    transitivePeerDependencies:
+      - supports-color
+
   '@napi-rs/lzma-linux-x64-gnu@1.5.1':
     optional: true
 
@@ -4241,6 +4288,10 @@ snapshots:
   zod-to-json-schema@3.25.2(zod@3.25.76):
     dependencies:
       zod: 3.25.76
+
+  zod-to-json-schema@3.25.2(zod@4.4.3):
+    dependencies:
+      zod: 4.4.3
 
   zod@3.25.76: {}
 

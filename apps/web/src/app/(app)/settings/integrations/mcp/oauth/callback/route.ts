@@ -27,7 +27,14 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   const session = await requireSession();
   const url = new URL(request.url);
-  const settingsUrl = new URL("/settings/integrations", url.origin);
+  // Not `url.origin` — behind a reverse proxy (Coolify, etc.) `request.url`
+  // reflects the internal request the proxy forwarded, which can carry a
+  // container-local host like `localhost:3000` instead of the public
+  // origin. `FALORB_APP_URL` is the one already-correct source for that
+  // (same one `mcpOAuthCallbackUrl()` used to build the redirect_uri this
+  // callback was actually reached through), and every other absolute link
+  // in this app already redirects through it rather than `request.url`.
+  const settingsUrl = new URL("/settings/integrations", process.env.FALORB_APP_URL ?? "http://localhost:3000");
 
   const state = url.searchParams.get("state");
   const code = url.searchParams.get("code");

@@ -28,7 +28,7 @@ describe("resolveOAuthAccessToken", () => {
   it("returns the cached token when it's not expired, without refreshing", async () => {
     const encrypted = encryptOAuthState({
       tokens: { access_token: "still-good", token_type: "bearer", expires_in: 3600, obtainedAt: Date.now() },
-      clientInformation: { client_id: "client-1" },
+      clientInformation: { client_id: "client-1", redirect_uris: ["https://falorb.example.com/settings/integrations/mcp/oauth/callback"] },
       authorizationServerUrl: "https://as.example.com",
     });
     const captured: { set?: Record<string, unknown> } = {};
@@ -49,7 +49,7 @@ describe("resolveOAuthAccessToken", () => {
   it("treats a token with no stated expires_in as valid indefinitely", async () => {
     const encrypted = encryptOAuthState({
       tokens: { access_token: "no-expiry-stated", token_type: "bearer", obtainedAt: Date.now() - 999_999_999 },
-      clientInformation: { client_id: "client-1" },
+      clientInformation: { client_id: "client-1", redirect_uris: ["https://falorb.example.com/settings/integrations/mcp/oauth/callback"] },
       authorizationServerUrl: "https://as.example.com",
     });
 
@@ -81,7 +81,7 @@ describe("resolveOAuthAccessToken", () => {
         refresh_token: "refresh-1",
         obtainedAt: Date.now() - 999_999,
       },
-      clientInformation: { client_id: "client-1" },
+      clientInformation: { client_id: "client-1", redirect_uris: ["https://falorb.example.com/settings/integrations/mcp/oauth/callback"] },
       authorizationServerUrl: "https://as.example.com",
     });
     const captured: { set?: Record<string, unknown> } = {};
@@ -105,7 +105,7 @@ describe("resolveOAuthAccessToken", () => {
   it("throws a clear, reconnect-pointing error when expired with no refresh token", async () => {
     const encrypted = encryptOAuthState({
       tokens: { access_token: "expired", token_type: "bearer", expires_in: 60, obtainedAt: Date.now() - 999_999 },
-      clientInformation: { client_id: "client-1" },
+      clientInformation: { client_id: "client-1", redirect_uris: ["https://falorb.example.com/settings/integrations/mcp/oauth/callback"] },
       authorizationServerUrl: "https://as.example.com",
     });
 

@@ -22,6 +22,7 @@ export * from "./workspace";
 export * from "@falorb/core";
 export * from "./crypto";
 export * from "./ai-credentials";
+export * from "./mcp-oauth";
 
 export type Database = ReturnType<typeof createDatabase>;
 

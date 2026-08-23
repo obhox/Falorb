@@ -6,6 +6,7 @@ export interface McpServerView {
   id: string;
   name: string;
   url: string;
+  authMode: "api_key" | "oauth";
   hasToken: boolean;
   status: "active" | "revoked" | "error";
   toolCount: number | null;
@@ -14,14 +15,16 @@ export interface McpServerView {
   createdAt: string;
 }
 
-/** Never selects `encryptedApiKey`/`iv`/`authTag` — nothing here is safe to display. */
+/** Never selects `encryptedApiKey`/`iv`/`authTag`/`encryptedOAuth`/`oauthIv`/`oauthAuthTag` — nothing here is safe to display. */
 export async function listMcpServers(organizationId: string): Promise<McpServerView[]> {
   const rows = await db()
     .select({
       id: schema.mcpConnections.id,
       name: schema.mcpConnections.name,
       url: schema.mcpConnections.url,
-      hasToken: schema.mcpConnections.encryptedApiKey,
+      authMode: schema.mcpConnections.authMode,
+      hasApiKey: schema.mcpConnections.encryptedApiKey,
+      hasOAuth: schema.mcpConnections.encryptedOAuth,
       status: schema.mcpConnections.status,
       toolsCache: schema.mcpConnections.toolsCache,
       lastVerifiedAt: schema.mcpConnections.lastVerifiedAt,
@@ -36,7 +39,8 @@ export async function listMcpServers(organizationId: string): Promise<McpServerV
     id: r.id,
     name: r.name,
     url: r.url,
-    hasToken: r.hasToken !== null,
+    authMode: r.authMode,
+    hasToken: r.hasApiKey !== null || r.hasOAuth !== null,
     status: r.status,
     toolCount: r.toolsCache?.length ?? null,
     lastVerifiedAt: r.lastVerifiedAt?.toISOString() ?? null,

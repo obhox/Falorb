@@ -42,7 +42,7 @@ async function toolsFor(ctx: AgentContext, row: typeof schema.mcpConnections.$in
     !row.toolsCache || !row.toolsCachedAt || Date.now() - row.toolsCachedAt.getTime() > STALE_AFTER_MS;
   if (!stale) return row.toolsCache!;
 
-  const client = mcpClientFor(row);
+  const client = await mcpClientFor(ctx.db, row);
   try {
     const tools = await client.listTools();
     await ctx.db
@@ -119,7 +119,7 @@ export const mcpTools: AnyToolDefinition[] = [
       if (!row) throw new Error("No such MCP connection in this workspace.");
       if (row.status === "revoked") throw new Error(`The "${row.name}" MCP connection has been revoked.`);
 
-      const client = mcpClientFor(row);
+      const client = await mcpClientFor(ctx.db, row);
       try {
         const result = await client.callTool(a.tool, a.arguments);
         return { server: row.name, tool: a.tool, result };

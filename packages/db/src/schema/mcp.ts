@@ -41,6 +41,17 @@ export const mcpConnectionStatusEnum = pgEnum("mcp_connection_status", [
   "error",
 ]);
 
+/**
+ * How a connection authenticates. `api_key` is the original, static-bearer
+ * path (`encryptedApiKey`/`iv`/`authTag`, possibly all null for a server
+ * that needs no auth at all). `oauth` is the MCP-spec flow — RFC 9728 +
+ * RFC 8414 discovery, RFC 7591 dynamic client registration, OAuth 2.1
+ * authorization-code + PKCE — for servers that require redirecting the
+ * user to their own site to authenticate. See `packages/db/src/mcp-oauth.ts`
+ * for the encrypted-blob shape stored in `encryptedOAuth`.
+ */
+export const mcpAuthModeEnum = pgEnum("mcp_auth_mode", ["api_key", "oauth"]);
+
 export interface McpToolSummary {
   name: string;
   description?: string;
@@ -58,10 +69,19 @@ export const mcpConnections = pgTable(
     name: text("name").notNull(),
     /** The server's MCP endpoint (Streamable HTTP or SSE). */
     url: text("url").notNull(),
-    /** AES-256-GCM ciphertext, hex-encoded. Null when the server needs no auth. */
+    authMode: mcpAuthModeEnum("auth_mode").notNull().default("api_key"),
+    /** AES-256-GCM ciphertext, hex-encoded. Null when the server needs no auth or uses OAuth. */
     encryptedApiKey: text("encrypted_api_key"),
     iv: text("iv"),
     authTag: text("auth_tag"),
+    /**
+     * AES-256-GCM ciphertext of a JSON blob — access/refresh tokens, the
+     * dynamically-registered OAuth client, and cached discovery state — set
+     * only when `authMode` is `"oauth"`. See `packages/db/src/mcp-oauth.ts`.
+     */
+    encryptedOAuth: text("encrypted_oauth"),
+    oauthIv: text("oauth_iv"),
+    oauthAuthTag: text("oauth_auth_tag"),
     /** Bumped when `INTEGRATION_CREDENTIAL_ENC_KEY` rotates — see `integration_connections.keyVersion`. */
     keyVersion: integer("key_version").notNull().default(1),
     status: mcpConnectionStatusEnum("status").notNull().default("active"),
@@ -90,4 +110,42 @@ export const mcpConnections = pgTable(
       .where(sql`${t.revokedAt} is null`),
     index("mcp_connections_org_idx").on(t.organizationId),
   ],
+);
+
+/**
+ * A single in-flight "connect an MCP server with OAuth" attempt — the
+ * server-side state that has to survive the round trip out to the
+ * authorization server and back, since the SDK's OAuth client provider
+ * needs the dynamically-registered client and the PKCE code verifier again
+ * on the callback leg (it throws without them), and never validates a
+ * `state` param itself. This row's `id`, reused as that `state` param, *is*
+ * the CSRF defense: the callback route looks a code up by deleting the row
+ * matching both `id` and the caller's own `organizationId` in one atomic
+ * statement, so a guessed or replayed state can't complete a connect for a
+ * different org, and a second hit on the same callback finds nothing left
+ * to act on.
+ *
+ * Never holds tokens — those only exist after the callback succeeds, at
+ * which point they go straight into `mcpConnections.encryptedOAuth`, not
+ * here. Short-lived by design (`expiresAt`); an abandoned attempt is just
+ * an inert row, not a live credential.
+ */
+export const mcpOAuthAttempts = pgTable(
+  "mcp_oauth_attempts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    url: text("url").notNull(),
+    /** AES-256-GCM ciphertext of `{clientInformation?, codeVerifier?, discoveryState?}`. */
+    encryptedState: text("encrypted_state").notNull(),
+    stateIv: text("state_iv").notNull(),
+    stateAuthTag: text("state_auth_tag").notNull(),
+    createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [index("mcp_oauth_attempts_org_idx").on(t.organizationId)],
 );

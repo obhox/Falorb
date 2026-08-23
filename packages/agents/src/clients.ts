@@ -1,5 +1,5 @@
 import { and, eq, isNull } from "drizzle-orm";
-import { decryptCredential, schema, type Database } from "@falorb/db";
+import { decryptCredential, resolveOAuthAccessToken, schema, type Database } from "@falorb/db";
 import { LinkiClient } from "@falorb/linki-client";
 import { BundAiClient } from "@falorb/bund-ai-client";
 import { McpConnectorClient } from "@falorb/mcp-connector";
@@ -110,16 +110,32 @@ export async function getMcpConnection(db: Database, organizationId: string, con
   return row ?? null;
 }
 
-/** Builds a live client for a connection row already loaded via `getMcpConnection`. */
-export function mcpClientFor(row: {
-  url: string;
-  encryptedApiKey: string | null;
-  iv: string | null;
-  authTag: string | null;
-}): McpConnectorClient {
+/**
+ * Builds a live client for a connection row already loaded via
+ * `getMcpConnection`. Async because an `authMode: "oauth"` row may need a
+ * fresh access token — `resolveOAuthAccessToken` refreshes and persists one
+ * when the stored one has expired, so an OAuth-connected server works here
+ * exactly as it does from the dashboard's own "Test" button, not just there.
+ */
+export async function mcpClientFor(
+  db: Database,
+  row: {
+    id: string;
+    url: string;
+    authMode: "api_key" | "oauth";
+    encryptedApiKey: string | null;
+    iv: string | null;
+    authTag: string | null;
+    encryptedOAuth: string | null;
+    oauthIv: string | null;
+    oauthAuthTag: string | null;
+  },
+): Promise<McpConnectorClient> {
   const apiKey =
-    row.encryptedApiKey && row.iv && row.authTag
-      ? decryptCredential({ ciphertext: row.encryptedApiKey, iv: row.iv, authTag: row.authTag })
-      : undefined;
+    row.authMode === "oauth"
+      ? await resolveOAuthAccessToken(db, row)
+      : row.encryptedApiKey && row.iv && row.authTag
+        ? decryptCredential({ ciphertext: row.encryptedApiKey, iv: row.iv, authTag: row.authTag })
+        : undefined;
   return new McpConnectorClient({ url: row.url, apiKey });
 }

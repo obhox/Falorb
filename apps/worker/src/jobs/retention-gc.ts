@@ -238,17 +238,6 @@ export async function pruneOrphanedPersons(context: WorkerContext): Promise<numb
         eq(schema.persons.totalSessions, 0),
         lt(schema.persons.createdAt, minAge),
         lt(schema.persons.lastSeenAt, minAge),
-        // A person with zero tracked activity is not necessarily orphaned
-        // junk — since crm.ts's `addPersonToCrm` this is also the normal
-        // shape of a deliberately-created CRM contact (a conference lead, a
-        // referral) who was never a website visitor. Without this exclusion
-        // this job would delete a real CRM contact a week after creation.
-        notExists(
-          context.db
-            .select({ one: sql`1` })
-            .from(schema.crmProfiles)
-            .where(eq(schema.crmProfiles.personId, schema.persons.id)),
-        ),
       ),
     )
     .limit(1000);

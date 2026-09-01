@@ -4,7 +4,6 @@ import {
   integer,
   jsonb,
   numeric,
-  pgEnum,
   pgTable,
   text,
   timestamp,
@@ -240,24 +239,10 @@ export const dashboardWidgets = pgTable(
 );
 
 /**
- * Whether a draft has been committed to the owner's connected blog repo yet.
- * `publishing` covers the request in flight so a second click while a commit
- * is landing doesn't fire a duplicate; `failed` keeps `publishError` around
- * for the drafts page to show, and a retry just re-attempts from `failed`.
- */
-export const contentDraftPublishStatusEnum = pgEnum("content_draft_publish_status", [
-  "draft",
-  "publishing",
-  "published",
-  "failed",
-]);
-
-/**
  * An AI-drafted landing/content page for a topic the Content page flagged as
  * "rising interest, thin coverage" — real visitor demand with no page
- * serving it yet. Optionally published by committing to a connected `github`
- * blog repo (see `publishContentDraft` and `blogPublishTargets`); until then
- * it's just copy for the owner to paste elsewhere.
+ * serving it yet. Copy for the owner to paste elsewhere — Falorb has no CMS
+ * integration, so this stops at drafting, not publishing.
  */
 export const contentDrafts = pgTable(
   "content_drafts",
@@ -277,46 +262,9 @@ export const contentDrafts = pgTable(
     body: text("body").notNull(),
     createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
     generatedAt: timestamp("generated_at", { withTimezone: true }).notNull().defaultNow(),
-    publishStatus: contentDraftPublishStatusEnum("publish_status").notNull().default("draft"),
-    publishedAt: timestamp("published_at", { withTimezone: true }),
-    /** The file's web URL at the commit that published it, e.g. github.com/.../blob/<sha>/<path>. */
-    publishedUrl: text("published_url"),
-    /** The commit SHA that (re-)published this draft, shown as a link target on the drafts page. */
-    publishCommitSha: text("publish_commit_sha"),
-    /** Repo-relative path this draft was written to, so a re-publish targets the same file. */
-    publishFilePath: text("publish_file_path"),
-    publishError: text("publish_error"),
   },
   (t) => [
     index("content_drafts_project_idx").on(t.projectId),
     index("content_drafts_org_idx").on(t.organizationId),
-  ],
-);
-
-/**
- * One row per waitlist signup. `referralCode` is minted for every entrant so
- * they can move up the list by inviting others; `referredByCode` records
- * whose invite they arrived through. Position is never stored — it is always
- * computed live from signup order plus referral count, so it can't drift out
- * of sync the way a cached rank would.
- */
-export const waitlistEntries = pgTable(
-  "waitlist_entries",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    projectId: integer("project_id")
-      .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
-    email: text("email").notNull(),
-    name: text("name"),
-    referralCode: text("referral_code").notNull(),
-    referredByCode: text("referred_by_code"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [
-    uniqueIndex("waitlist_entries_project_email_uq").on(t.projectId, t.email),
-    uniqueIndex("waitlist_entries_referral_code_uq").on(t.referralCode),
-    index("waitlist_entries_project_idx").on(t.projectId),
-    index("waitlist_entries_referred_by_idx").on(t.referredByCode),
   ],
 );

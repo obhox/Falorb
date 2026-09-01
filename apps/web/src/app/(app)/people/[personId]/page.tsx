@@ -16,21 +16,10 @@ import { PageBody, PageHeader } from "@/components/shell/PageHeader";
 import { StatStrip } from "@/components/StatStrip";
 import { Empty } from "@/components/Empty";
 import { PersonTimeline } from "@/components/PersonTimeline";
-import { CrmActionsCard } from "./CrmActionsCard";
-import { CrmProfileCard } from "./CrmProfileCard";
 import { CompanyResearchCard } from "./CompanyResearchCard";
 import { DataRequestsCard } from "./DataRequestsCard";
 import { MergeCard } from "./MergeCard";
 import { listMergeHistory } from "@/server/merges";
-import { getLinkedContact, isLinkiConnected } from "@/server/crm";
-import {
-  ensureDealStages,
-  getCrmProfile,
-  listCampaignRunsForPerson,
-  listDealsForPerson,
-  listSentMessagesForPerson,
-} from "@/server/crm";
-import { getTeam } from "@/server/team";
 import {
   countryLabel,
   dateTime,
@@ -84,25 +73,14 @@ export default async function PersonPage({
   const projectsById = new Map(session.projects.map((p) => [p.id, p]));
 
   const orgId = session.workspace.organizationId;
-  const [usage, timeline, acquisition, interests, linkiConnected, linkedContact, crmProfile, dealStages, team, dataRequests, mergeHistory] =
-    await Promise.all([
-      personProjects({ personId: person.id, projectIds }),
-      personTimeline({ personId: person.id, projectIds, limit: 100 }),
-      acquisitionChain({ personId: person.id, projectIds, limit: 25 }),
-      personInterests({ personId: person.id, projectIds, limit: 12 }),
-      isLinkiConnected(orgId),
-      getLinkedContact(orgId, person.id),
-      getCrmProfile(orgId, person.id),
-      ensureDealStages(orgId),
-      getTeam(orgId),
-      listDataRequests(orgId, person.id),
-      listMergeHistory(orgId, person.id),
-    ]);
-  const personDeals = crmProfile ? await listDealsForPerson(orgId, person.id) : [];
-  const sentMessages = linkedContact ? await listSentMessagesForPerson(orgId, person.id) : [];
-  const campaignRuns = linkedContact ? await listCampaignRunsForPerson(orgId, person.id) : [];
-  const owners = team.members.map((m) => ({ id: m.userId, name: m.name ?? m.email }));
-  const ownerName = crmProfile?.ownerId ? (owners.find((o) => o.id === crmProfile.ownerId)?.name ?? null) : null;
+  const [usage, timeline, acquisition, interests, dataRequests, mergeHistory] = await Promise.all([
+    personProjects({ personId: person.id, projectIds }),
+    personTimeline({ personId: person.id, projectIds, limit: 100 }),
+    acquisitionChain({ personId: person.id, projectIds, limit: 25 }),
+    personInterests({ personId: person.id, projectIds, limit: 12 }),
+    listDataRequests(orgId, person.id),
+    listMergeHistory(orgId, person.id),
+  ]);
 
   const now = Date.now();
   const display = person.email ?? person.name ?? person.identifiedId ?? personLabel(person.id);
@@ -368,55 +346,6 @@ export default async function PersonPage({
                 )}
               </div>
             </Card>
-
-            <CrmProfileCard
-              personId={person.id}
-              personName={person.name}
-              personEmail={person.email}
-              profile={
-                crmProfile
-                  ? {
-                      title: crmProfile.title,
-                      phone: crmProfile.phone,
-                      status: crmProfile.status,
-                      ownerId: crmProfile.ownerId,
-                      ownerName,
-                      linkedToLinki: linkedContact !== null,
-                      updatedAt: crmProfile.updatedAt.toISOString(),
-                    }
-                  : null
-              }
-              owners={owners}
-              stages={dealStages.map((s) => ({ id: s.id, name: s.name, position: s.position, isWon: s.isWon, isLost: s.isLost }))}
-              deals={personDeals.map((d) => ({
-                id: d.id,
-                name: d.name,
-                stageId: d.stageId,
-                stageName: d.stageName,
-                isWon: d.isWon,
-                isLost: d.isLost,
-                amount: d.amount,
-                currency: d.currency,
-              }))}
-            />
-
-            <CrmActionsCard
-              personId={person.id}
-              connected={linkiConnected}
-              contact={linkedContact}
-              sentMessages={sentMessages.map((m) => ({
-                id: m.id,
-                subject: m.subject,
-                status: m.status,
-                acceptedAt: m.acceptedAt,
-              }))}
-              campaignRuns={campaignRuns.map((r) => ({
-                runId: r.runId,
-                workflowName: r.workflowName,
-                status: r.status,
-                startedAt: r.startedAt,
-              }))}
-            />
 
             <CompanyResearchCard personId={person.id} company={company} />
 

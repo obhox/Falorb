@@ -90,17 +90,10 @@ const PAGES = [
   { name: "22-fintra-crawlers", path: "/p/fintra/crawlers", wait: "text=AI assistants" },
   { name: "23-notewell-summary", path: "/p/notewell", wait: "text=Visitors and sessions" },
   { name: "24-acme-summary", path: "/p/acme", wait: "text=Visitors and sessions" },
-  // "Run the business": CRM, support, social, tasks, AI employees, UGC video, email.
-  { name: "31-crm", path: "/crm", wait: "text=deliberately added", isNew: true },
-  { name: "31b-crm-pipeline", path: "/crm", wait: "text=deliberately added", tab: "Pipeline", tabWait: "text=Falorb-owned deals", isNew: true },
-  { name: "32-support", path: "/support", wait: "text=Resolve directly", isNew: true },
-  { name: "33-social", path: "/social", wait: "text=Publishes through Buffer", isNew: true },
+  // "Run the business": the shared task board and the AI-employee roster.
   { name: "34-tasks", path: "/tasks", wait: "text=Draft a follow-up sequence", isNew: true },
   { name: "35-agents", path: "/agents", wait: "text=Nova", isNew: true },
   { name: "36-agent-approvals", path: "/agents/approvals", wait: "text=flagged", isNew: true },
-  { name: "37-ugc-videos", path: "/ugc-videos", wait: "text=Generate a video", isNew: true },
-  { name: "38-prospecting", path: "/prospecting", wait: "text=self-hosted analytics", isNew: true },
-  { name: "39-email", path: "/email", wait: "text=Threads", isNew: true },
 ];
 
 /** Screens that must be shot signed out. */
@@ -172,16 +165,6 @@ const CARDS = [
   { page: "/p/beacon/settings", name: "install-snippet", title: "Install" },
   { page: "/p/beacon/settings", name: "public-link", title: "Public link" },
 
-  { page: "/crm", name: "crm-contacts", title: "Contacts", isNew: true },
-
-  { page: "/support", name: "support-escalations", title: "Escalations", isNew: true },
-
-  { page: "/social", name: "social-compose", title: "Compose", isNew: true },
-  { page: "/social", name: "social-recent-posts", title: "Recent posts", isNew: true },
-
-  { page: "/ugc-videos", name: "ugc-composer", title: "Generate a video", isNew: true },
-
-  { page: "/email", name: "email-threads", title: "Threads", isNew: true },
 ];
 
 /** Panels on the person profile, whose URL is discovered at runtime. */

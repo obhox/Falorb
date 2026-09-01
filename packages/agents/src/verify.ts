@@ -14,7 +14,7 @@ import { getPreset } from "./presets";
  * approval execution — through in one go.
  *
  * It spends real OpenRouter credit, so it is deliberately not wired into
- * `pnpm test`, for the same reason `clay-enrichment` and `ugc-video-gen` are
+ * `pnpm test`, for the same reason the paid-credential sync jobs are
  * excluded from `verify:jobs`.
  *
  *   FALORB_VERIFY_ORG=<uuid> pnpm --filter @falorb/agents verify

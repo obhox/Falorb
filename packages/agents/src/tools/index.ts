@@ -4,17 +4,12 @@ import type { AgentRecord, AnyToolDefinition, Toolkit } from "../types";
 import { TOOLKITS } from "../types";
 import { analyticsTools } from "./analytics";
 import { contentTools } from "./content";
-import { crmTools } from "./crm";
-import { emailTools } from "./email";
 import { growthTools } from "./growth";
 import { leadsTools } from "./leads";
 import { mcpTools } from "./mcp";
 import { memoryTools } from "./memory";
 import { peopleTools } from "./people";
-import { prospectingTools } from "./prospecting";
-import { supportTools } from "./support";
 import { taskTools } from "./tasks";
-import { ugcTools } from "./ugc";
 
 /**
  * The catalogue: every action any agent could ever take, and the rules for
@@ -31,15 +26,10 @@ export const ALL_TOOLS: AnyToolDefinition[] = [
   ...analyticsTools,
   ...peopleTools,
   ...leadsTools,
-  ...crmTools,
-  ...supportTools,
   ...taskTools,
   ...memoryTools,
   ...contentTools,
-  ...prospectingTools,
-  ...ugcTools,
   ...growthTools,
-  ...emailTools,
   ...mcpTools,
 ];
 

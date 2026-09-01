@@ -42,7 +42,7 @@ export default async function AgentPage({
             {agent.name}
           </span>
         }
-        meta={agent.email ? `${agent.roleTitle} · ${agent.email}` : agent.roleTitle}
+        meta={agent.roleTitle}
       />
       <PageBody>
         <AgentDetail
@@ -67,7 +67,6 @@ export default async function AgentPage({
               .map((t) => t.slice("toolkit:".length)),
             nextRunAt: agent.nextRunAt?.toISOString() ?? null,
             lastRunAt: agent.lastRunAt?.toISOString() ?? null,
-            email: agent.email,
           }}
           runs={runs.map((r) => ({
             id: r.id,
@@ -98,7 +97,6 @@ export default async function AgentPage({
           roles={[...MEMBER_ROLES]}
           canManage={can.manageAgents(session.workspace.role)}
           canRun={can.runAgents(session.workspace.role)}
-          canProvisionMailbox={can.manageIntegrations(session.workspace.role)}
           viewerIsOwner={session.workspace.role === "owner"}
           now={Date.now()}
         />

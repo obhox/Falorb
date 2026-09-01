@@ -6,8 +6,8 @@ import type { AgentContext, AnyToolDefinition } from "../types";
 import { defineTool } from "./define";
 
 /**
- * Referral links, the cached AI growth-signal library, and the waitlist
- * queue — acquisition surfaces `packages/agents` had no toolkit for.
+ * Referral links and the cached AI growth-signal library — acquisition
+ * surfaces `packages/agents` had no toolkit for.
  *
  * Regenerating a signal (`ai_signals`) is deliberately not exposed here:
  * each kind re-runs a bespoke, expensive analytics query defined entirely
@@ -15,14 +15,8 @@ import { defineTool } from "./define";
  * their own AI prompt shape), which `@falorb/agents` cannot reach without
  * depending on the Next.js app. This toolkit only reads the cache a human
  * (or a future, package-level regenerate path) has already filled.
- *
- * Enabling/disabling the waitlist is also left out — it is gated by
- * `can.share` (admin-tier, since it changes what is publicly reachable),
- * a deliberately higher bar than every other agent-write capability. This
- * toolkit's writes stay at the same `writeAnalysis` tier as the rest of it.
  */
 
-const REFERRAL_BOOST = 3;
 const CODE_PATTERN = /^[a-z0-9](?:[a-z0-9-]{1,62}[a-z0-9])?$/;
 const INCENTIVE_KINDS = ["discount", "credit", "unlock"] as const;
 
@@ -209,62 +203,6 @@ export const growthTools: AnyToolDefinition[] = [
         .orderBy(sql`${schema.aiSignals.generatedAt} desc`)
         .limit(1);
       return row ?? { message: "No signal has been generated yet." };
-    },
-  }),
-
-  defineTool({
-    name: "list_waitlist",
-    toolkit: "growth",
-    description: "This property's waitlist, ranked by signup order boosted by how many people they referred.",
-    input: z.object({ project: z.string(), limit: z.number().int().min(1).max(100).default(30) }),
-    capability: "read",
-    effect: "read",
-    risk: "low",
-    summarize: (a) => `Waitlist for ${a.project}`,
-    execute: async (ctx, a) => {
-      const project = requireProject(ctx, a.project);
-
-      const referralCounts = ctx.db
-        .select({
-          referredByCode: schema.waitlistEntries.referredByCode,
-          count: sql<number>`count(*)::int`.as("referral_count"),
-        })
-        .from(schema.waitlistEntries)
-        .where(
-          and(
-            eq(schema.waitlistEntries.projectId, project.id),
-            isNotNull(schema.waitlistEntries.referredByCode),
-          ),
-        )
-        .groupBy(schema.waitlistEntries.referredByCode)
-        .as("referral_counts");
-
-      const rows = await ctx.db
-        .select({
-          email: schema.waitlistEntries.email,
-          name: schema.waitlistEntries.name,
-          referralCode: schema.waitlistEntries.referralCode,
-          createdAt: schema.waitlistEntries.createdAt,
-          baseRank: sql<number>`count(*) over (order by ${schema.waitlistEntries.createdAt})::int`,
-          referralCount: sql<number>`coalesce(${referralCounts.count}, 0)::int`,
-        })
-        .from(schema.waitlistEntries)
-        .leftJoin(
-          referralCounts,
-          eq(referralCounts.referredByCode, schema.waitlistEntries.referralCode),
-        )
-        .where(eq(schema.waitlistEntries.projectId, project.id));
-
-      return rows
-        .map((row) => ({
-          email: row.email,
-          name: row.name,
-          referralCount: row.referralCount,
-          position: Math.max(1, row.baseRank - REFERRAL_BOOST * row.referralCount),
-          createdAt: row.createdAt,
-        }))
-        .sort((a, b) => a.position - b.position || a.createdAt.getTime() - b.createdAt.getTime())
-        .slice(0, a.limit);
     },
   }),
 ];

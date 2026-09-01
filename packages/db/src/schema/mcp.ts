@@ -17,11 +17,8 @@ import { organizations } from "./tenancy";
  * Remote MCP (Model Context Protocol) servers an organization has connected
  * — the reverse direction of `apps/mcp`, which is Falorb acting as an MCP
  * *server*. This table is Falorb acting as an MCP *client*: agents
- * (`@falorb/agents`'s `mcp` toolkit) call tools on these servers, the same
- * way `@falorb/openseo-client` already calls OpenSEO's hosted MCP endpoint —
- * except OpenSEO is one fixed, known server with a hardcoded capability→tool
- * map, and this table holds arbitrarily many, arbitrarily named servers
- * whose tools are never known ahead of time.
+ * (`@falorb/agents`'s `mcp` toolkit) call tools on these servers, whose
+ * tools are never known ahead of time.
  *
  * Deliberately a separate table from `integration_connections` rather than a
  * new `provider` value there: that table's whole shape assumes at most one

@@ -1,6 +1,6 @@
 /**
  * Cap a block of scraped/searched text to a character budget before it goes
- * into an LLM prompt — Exa result text and Firecrawl markdown are both
+ * into an LLM prompt — Firecrawl markdown is
  * unbounded, and a single long page shouldn't crowd out every other
  * research source (or blow the prompt's token budget) in a caller that
  * gathers several of them.

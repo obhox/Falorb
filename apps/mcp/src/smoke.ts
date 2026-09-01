@@ -107,30 +107,6 @@ await call("get_platform_health", { window_hours: 168 });
 await call("list_alerts");
 await call("get_install_snippet", { project: "acme" });
 
-console.log("\nprospecting");
-await call("list_prospects", { limit: 5 });
-await call("list_prospect_keywords");
-
-console.log("\ncrm (Linki mirror)");
-await call("list_crm_contacts", { limit: 5 });
-await call("list_crm_deals", { limit: 5 });
-await call("list_crm_lists");
-await call("list_crm_workflows");
-await call("list_crm_runs", { limit: 5 });
-await call("list_crm_signal_rules");
-await call("list_crm_sent_messages", { limit: 5 });
-await call("list_crm_suppressions", { limit: 5 });
-
-console.log("\nsupport (Bund AI mirror)");
-await call("list_support_conversations", { limit: 5 });
-await call("list_support_escalations", { limit: 5 });
-await call("list_support_leads", { limit: 5 });
-await call("list_support_tickets", { limit: 5 });
-
-console.log("\nsocial (Buffer mirror)");
-await call("list_social_channels");
-await call("list_social_posts", { limit: 5 });
-
 console.log("\nintegrations");
 await call("get_integration_status");
 
@@ -216,15 +192,6 @@ await expectError(
   "unmerge_people",
   { merge_id: "00000000-0000-0000-0000-000000000000" },
   "unmerge_people refused a non-existent merge",
-);
-
-console.log("\nUGC video");
-await call("list_ugc_video_models");
-await call("list_ugc_videos", { limit: 5 });
-await expectError(
-  "create_ugc_video",
-  { brief: "smoke test", video_model: "creatify-aurora", voice_id: "x", presenter_image_base64: "AA==", presenter_image_mime_type: "image/png" },
-  "create_ugc_video refused — ElevenLabs not connected",
 );
 
 console.log("\nnegative cases (these SHOULD be rejected)");

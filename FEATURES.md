@@ -13,21 +13,14 @@ Living record of what exists, what is half-built, and what has not been started.
 
 **Where things stand:** the collection pipeline, storage layer, identity graph,
 query layer, background workers, MCP server and self-serve account system are
-complete and verified. The dashboard is built — 41 routes on the Falorb design
+complete and verified. The dashboard is built — 38 routes on the Falorb design
 system, light and dark, role-enforced. Most routes are driven end to end by
-Playwright; the eight newest — sales lead actions, the weekly digest, the
-product signal's drop-off data, the public benchmark report, the referral
-incentive layer, content auto-drafting, the embeddable badge and the
-referral-boosted waitlist (§14e–§14j below) — are verified manually
-(typecheck, production build, and live requests against the dev stack) and
-not yet in that suite. It does
-not yet cover the whole backend: see *Backend surface not yet in the dashboard*.
-The external-integrations layer (§13 — Linki for sales/outreach, Bund AI for
-support, Clay for prospect contact enrichment) is built and typechecks clean
-end to end. Clay has been connected and exercised live (§17); Linki and Bund
-AI have not — no organization has connected real credentials to either yet,
-so that half has not run against live data. See §13 for exactly what "built"
-means here versus what is still verified. Verification commands are in
+Playwright; the newest — sales lead actions, the weekly digest, the product
+signal's drop-off data, the referral incentive layer and content
+auto-drafting (§14d–§14h below) — are verified
+manually (typecheck, production build, and live requests against the dev
+stack) and not yet in that suite. It does not yet cover the whole backend:
+see *Backend surface not yet in the dashboard*. Verification commands are in
 [README.md](README.md).
 
 ---
@@ -164,9 +157,6 @@ Verified end to end: one person, two devices, two products, both stores agreeing
 | ✅ | `retention` | 12h | Per-project + orphan prune |
 | ✅ | `optimize` | 6h | Forces aggregate merges |
 | ✅ | `digest` | 7d, `skipOnBoot` | Regenerates all four AI signals per project and emails one summary per org to its owners/admins; opt-out per org (`organizations.weeklyDigestEnabled`, on by default) |
-| 🟡 | `linki-sync` | 15m | Full paginated poll of a connected Linki workspace into `crm.*` (contacts, lists, workflows, runs, run profiles/tracks, pipeline stages, opportunities, signal rules, suppressions, sent messages), upserted on `(organizationId, linkiId)`. Typechecks, in `verify:jobs`; never run against a real Linki workspace — see §13 |
-| 🟡 | `bund-ai-sync` | 15m | Same shape, into `support.*` (conversations, escalations, leads, tickets) from a connected Bund AI business. Poll-only — the inbound-webhook push half is not built; see §13 |
-| 🟡 | `buffer-sync` | 15m | Full poll (cursor-paginated, not `limit`/`offset`) of a connected Buffer account into `social.*` (channels + posting schedule/limits, posts + metrics + failure text), upserted on `(organizationId, bufferId)`; walks the account's Buffer organizations, and flags channels that stopped coming back as disconnected. Queries are built from the live schema — see §13b |
 | ✅ | Scheduler | — | Redis distributed locks, watermarks, overlap guard |
 | ✅ | `webhooks` | 1m | Fires on goal conversion; HMAC over `timestamp.body`, auto-disables after 20 failures |
 | ✅ | `webhook-revive` | 6h | Re-enables hooks disabled by a transient outage |
@@ -238,20 +228,14 @@ only tool below is genuinely refused to a bearer key).
 | ✅ | Funnel tools | `run_funnel`, `get_funnel_dropoffs` |
 | ✅ | People tools | list, search, **full profile**, cross-project, sessions |
 | ✅ | Live/ops tools | live visitors, event stream, platform health, alerts, install snippet |
-| ✅ | Scoped write tools throughout | Most write tools (goals, alerts, referrals, sharing, team, waitlist, CRM/support/social actions, tasks, agents) require only the `write` scope — a read-only key cannot call any of them |
+| ✅ | Scoped write tools throughout | Most write tools (goals, alerts, referrals, sharing, team, tasks, agents) require only the `write` scope — a read-only key cannot call any of them |
 | ✅ | **Local-operator-only tools** | A second, narrower gate (`requireLocalOperator`) on top of `write`, for the handful of actions the dashboard's own bearer-key-facing API refuses to *every* API key with no scope exception: connecting/testing/revoking/rotating an integration credential, and GDPR person erasure. Verified: a bearer key with full `write` scope is still refused all five |
-| ✅ | CRM tools | Read: `list_crm_contacts`, `get_crm_contact`, `list_crm_deals`, `list_crm_lists`, `list_crm_workflows`, `list_crm_runs`, `list_crm_signal_rules`, `list_crm_sent_messages`, `list_crm_suppressions` (the mirrored Linki data). Write: `create_crm_contact`, `push_crm_signal` — reach Linki itself, enforcing the same suppression-list and duplicate-contact checks as the agent runtime's equivalent tools |
-| ✅ | Support tools | Read: `list_support_conversations`, `list_support_escalations`, `list_support_leads`, `list_support_tickets`. Write: `resolve_support_escalation` — closes one out in Bund AI |
-| ✅ | Social tools | Read: `list_social_channels`, `list_social_posts`. Write: `create_social_post` (queue/draft/schedule/publish to Buffer), `delete_social_post` |
-| ✅ | Billing tools | `apps/mcp/src/tools/billing.ts` — a read-only mirror of Stripe (§20), org- or project-scoped like the read side of `apps/web/src/server/billing.ts`: `get_billing_summary`, `list_billing_customers`, `list_billing_subscriptions`, `list_billing_invoices`, `list_billing_charges`. No write tools — Stripe has no write path anywhere in this codebase yet |
-| ✅ | Email tools | `apps/mcp/src/tools/email.ts` — cold-outreach mailboxes on Migadu. Read: `list_email_accounts`, `list_email_messages` (not a fixed-interval mirror like CRM/support/social/billing — inbound rows land on the worker's 5-minute IMAP poll, outbound rows the instant `send_email` sends them). Write: `send_email` (write scope, matching `composeEmail`'s `actOnIntegrations` gate); `create_email_account`, `archive_email_account` (local operator only — provisioning is dashboard-only, owner/admin, with no bearer-key route at all today) |
-| ✅ | Integration tools | `get_integration_status` (read, any scope) — connected/healthy/last-synced per provider, never the credential itself, now covering Stripe/Migadu/OpenSEO alongside the original six. `connect_integration`, `test_integration_connection`, `revoke_integration_connection`, `set_integration_model` (local operator only) — store, verify, rotate, or clear a credential, org- or property-scoped. `github` stays dashboard-only (its connect form needs a repo/branch/path config this server has nowhere to collect) |
+| ✅ | Integration tools | `get_integration_status` (read, any scope) — connected/healthy/last-verified per provider, never the credential itself. `connect_integration`, `test_integration_connection`, `revoke_integration_connection`, `set_integration_model` (local operator only) — store, verify, rotate, or clear a credential, org- or property-scoped |
 | ✅ | Task-board tools | `list_tasks`, `get_task`, `create_task`, `update_task`, `assign_task`, `set_task_status`, `comment_on_task`, `delete_task` — the same `tasks`/`task_comments` tables the dashboard and the agent runtime both use; assigning to an agent starts its shift within a minute via the worker's existing sweep |
 | ✅ | AI-employee tools | `list_agents`, `get_agent`, `hire_agent`, `update_agent`, `set_agent_status`, `retire_agent`, `run_agent_now`, `list_agent_runs`, `get_agent_run`, `list_agent_errors` (the cross-agent error log), `list_agent_approvals`, `decide_agent_approval`, `list_agent_grants` (active time-boxed approval waivers), `set_automation_paused`/`get_automation_state` (the workspace kill switch and its read side). An agent hired or edited through this server is capped at role "member" — never admin/owner — since a write-scope key carries no per-human role for `canGrantAgentRole` to check against |
 | ✅ | `archive_project` | The one project-lifecycle action there is — there is no hard delete anywhere in this codebase, so a write-scope key may do it like any other write |
 | ✅ | Person export/erasure | `request_person_export` (write scope), `request_person_erasure` (local operator only, mirroring `requireHumanSession` on `POST /api/people/requests`'s `delete` kind) |
 | ✅ | Merge/unmerge | `merge_people`, `unmerge_people` (write scope) — the same reversible-via-snapshot mechanism `POST /api/people/merge`/`/unmerge/:id` expose, including the array/timestamp `sql` literal fix (§18) |
-| ✅ | UGC video tools | `list_ugc_video_models`, `list_ugc_videos`, `get_ugc_video` (read); `create_ugc_video`, `queue_ugc_video_post`, `set_ugc_post_status` (write) — spends real ElevenLabs credits per generation, same as the other paid-generation write tools above |
 | ✅ | Resources | `falorb://projects`, `falorb://capabilities` |
 | ✅ | Prompts | `weekly_review`, `conversion_audit`, `lead_research` |
 | ✅ | LLM-shaped output | Markdown tables, pre-formatted numbers, relative times |
@@ -284,325 +268,23 @@ own AI reading it over MCP.
 | ⬜ | OAuth providers | `account` table ready; none configured |
 | ⬜ | Billing / plan limits | |
 
-## 13. Integrations — Linki + Bund AI + Buffer + Clay built; generic multi-service design superseded
+## 13. Integrations — MCP servers, web research, and the AI gateways
 
-The generic "any service, inbound or outbound, via `integrations` /
-`integration_syncs` / `integration_mappings`" design that used to live here
-was never built. What got built instead is more specific: deep, two-way
-integration with two of the operator's own products — **Linki** (sales
-outreach/CRM) and **Bund AI** (AI customer support) — each running as its own
-independently-deployed service that Falorb calls into and mirrors, rather
-than a generic connector framework, plus two simpler, hosted-SaaS providers
-that reuse the exact same `integrationConnections` table rather than needing
-their own: **Buffer** (social post scheduling) and **Clay** (contact
-enrichment for prospects discovered off-site, §17). The full phased plan for
-Linki/Bund AI (with named risk gates for the parts that touch live external
-systems) lives outside this repo at
-`~/.claude/plans/modular-gathering-cocoa.md`; Buffer's plan is
-`~/.claude/plans/composed-drifting-crystal.md`. This section tracks what of
-it actually exists in code.
+Three things Falorb calls out to, all optional, all per-organization: a
+web-research provider (§14h), the AI gateway every AI feature runs on
+(OpenRouter, Ramp Router or Google Gemini), and — the generic path — any
+remote MCP server.
 
-### Shape (what was actually built)
-
-Falorb never becomes Linki's, Bund AI's, or Buffer's database. Linki and Bund
-AI stay the owner of their own execution — real LinkedIn/email sending in
-Linki, real customer chat in Bund AI; Buffer is a hosted third-party SaaS with
-no execution of Falorb's to own. In all three cases Falorb is a client + a
-read mirror:
-
-- **Credential storage** — `schema.integrationConnections`
-  (`packages/db/src/schema/integrations.ts`), one `provider`-discriminated
-  table (`linki` | `bund_ai` | `buffer` | `clay` | `exa` | `firecrawl` |
-  `elevenlabs`) rather than one table per service. API keys are AES-256-GCM
-  encrypted (`packages/db/src/crypto.ts`, `INTEGRATION_CREDENTIAL_ENC_KEY`) —
-  envelope encryption with a key outside the database, since these must be
-  decryptable to use, unlike `api_keys.keyHash`.
-- **Property-level overrides** — a row is either org-level (`projectId`
-  null) or one property's own override (`projectId` set), same table, same
-  shape, distinguished by two partial unique indexes rather than a second
-  table: `(organizationId, provider)` where `projectId is null`, and
-  `(organizationId, projectId, provider)` where `projectId is not null`. Read
-  side is `activeConnection` in `apps/web/src/server/integrations.ts`: it
-  prefers the calling property's own row and falls back to the
-  organization's when the property has none for that provider. Write side is
-  each property's Settings → Integrations panel
-  (`apps/web/src/app/(app)/p/[project]/settings/IntegrationsPanel.tsx`),
-  calling `connectProjectIntegration`/`testProjectIntegrationConnection`/
-  `revokeProjectIntegrationConnection`
-  (`apps/web/src/server/actions/integrations.ts`) — same
-  connect/verify/revoke shape as the organization's panel, just scoped to
-  one property's row instead. Wired into the read path today for Exa/
-  Firecrawl (`content-draft.ts`'s `researchTopic`, which already has a
-  property in scope) and exposed on every getter (`getBufferClient`,
-  `getResearchClients`, etc. all take an optional `projectId`) for callers
-  that gain property scope later. The periodic mirror/enrichment jobs
-  (`linki-sync`, `bund-ai-sync`, `buffer-sync`, `clay-enrichment`,
-  `ugc-video-gen`) deliberately stay org-level only — they pull one
-  provider's full account into org-scoped mirror tables
-  (`crm.*`/`support.*`/`social.*`) with no property dimension to mirror a
-  property's override into, so a property override is read on demand, never
-  swept by a background job.
-- **Typed clients** — `packages/linki-client`, `packages/bund-ai-client`,
-  `packages/buffer-client`, `packages/clay-client`,
-  `packages/elevenlabs-client`, thin wrappers confirmed against each
-  product's real API contract (not guessed) — except `buffer-client`, built
-  against Buffer's live GraphQL schema, which the client introspects rather
-  than hardcoding; see §13b for why and what that buys. Buffer, Clay, and ElevenLabs are all
-  proof the one-table design scales past the original two providers: none
-  needed a schema change to add, just a new `provider` enum value and a new
-  client with the same `verifyConnection()` shape the generic
-  connect/test/revoke actions already call — ElevenLabs' UGC video pipeline
-  (§18) is a second consumer of that same machinery, not a special case
-  bolted on beside it.
-- **Mirror** — `packages/db/src/schema/crm.ts` (13 tables),
-  `packages/db/src/schema/support.ts` (5 tables), and
-  `packages/db/src/schema/social.ts` (2 tables: channels, posts), pulled by
-  `apps/worker/src/jobs/{linki-sync,bund-ai-sync,buffer-sync}.ts` — see §7.
-  Sync health is `integrationConnections.lastSyncedAt`, not a separate
-  `integration_syncs` table. Clay and ElevenLabs have no table here — Clay's
-  enrichment writes to `prospects` (§17) instead, and ElevenLabs' output is
-  generated content Falorb creates via the API, not a mirror of pre-existing
-  external data — see §18.
-- **Identity resolution** — a set-based SQL backfill after each sync links a
-  mirrored contact/lead/conversation to a Falorb `person` by email match (or,
-  for Bund AI conversations, `identifiedId` == the widget's `externalUserRef`,
-  best-effort). This is the `person_aliases`-adjacent resolution the old
-  design called out as "the hard part" — implemented directly rather than via
-  a new alias kind, since a CRM contact isn't a device/session identity the
-  way `person_aliases` models. Buffer's mirror has no equivalent: a scheduled
-  or sent post isn't naturally scoped to one analytics person, so
-  `social.ts` carries no `personId` column.
-- **Manual actions** — `apps/web/src/server/actions/{crm,support,social}.ts`:
-  push a signal to Linki, create/update a Linki contact, resolve a Bund AI
-  escalation, compose and publish a Buffer post. Deliberately per-record and
-  human-clicked (`can.actOnIntegrations`, member tier), not a bulk/automated
-  flow.
-
-### 13b. Buffer specifics
-
-Buffer's third-party API access has a messy history that shaped this
-integration's auth model:
-
-- Buffer closed third-party OAuth app registration in 2019, revoking existing
-  integrations. A new GraphQL API (`api.buffer.com`) relaunched in beta in
-  early 2026, but — per Buffer's own docs plus independent developer
-  write-ups — it issues **personal API keys scoped to one Buffer account**,
-  with no "connect someone else's account" OAuth flow for third parties. The
-  legacy REST API, which did support real OAuth, accepts no new app
-  registrations and is being retired February 1, 2027.
-- Given that, this integration deliberately uses the personal-key model —
-  the same shape as Linki/Bund AI's connect form — rather than building
-  speculative OAuth/token-refresh infrastructure against an approval process
-  of unknown availability. The real limitation this carries: **each Falorb
-  organization can only connect one Buffer account it personally controls**,
-  not an arbitrary customer's, unlike a true third-party OAuth integration
-  would allow. This is a Buffer platform restriction, not a Falorb gap —
-  documented here rather than silently designed around.
-- Buffer's endpoint is fixed (`https://api.buffer.com`, exported as
-  `BUFFER_API_ENDPOINT`), unlike Linki/Bund AI which are self-hosted — same
-  shape as Clay's and ElevenLabs' fixed roots. `IntegrationsPanel.tsx`'s
-  shared `HAS_BASE_URL` map skips the base-URL field in the connect dialog
-  for all three, and the server-side `FIXED_BASE_URL` map (in
-  `apps/api/src/routes/integrations.ts` and
-  `apps/web/src/server/actions/integrations.ts`) fills the value in rather
-  than trusting the client to send it, so
-  `integration_connections.base_url` still has a value for every provider
-  without a schema exception.
-- Buffer's GraphQL API is Relay-cursor-paginated (`after`/`first` →
-  `edges`/`pageInfo`), unlike Linki/Bund AI's `limit`/`offset` REST
-  pagination — `BufferClient.listPosts` cursor-walks internally rather than
-  `buffer-sync.ts` driving pages itself, so there's no `paginateAll` helper
-  reused there.
-- **The client builds its queries from the live schema, not from the docs.**
-  The first version hardcoded selection sets taken from Buffer's developer
-  docs, and the first real API key rejected them:
-
-  ```
-  Field "weeklyPostingLimit" of type "WeeklyPostingLimit" must have a
-  selection of subfields.   extensions: { code: GRAPHQL_VALIDATION_FAILED }
-  ```
-
-  — a field the docs list flat is an object type in the running beta schema,
-  and because that is a *validation* error it arrives as **HTTP 200** with a
-  top-level `errors[]` array, not a 4xx. Rather than guessing a second time
-  against an API still changing under us, `packages/buffer-client/src/schema.ts`
-  introspects the schema once per client and builds every selection set,
-  argument list, enum value and mutation payload shape from what Buffer
-  actually exposes: a scalar is selected bare, an object gets its own
-  subfields expanded, a union payload gets `__typename` plus one inline
-  fragment per member (unwrapping a member that wraps the post rather than
-  being one), and a field Buffer doesn't have is
-  dropped instead of failing the query. This also means `channels(organizationId:)`
-  and `channels(input:)` both work without this package picking a side.
-- **What the live schema actually is**, checked against a real personal key
-  (August 2026) rather than inferred — the docs were wrong on all three
-  counts, and each one had already produced a broken call:
-  - Every root field takes a single `input` object and the scoping value sits
-    *inside* it: `channels(input: { organizationId })`,
-    `posts(input: { organizationId, filter: { channelIds } })`. A required
-    field of a required input object is as fatal as a missing argument, but
-    unlike a missing argument it is still *valid* GraphQL — `channels(input:
-    {})` was accepted and then failed by Buffer — so `planArgs` folds the
-    client's flat values into the object (and into its nested filter objects)
-    by field name and refuses to send one it cannot complete. It is also why
-    `listChannels()`/`listPosts()` look *through* the input type when deciding
-    whether a call must be scoped per Buffer organization.
-  - `posts` filters by `input.filter.channelIds` — a list, one level deeper
-    than the flat `channelId` the docs suggest, which Buffer ignores silently:
-    every channel's sync came back holding the whole organization's posts.
-  - `createPost` requires `assets`, `mode`, `needsApproval` and
-    `schedulingType`. `mode` is `ShareMode`
-    (`addToQueue | customScheduled | shareNext | shareNow`) with **no draft
-    member** — a draft is `saveToDraft: true` on a queued post — and
-    `schedulingType` is `automatic | notification`, i.e. publish-for-me versus
-    remind-me, *not* queue-versus-draft as the client first assumed. Mutations
-    answer with a union whose success member **wraps** the post
-    (`PostActionSuccess { post }`), with flat `{ message }` failure members
-    (`NotFoundError`, `InvalidInputError`, `LimitReachedError`, …).
-
-  `packages/buffer-client/src/schema.fixture.ts` is trimmed from that real
-  introspection, so CI — which has no key — checks the queries against the
-  shapes Buffer actually serves; `FLAT_INTROSPECTION` alongside it keeps the
-  older flat-argument shape covered, since the point of introspecting is that
-  either can turn up.
-- **Three layers of tolerance**, in order: introspection-driven queries; a
-  rebuild-and-retry that drops exactly the fields a validation error blamed;
-  and, if introspection itself is unavailable, a conservative documented query
-  set that asks only for fields that are scalars in every version of the docs
-  (so a sync still runs, with the object-typed extras null).
-- Buffer serialization is still not pinned by contract:
-  `dueAt`/`sentAt`/`metricsUpdatedAt` may be ISO strings or Unix seconds, so
-  `normalize.ts` passes both through unchanged and `buffer-sync.ts`'s
-  `toDate()` parses either. `weeklyPostingLimit` is stored twice — the
-  flattened cap in `social_channels.weekly_posting_limit` and the object it
-  came from in `weekly_posting_limit_detail` — so an inner-field rename costs
-  the number, not the data.
-- A Buffer *account* can own several Buffer *organizations*, and `channels`
-  is scoped to one: `listChannels()` resolves the account's organizations and
-  merges, de-duplicated by channel id, recording the owning organization in
-  `social_channels.buffer_organization_id`. `verifyConnection()` reports the
-  organization count at connect time, because "connected, zero organizations"
-  is the shape of a key that will mirror nothing.
-- Everything above is unit-tested against a hand-built introspection fixture
-  (`packages/buffer-client/src/schema.fixture.ts`, 48 tests) rather than a
-  live account, since CI has no Buffer key — the fixture is deliberately
-  shaped around the `weeklyPostingLimit` mismatch that broke the first cut.
-
-### 13c. AI providers — bring your own model (OpenRouter, Ramp Router, Google Gemini)
-
-Every AI feature in Falorb — the four signals (§14e), the weekly digest
-(§14f), content drafts (§14h), outreach drafts, property profiles (§17),
-UGC scripts (§18), and the agent loop (§19) — is a prompt sent to somebody
-else's gateway. That gateway used to be fixed: OpenRouter, on the
-deployment's own `OPENROUTER_API_KEY`, one key and one bill for everyone on
-the instance. An organization can now bring its own instead, through the
-same `integrationConnections` table every other provider uses.
-
-| | Feature | Notes |
-|---|---|---|
-| ✅ | Three providers | **OpenRouter** (openrouter.ai) and **Ramp Router** (router.com), which put many vendors' models behind one key, plus **Google Gemini**, the one first-party vendor here — an org that only ever wants Gemini shouldn't have to route through a middleman to reach it, or pay one. Picking between the three is the org's call, not the deployment's |
-| ✅ | Two protocols, one interface | They do **not** all speak the same API. OpenRouter speaks OpenAI *chat completions* (`POST /chat/completions`, `messages`, `tool_calls`); Ramp Router speaks OpenAI *responses* (`POST /responses`, `input`, `function_call` output items) and documents no chat-completions endpoint at all. `packages/ai/src/transport.ts` is the only module that knows which — `complete()`, `chat()` and every caller above them work in one `ChatMessage`/`ChatResult` shape. Tool calling works on all three |
-| ✅ | Gemini goes in through the OpenAI-compatibility layer | `https://generativelanguage.googleapis.com/v1beta/openai`, bearer auth, `/chat/completions` + `/models` — so it reuses OpenRouter's request path rather than adding a third translation for Google's native `generateContent` shape. What it does **not** reuse is OpenRouter's extensions: `usage.include` and `provider.require_parameters` go only to OpenRouter, and a `models: [...]` fallback chain collapses to its first entry (`chatCompletionsRouteSelector`), since Gemini takes a single `model` and 400s on the array. Pinned by tests — a shared code path is exactly where that distinction goes quietly missing |
-| ✅ | Bring your own **model**, not just your own key | `integration_connections.model`, set on the connect form or changed afterwards without re-entering the key. Blank means the provider's default: `openrouter/auto` on OpenRouter (its own per-request selection — the platform's deliberate non-pinning default, see §14e), and *nothing* on Ramp Router or Gemini, neither of which has an auto model. Gemini deliberately ships **no** default rather than a plausible one like `gemini-2.5-flash` — with no auto-select to fall back on, a default would be this repo pinning a model, and it would rot on Google's release cadence for every org that never touched the field |
-| ✅ | Model picker reads the live catalogue | `GET /models` against the stored key, not a hardcoded list: OpenRouter carries hundreds and changes them weekly, and Ramp Router's callable ids are key-specific — its own docs say the display names in its model table are not necessarily valid `model` values. Gemini's ids come back namespaced (`models/gemini-2.5-flash`) and are normalized to the bare form Google's own docs tell you to send, so one spelling reaches the database. The text field stays authoritative, so a model newer than the list is still typeable and a provider that won't answer the list request can't block a change |
-| ✅ | Per-property override | Same override-with-fallback rule as every other provider (§13): a property's own connection wins, else the organization's, else the deployment's `OPENROUTER_API_KEY`. `resolveAiCredentials` (`packages/db/src/ai-credentials.ts`) is the single implementation, shared by the dashboard, the worker and the MCP server so the three can't drift |
-| ✅ | All three connectable at once | An org trying Gemini while keeping its OpenRouter key. Most recently updated active connection wins, so connecting or reconnecting one is what switches to it — and Settings → Integrations marks which is **in use** rather than leaving it implicit |
-| ✅ | Verified on connect, like every other provider | OpenRouter is checked against `GET /key`, deliberately **not** `GET /models`: its model list is public and answers 200 for a completely invalid key, so verifying against it would report every typo as a working connection. Ramp Router's and Gemini's `GET /models` *are* key-scoped — Google's compatibility layer 401s a wrong key rather than serving a public catalogue — so for those two it is the right check |
-| ✅ | Nothing breaks for anyone who ignores it | A null credential falls through to `OPENROUTER_API_KEY` inside `complete()`/`chat()` themselves, so an organization that connects nothing behaves exactly as it did before |
-| ✅ | Fallback chains on **both** gateways | A comma-separated `model` is a fallback list, tried in order. On OpenRouter that is a `models` array; Router takes the same selector (1–15 candidates, exactly one of `model` or `models` per request), so a connection configured with fallbacks keeps them on either gateway. The one asymmetry is Router's candidate syntax: `models` entries must be concrete `provider:provider-model[:service-tier]` ids, while `model` takes a catalogue id that need not be provider-qualified — so `routerRouteSelector` sends the list only when every entry carries a provider prefix and pins the first entry otherwise, and truncates past the documented 15 rather than having the whole request rejected |
-| ✅ | A failure says which failure it was | The gateways' status codes mean different things and cost real debugging time when flattened into one message: 401 is the key (and `api_key_deactivated` is a *disabled* key, recoverable, unlike an unknown one), 402 is the balance, **403 is a provider being unavailable — not the credential**, 404 is a model this key can't call, 429 carries a `retry-after`, 501 is a capability the chosen model lacks and won't grow by being retried, and 5xx is the provider rather than the request. `describeFailure` maps each one and surfaces the gateway's own message out of the OpenAI error envelope instead of a raw JSON blob |
-| 🟡 | Ramp Router and Gemini verified against docs, not a live key | The responses-API request/response mapping in `transport.ts` is written against router.com's published API (`https://api.router.com/v1`, bearer auth, `/responses` + `/models`), re-checked against those docs in August 2026 — which is when the two rows above were corrected: the client had been dropping Router fallback lists on the floor and reporting a 403 as a bad API key. Still no live-key run: a real key was available, but `api.router.com` (and `app.router.com`) answer every request from the tested network with a Cloudflare WAF block, unauthenticated ones included, so the round trip has never actually been made from here. Cost reporting is the one known gap by design: OpenRouter returns `usage.cost` and Ramp Router reports spend only in its dashboard, so an agent running on Ramp Router shows a token count and a zero spend. Gemini's mapping is likewise written against Google's published OpenAI-compatibility docs with no live-key run, and shares the cost gap: it reports no per-request cost either, so an agent on Gemini also shows a token count and a zero spend. Same caveat `packages/buffer-client` carried until a live key settled it |
-
-### Not yet built
-
-- **Automated, rule-based signal push.** The plan's Gate B (bulk, unattended
-  "Falorb detects a qualifying person → auto-pushes a signal → Linki's own
-  rules may enroll them in a live workflow") is designed but not implemented.
-  Only the manual, one-person-at-a-time version above exists.
-- **Bulk/automated Linki contact creation** (Gate C) and any Bund AI write
-  beyond resolving one escalation (Gate E's narrower scope) — not built.
-- **Bund AI's inbound webhook receiver.** Bund AI can push
-  (`send_webhook` automation action), but Falorb has no
-  `POST /api/integrations/bund-ai/events` to receive it yet — `bund-ai-sync`
-  is poll-only, which the design always treated as an acceptable fallback,
-  not a broken half-measure.
-- **Full read-only dashboard.** `/crm` now covers contacts (full paginated
-  mirror at `/crm/contacts`, plus the pre-existing unmatched-backlog tab),
-  workflows, lists, signal rules, runs (`/crm/runs/[id]` for per-target,
-  per-channel track state), sent messages and suppressions. `/support` now
-  has detail pages for all four entities (`/support/{conversations,
-  escalations,leads,tickets}/[id]`) showing the fields the list tables omit
-  — a ticket's `description`, a lead's `phone`/`notes`, and each entity's
-  originating conversation via `conversationId`; a conversation's detail
-  page shows what it turned into (which escalations/leads/tickets trace
-  back to it).
-- **Buffer post editing/deletion/queue reordering.** Only `createPost` is
-  wired to a manual action (`/social`); `BufferClient.deletePost` exists but
-  nothing in the UI calls it yet, and `movePostInQueue`/`editPost` aren't in
-  the client at all.
-- **Buffer aggregated analytics.** Per-post metrics mirror into
-  `socialPosts.metrics`, but Buffer's `aggregatedPostMetrics` query (rollups
-  across a filtered post set) isn't pulled — no dashboard view needs it yet.
-- ~~**MCP exposure** — no `list_crm_contacts`/`get_sync_status`-style tools,
-  and connect/disconnect/write stay out of MCP's reach regardless.~~ Built,
-  and superseded: `apps/mcp/src/tools/{crm,support,social,integrations}.ts`
-  add read tools over every mirror table, write tools that reach Linki/Bund
-  AI/Buffer themselves (`create_crm_contact`, `push_crm_signal`,
-  `resolve_support_escalation`, `create_social_post`, `delete_social_post`),
-  and integration-credential tools (`connect_integration` and its siblings) —
-  see §11. What the old design got right and this keeps: connecting a
-  credential is a materially different, higher-trust act than using an
-  already-connected one, so it is gated more narrowly than a plain write —
-  to the local operator only, not any bearer key regardless of scope.
-
-### Design constraints carried over from the old plan, honored
-
-- Credentials encrypted at rest, never returned by any API response. Clay's
-  connect form additionally never redisplays the stored key at all — the
-  panel shows only the last-4 preview, same convention as `api_keys`.
-- Every connection and every mirrored row is per-organization.
-- A resolution to an existing person is never guessed — email or an explicit
-  `identify()`-equivalent signal only, same standard as `person_aliases`.
-  (Clay's enrichment writes to `prospects`, §17, which is deliberately
-  outside `person_aliases` — a prospect is not a resolved identity.)
-- Sync failures are visible (`integrationConnections.status`/`lastError`),
-  not silently indistinguishable from "nothing changed."
-- Connect/disconnect/rotate is a dashboard-**or local-operator-MCP** action
-  for every provider, including Clay and ElevenLabs, never a bearer key's —
-  `apps/mcp/src/tools/integrations.ts`'s `connect_integration` and its
-  siblings require `requireLocalOperator`, the same rule
-  `requireHumanSession` enforces on the dashboard's own API (§11).
-
-### Not planned
-
-Anything that ships personal data to an ad network for cross-site retargeting.
-That would reintroduce, through a side door, exactly the tracking this platform
-deliberately does not do. Generic, arbitrary-service integrations (Stripe,
-HubSpot, Slack, Shopify, Search Console) remain unbuilt and are no longer the
-near-term direction — Linki and Bund AI cover sales/support, and Buffer now
-covers social posting. Postiz (the open-source, self-hosted social scheduler
-originally queued for this slot) was not built — Buffer was chosen instead
-once this specific integration was requested; Postiz remains a separate,
-undecided possibility if a self-hosted alternative is wanted later, not
-something this work replaced.
-
-### 13d. MCP servers — agents as a generic MCP client
-
-The row above sounds like it rules this out ("generic, arbitrary-service
-integrations... remain unbuilt and are no longer the near-term direction"),
-but that stance was about hand-building a bespoke REST connector per service
-(a HubSpot client, a Slack client, ...) with no shared abstraction between
-them. MCP is the opposite shape: one standard protocol, so supporting it once
-means an organization can connect *any* compliant server — its own internal
-tools, Notion, anything — without Falorb writing a line of code per service.
-`apps/mcp` is Falorb acting as an MCP *server*; this is the reverse, Falorb
-acting as an MCP *client*, generalizing a pattern that already existed for
-one fixed server: `@falorb/openseo-client` (§13c) wraps
-`@modelcontextprotocol/sdk`'s `Client` to call OpenSEO's hosted MCP endpoint,
-resolving OpenSEO's specific tool names against a hardcoded candidate list.
-This can't do that — a connected server's tools are never known ahead of
-time — so `@falorb/mcp-connector` drops the candidate-list resolution and
-exposes `listTools()`/`callTool()` straight from the server's own `tools/list`.
+Bespoke REST connectors per service (a HubSpot client, a Slack client, …)
+remain deliberately unbuilt: each is a hand-written client, a mirror schema,
+a sync job and a dashboard surface, and the platform accumulated and then
+shed several of them. MCP is the opposite shape: one standard protocol, so
+supporting it once means an organization can connect *any* compliant server —
+its own internal tools, Notion, anything — without Falorb writing a line of
+code per service. `apps/mcp` is Falorb acting as an MCP *server*; this is the
+reverse, Falorb acting as an MCP *client*. A connected server's tools are
+never known ahead of time, so `@falorb/mcp-connector` exposes
+`listTools()`/`callTool()` straight from the server's own `tools/list`.
 
 - **Schema** — `mcp_connections` (`packages/db/src/schema/mcp.ts`), not a new
   `integration_connections` provider: an organization can connect arbitrarily
@@ -616,7 +298,7 @@ exposes `listTools()`/`callTool()` straight from the server's own `tools/list`.
   Streamable HTTP, falling back to the older SSE transport if that fails
   (both ship in `@modelcontextprotocol/sdk`, no new dependency); `listTools`,
   `callTool`, `verifyConnection` (lists tools — the cheapest authenticated
-  call that proves the connection works, same reasoning as OpenSEO's).
+  call that proves the connection works).
 - **Agent toolkit** — `@falorb/agents`'s new `mcp` toolkit
   (`packages/agents/src/tools/mcp.ts`) has exactly two tools, not one per
   discovered remote tool. `packages/agents` has a hard invariant that every
@@ -650,7 +332,7 @@ exposes `listTools()`/`callTool()` straight from the server's own `tools/list`.
   (`McpServersPanel.tsx`) alongside the existing per-provider one: connect
   (name, URL, optional token), test, revoke. Org-level only, no per-project
   override — an MCP connection is a service credential, not a per-property
-  preference, same tier as Linki/Bund AI rather than the AI gateways. No
+  preference, unlike the AI gateways. No
   manual tool-call inspector — a human can see what's connected and its tool
   count, but only an agent actually calls a tool.
 - **Explicit limitations, not silently designed around**: bearer-token auth
@@ -664,10 +346,9 @@ exposes `listTools()`/`callTool()` straight from the server's own `tools/list`.
 
 Next.js 15 App Router on React 19, built on the Falorb design system. **33
 routes, production build passing, and an end-to-end suite that drives most of
-them in a browser** (`pnpm --filter @falorb/web e2e`, 41 tests — the eight
-newest routes are verified manually via typecheck/build/live curl, not yet in
-that suite; see §14d–§14j). `/support` (newest) typechecks but has not been
-exercised against a live Bund AI connection — see §13. Server components call
+them in a browser** (`pnpm --filter @falorb/web e2e`, 41 tests — the newest
+routes are verified manually via typecheck/build/live curl, not yet in that
+suite; see §14d–§14h). Server components call
 `@falorb/queries` directly — no HTTP hop between the dashboard and the query
 layer.
 
@@ -677,12 +358,11 @@ layer.
 | ✅ | `/p/[project]` | Property summary — totals, visitors/sessions trend, four breakdowns |
 | ✅ | `/p/[project]/live` | Realtime feed, pages and countries now, longest-on-site |
 | ✅ | `/p/[project]/people` | Person list — debounced search, identified filter, sort, paging |
-| ✅ | `/people/[personId]` | **Deep profile** — cross-property timeline, products used, acquisition chain, interests, aliases. Also carries a "Linki" card (🟡, see §13) — linked contact, plus manual create/update/push-signal actions |
+| ✅ | `/people/[personId]` | **Deep profile** — cross-property timeline, products used, acquisition chain, interests, aliases. |
 | ✅ | `/p/[project]/funnels` | URL-encoded builder + drop-off waterfall |
 | ✅ | `/p/[project]/paths` | Sankey + entry/exit/frustration reports |
 | ✅ | `/p/[project]/content` | Content & interest insights — needs-attention, top pages, entry/exit, project-level interest rollup with trend; "rising interest, thin coverage" rows can auto-draft a page, see §14h |
 | ✅ | `/p/[project]/content/drafts/[id]` | Viewer for an AI-drafted content page — title, meta description, markdown body; see §14h |
-| 🟡 | `/p/[project]/seo` | Live SEO snapshot from OpenSEO — domain overview, ranking keywords, backlinks, rank tracker, Search Console performance; see §14l. Typechecks, never exercised against a live OpenSEO connection |
 | ✅ | `/p/[project]/retention` | Cohort grid + stickiness distribution |
 | ✅ | `/p/[project]/events` | Event explorer with per-event filtering and session list |
 | ✅ | `/p/[project]/crawlers` | **AI & crawlers** — see §14b |
@@ -690,21 +370,14 @@ layer.
 | ✅ | `/p/[project]/referrals` | Referral link CRUD + click/visitor/conversion leaderboard, plus an optional incentive (discount/credit/unlock) per link; see §14d |
 | ✅ | `/r/[code]` | Public redirect for a referral link — outside the auth group, same shape as `/share/[token]`. When the link carries an incentive, an interstitial shows it first (3s meta-refresh, no JS required) before continuing; a link with no incentive redirects exactly as before, no regression |
 | ✅ | `/p/[project]/signals` | AI-generated growth recommendations — content, product, marketing, sales; see §14e |
-| ✅ | `/p/[project]/waitlist` | Owner view of a property's waitlist — join link, ranked entrant table with referral counts; see §14j |
-| ✅ | `/waitlist/[token]` | Public waitlist join form, outside the auth group; reads `?ref=` and shows the entrant their position + personal invite link on success; see §14j |
-| ✅ | `/p/[project]/settings` | Snippet, public link, domains, timezone, identity scope, consent, retention, embeddable badge snippet (see §14i) |
-| ✅ | `/settings` | Instance settings — properties, endpoints (now including the referral-link origin, see §14d), workspace, weekly digest opt-out (§14f), benchmark report link (§14g) |
+| ✅ | `/p/[project]/settings` | Snippet, public link, domains, timezone, identity scope, consent, retention |
+| ✅ | `/settings` | Instance settings — properties, endpoints (now including the referral-link origin, see §14d), workspace, weekly digest opt-out (§14f) |
 | ✅ | `/settings/team` | Members, roles, invitations |
 | ✅ | `/settings/mcp` | API keys + MCP connection config |
 | ✅ | `/settings/new` | Add a property |
 | ✅ | `/insights` | Cross-project builder — metric × dimension × chart, people across products |
-| ✅ | `/prospecting` | Org-wide list of prospects discovered off-site (social listening) with contact enrichment and outreach drafting — see §17 |
-| 🟡 | `/ugc-videos`, `/ugc-videos/[id]` | Generate and review AI UGC-style videos, queue them for posting — see §18. Typechecks, never exercised against a live ElevenLabs connection |
 | ✅ | `/alerts` | Delivery channels, rules, firing history |
-| 🟡 | `/support` | Bund AI escalations mirrored from a connected business, resolvable in one click; see §13. Typechecks, never exercised against a live connection |
 | ✅ | `/share/[token]` | Public read-only property summary |
-| ✅ | `/badge/[token]` | Public embeddable "N visitors this month" widget, meant for an `<iframe>` on the property owner's own site; see §14i |
-| ✅ | `/benchmark/[token]` | Public, indexable portfolio-wide "state of X" aggregate report — rollup only, no per-project or per-person data; see §14g |
 | ✅ | `/invite/[token]` | Invitation acceptance, bound to the invited address |
 | ✅ | Auth | better-auth mounted same-origin at `/api/auth`; config shared with the API via `@falorb/auth` |
 | ✅ | SSE live streaming | `/api/live/[project]`, 3s poll, cursor-advanced, 30-min self-close |
@@ -764,7 +437,7 @@ leaderboard pass, not just the UI in isolation.
 | ✅ | Click/visitor/conversion leaderboard | Clicks derived from `events_v` pageviews (same convention as every other acquisition dimension), never a separate counter that could disagree |
 | ✅ | Public redirect | `/r/[code]`, 302, `Cache-Control: no-store`. Unknown/revoked codes redirect to a fallback rather than 404 — a code gates no private data, so there is no reason to make failure indistinguishable the way the share token does |
 | ✅ | Branded domains | Optional `projects.linkDomain`, DNS-verified via CNAME lookup, middleware rewrites a matching Host header's path to `/r/[code]` internally. Requires Node.js-runtime middleware (`export const runtime = "nodejs"`) for the Postgres lookup — confirmed supported by this Next.js version |
-| ✅ | Own subdomain for shared links | `referralLinkUrl()` prefers `FALORB_REFERRAL_URL` (e.g. `refer.<domain>`) over `FALORB_APP_URL`, so a link someone actually shares doesn't read as the internal dashboard's own address — same app, same `/r/[code]` route, `infra/Caddyfile`/Coolify just proxy the extra hostname to it. Falls back to `FALORB_APP_URL` when unset. `waitlistJoinUrl()` (§14j) follows the identical pattern with `FALORB_WAITLIST_URL` (e.g. `list.<domain>`) |
+| ✅ | Own subdomain for shared links | `referralLinkUrl()` prefers `FALORB_REFERRAL_URL` (e.g. `refer.<domain>`) over `FALORB_APP_URL`, so a link someone actually shares doesn't read as the internal dashboard's own address — same app, same `/r/[code]` route, `infra/Caddyfile`/Coolify just proxy the extra hostname to it. Falls back to `FALORB_APP_URL` when unset. |
 | ✅ | Incentive layer | Optional `incentiveKind` (`discount`\|`credit`\|`unlock`), `incentiveValue`, `incentiveDescription` per link — a reason to actually share it. When set, `/r/[code]` shows a brief interstitial (the incentive copy, a "Continue" link, a 3s no-JS meta-refresh) before continuing; a link with no incentive still redirects instantly, unchanged. The leaderboard's existing `conversions` count doubles as "credits earned" for `credit`-kind links — no separate accounting |
 | 🟡 | Playwright coverage | Verified manually (ingest batch → watermark-reset sessionizer run → Postgres → leaderboard, plus a Host-header-spoofed `curl` for the branded-domain rewrite, plus a live interstitial/no-regression check for the incentive layer); no `referrals.spec.ts` yet |
 
@@ -782,7 +455,7 @@ query layer.
 | ✅ | Sales: structured hot-leads list with actions | The signal panel used to be prose-only. Each hot lead (from the same `hotLeads()` data) now renders as a row with a "Mark contacted" toggle (`persons.contactedAt`/`contactedBy` — a human-only field, deliberately separate from the visitor-supplied, `identify()`-merged `traits` bag) and a "Draft outreach message" button that calls OpenRouter with that one lead's data for a personalized 3-5 sentence draft, shown in a copyable field |
 | ✅ | Portfolio-scoped caching | `ai_signals.projectId` is nullable, mirroring `dashboards.projectId`'s existing precedent for the same reason; a portfolio-wide signal is scoped by `organizationId` instead and reads the same regardless of which project's page triggered it |
 | ✅ | Cached, not generated per page load | 5-minute regenerate cooldown per `(projectId, kind)` pair, same shape as the rate limiting elsewhere in the dashboard |
-| ✅ | Model selection | Defaults to `"openrouter/auto"` (OpenRouter picks per request) rather than pinning one; `OPENROUTER_MODEL` overrides with a single model or a comma-separated fallback list. An organization that has connected its own gateway (§13c) chooses its own model instead, and that choice wins over this env var |
+| ✅ | Model selection | Defaults to `"openrouter/auto"` (OpenRouter picks per request) rather than pinning one; `OPENROUTER_MODEL` overrides with a single model or a comma-separated fallback list. An organization that has connected its own gateway (§13) chooses its own model instead, and that choice wins over this env var |
 | ✅ | Plain-text output, guaranteed | A prompt instruction against markdown is not reliable on its own — verified live that models still reach for `**bold**` and `##` headers — so `stripMarkdown` strips it programmatically after generation. Deliberately skips underscore-based emphasis: the context data is full of snake_case field names (`utm_source`, `content_tag`) the model echoes back, and a naive single-underscore rule would merge two unrelated words together |
 | ✅ | Graceful failure | No credentials at all (neither a connected gateway nor `OPENROUTER_API_KEY`), an unreachable upstream, an empty response, a rejected key, and a real `402` (insufficient OpenRouter credits, hit live during testing) all surface as a clear toast, never a crash |
 | ✅ | Shared across web and worker | The gateway call, prompts and markdown-stripping moved to their own package, `packages/ai` — not `@falorb/core`, which is documented as pure/browser-safe and gets bundled into the client; a secret-holding network call must never live there. `apps/web/src/server/ai.ts` re-exports it behind the app's server-only boundary; `apps/worker`'s digest job (§14f) imports it directly |
@@ -800,20 +473,7 @@ every property weekly and emails one summary per organization.
 | ✅ | Recipients | Every `owner`/`admin` member of the org, via `packages/mailer`'s existing Resend/SMTP/log transport chain — no new delivery mechanism |
 | ✅ | Org-level opt-out | `organizations.weeklyDigestEnabled` toggle on `/settings`, gated by `manageProject` |
 
-## 14g. Public benchmark report — `/benchmark/[token]`
-
-A shareable "state of X" page: aggregate rollup stats across an operator's
-whole portfolio, meant to be found and linked to rather than kept private —
-the opposite intent of `/share/[token]`, built on the identical mechanism.
-
-| | Feature | Notes |
-|---|---|---|
-| ✅ | Reuses the `dashboards.publicToken` pattern | Same table `/share/[token]` uses, at the `projectId IS NULL` (portfolio-wide) row — no new schema |
-| ✅ | Aggregate-only query | `packages/queries/src/benchmark.ts` — visitors, sessions, pageviews, bounce rate, average and median session duration, top channels by share. No per-project or per-person figure in the result set, so there is nothing to leak beyond the report's own existence |
-| ✅ | Deliberately indexable | Unlike every other token-gated page in this app, `generateMetadata` explicitly sets `robots: {index:true, follow:true}` — the root layout defaults every page to `noindex`, so omitting the override (rather than setting it) would have silently inherited the private default |
-| ✅ | Issue/rotate/revoke | `BenchmarkShareControl` on `/settings`, gated by the same `share` capability (admin+) as the per-property share link |
-
-## 14h. Content auto-draft — `/p/[project]/content`
+## 14g. Content auto-draft — `/p/[project]/content`
 
 The Content page's "rising interest, thin coverage" rows used to be a table
 to read and act on manually. A button now drafts an actual page for that
@@ -826,69 +486,20 @@ CMS integration, so this stops at drafting, not publishing.
 | ✅ | Markdown preserved | `@falorb/ai`'s `complete()` strips markdown by default for prose signals; this caller passes `stripMarkdown: false` (an additive option) since the output is meant to stay markdown |
 | ✅ | Draft viewer | `/p/[project]/content/drafts/[id]`, three copyable fields (title, meta description, body) plus a list of past drafts on the Content page |
 
-## 14i. Public embeddable traffic badge — `/badge/[token]`
+## 14h. Web research — Firecrawl
 
-A small "N visitors this month" / live-count widget any property can embed
-elsewhere — a Statcounter/Wistia-style backlink loop, reusing the same public
-token `/share/[token]` already mints.
-
-| | Feature | Notes |
-|---|---|---|
-| ✅ | Same token, second surface | No new capability minted — the badge reads the property's existing `dashboards.publicToken`; revoking the share link breaks the badge too, by design |
-| ✅ | Framing carve-out, scoped narrowly | The app's blanket `X-Frame-Options: DENY` (`next.config.mjs`) and CSP `frame-ancestors 'none'` (`src/middleware.ts`) both exclude `/badge/*` specifically — an iframe-embeddable widget cannot carry either — everything else in the app keeps the strict defaults |
-| ✅ | Escaped output | The one owner-controlled string rendered (`domain`/`projectName`) goes through a local `escapeHtml`, since this route intentionally has no CSP to fall back on |
-| ✅ | Cache-Control, not per-view queries | `public, max-age=120, s-maxage=120, stale-while-revalidate=300` — a busy embed doesn't hit ClickHouse on every page load; `resolveShare`/`totals`/`liveCounts` still run `force-dynamic` server-side so a revoked token stops resolving within the cache window, not instantly but not indefinitely either |
-
-## 14j. Waitlist with referral-boosted position — `/p/[project]/waitlist`
-
-An early-access queue where inviting people moves you up it — the most
-classically viral of the growth features, for a property with something
-pre-launch to attach it to.
+A per-organization connection through Settings → Integrations (§13) —
+connected from `IntegrationsPanel.tsx`, stored in `integrationConnections`,
+no platform-wide key. Grounds two existing AI features in real web content
+instead of the LLM's own guesses.
 
 | | Feature | Notes |
 |---|---|---|
-| ✅ | `waitlist_entries` table | Per-project, unique on `(projectId, email)`; every entrant gets a `referralCode` and may carry a `referredByCode` |
-| ✅ | Position computed live, never stored | Base rank is signup order; each successful referral moves an entrant up 3 spots. Computed with a window function + join, not cached — matches the table's own doc comment on why a stored rank would drift |
-| ✅ | `projects.waitlistToken` gates the public join page | Same nullable-unique-token-by-presence convention as `dashboards.publicToken` |
-| ✅ | Own subdomain for join links | `waitlistJoinUrl()` prefers `FALORB_WAITLIST_URL` (e.g. `list.<domain>`) over `FALORB_APP_URL`, same reasoning and fallback as `referralLinkUrl()` (§14d) |
-| ✅ | Owner view | `/p/[project]/waitlist` — enable/disable, the join link, a ranked entrant table with referral counts |
-
-## 14k. Web research — Exa + Firecrawl
-
-Two per-organization connections through Settings → Integrations (§13), the
-same shape as Linki/Bund AI/Clay — connected from `IntegrationsPanel.tsx`,
-stored in `integrationConnections`, no platform-wide key. Grounds two
-existing AI features in real web content instead of the LLM's own guesses.
-
-| | Feature | Notes |
-|---|---|---|
-| ✅ | `packages/research` | `ExaClient`/`FirecrawlClient`, same shape as `@falorb/linki-client`/`@falorb/clay-client` so they plug into the generic connect/test/revoke actions unchanged — `EXA_DEFAULT_BASE_URL`/`FIRECRAWL_DEFAULT_BASE_URL` are supplied server-side like Clay's, so their connect dialogs ask only for an API key, no base URL. `ExaClient.verifyConnection()` is a minimal 1-result `/search` (no dedicated health endpoint); `FirecrawlClient.verifyConnection()` is the free `GET /v1/team/credit-usage` (no credits spent, unlike scrape/search) — both verified live against real accounts, including the 401 path for a bad key |
-| ✅ | Exa and Firecrawl are fallbacks for each other | Never called together for one request: `search()` (`orchestrate.ts`) tries a connected Exa client first and only reaches for Firecrawl's own search if the org has no Exa connection or Exa errors; `fetchPage()` tries a connected Firecrawl client first and only reaches for Exa's `/contents` if the org has no Firecrawl connection or it errors. `apps/web/src/server/integrations.ts`'s `getResearchClients(organizationId)` builds the `{exa, firecrawl}` client bag each caller passes in — a `null` entry just means that provider isn't connected |
-| ✅ | Content drafts research | `draftContentPage` (§14h) now calls `researchTopic` first: a web search for the topic sees what already ranks, folded into the OpenRouter prompt so the draft is differentiated rather than a generic overview. Falls back to the interest-data-only prompt if the organization has connected neither provider or both error — never blocks the draft |
-| ✅ | Company research | "Research this company" action on the person profile's Company card (`CompanyResearchCard.tsx`, `enrichCompany` action) — fills `companies.industry`/`employeeRange`/`linkedinUrl`, fields the automatic ASN-based enrichment job (§4, `apps/worker/src/jobs/enrichment.ts`) never populates since it only ever learns a network operator's registered name. A scrape of the company's own homepage feeds one short OpenRouter call that extracts only what the content actually states — told explicitly to leave a field `unknown` rather than infer it. Verified live: a Firecrawl scrape of a real homepage (anthropic.com) correctly extracted "AI research and products" as industry and left size/LinkedIn blank rather than inventing them. Gated by `writeAnalysis` (member+); connecting/revoking Exa or Firecrawl itself is gated by `manageIntegrations` (admin+), same split as every other integration. Skipped entirely for an ASN-only placeholder company (`as12345`, no real domain to research) |
-| ✅ | Graceful degradation | An organization that has connected neither provider (or whose connected one errors) gets a clean `ResearchUnavailableError`/toast rather than a blocked action — the underlying fallback logic is unit-independent of *how* a client was obtained, so this carries over unchanged from when it was verified against the both-unconfigured env-var case |
-
-## 14l. SEO — OpenSEO
-
-Keyword research, live SERP, domain/competitor data, backlinks, rank
-tracking, and Search Console reporting, live from OpenSEO — a per-project
-override on the same org-level `integrationConnections` table as every
-other provider (§13), connected from `IntegrationsPanel.tsx` (both the org
-and per-project settings pages). Unlike every other integration, OpenSEO
-exposes no REST API at all — its hosted endpoint is an MCP server, the
-protocol normally used for interactive tool-calling, not backend-to-backend
-sync. Two consumers: content drafting (§14h) is grounded in live keyword
-difficulty and who currently ranks, and each property gets its own SEO
-monitoring page.
-
-| | Feature | Notes |
-|---|---|---|
-| 🟡 | `packages/openseo-client` | Wraps `@modelcontextprotocol/sdk`'s `Client` + `StreamableHTTPClientTransport` (Bearer-token auth) instead of `fetch` — the same transport `apps/mcp`'s own server already speaks, just client-side against a hosted endpoint. OpenSEO's docs describe tool categories, not exact literal tool names, so each capability is resolved at runtime against the server's own `tools/list` against a short candidate list and cached per connection, rather than hardcoding a name that could silently be wrong. Typechecks; never connected to a live OpenSEO account |
-| 🟡 | No sync job | Rank tracking, domain keywords, and Search Console rows are queries about the current state of one domain, not a list Falorb would mirror wholesale like Linki/Bund AI/Buffer/Clay — every call is live, on demand, same reasoning as Exa/Firecrawl (§14k) |
-| 🟡 | Content drafts grounded in live SEO data | `generateContentDraft` (§14h, and `apps/mcp`'s `draft_content_page` tool independently) now also calls `seoContext`: keyword difficulty/volume for the topic, and whether the property's own domain already ranks for it — folded into the OpenRouter prompt alongside the existing interest and web-research context, so the model can judge how competitive a term is rather than write into it blind. Best-effort like the Exa/Firecrawl research call: an unconnected or errored OpenSEO connection never blocks a draft |
-| 🟡 | `/p/[project]/seo` monitoring page | Domain overview, ranking keywords, backlinks, rank tracker, and Search Console performance, fetched fresh on every load. Each panel fails independently (surfaced as a small list of what didn't load) rather than the whole page erroring — OpenSEO having rank tracking but no linked Search Console property for a domain is a normal state, not a bug |
-| 🟡 | `get_seo_report` MCP tool | Same data as the monitoring page, one call, for an agent asking about a project's SEO standing |
-| ✅ | Connectable through MCP | `connect_integration`/`get_integration_status`/`test_integration_connection`/`revoke_integration_connection` (§11) now list `openseo` as a provider — a local operator can connect/verify/revoke it the same way as every other credential, not dashboard-only |
+| ✅ | `packages/research` | `FirecrawlClient` plus the `search`/`fetchPage` orchestration every feature actually calls. `FIRECRAWL_DEFAULT_BASE_URL` is supplied server-side, so the connect dialog asks only for an API key, no base URL. `verifyConnection()` is the free `GET /v1/team/credit-usage` (no credits spent, unlike scrape/search) — verified live against a real account, including the 401 path for a bad key |
+| ✅ | One provider, not a fallback chain | This was Exa-primary-for-search, Firecrawl-primary-for-scrape, each the other's fallback. Firecrawl does both, and the second provider bought one more credential to configure, test and debug for a capability already covered — `search()`/`fetchPage()` now call the one connected client and raise `ResearchUnavailableError` when there isn't one |
+| ✅ | Content drafts research | `draftContentPage` (§14g) calls `researchTopic` first: a web search for the topic sees what already ranks, folded into the OpenRouter prompt so the draft is differentiated rather than a generic overview. Falls back to the interest-data-only prompt if the organization hasn't connected Firecrawl or the call errors — never blocks the draft |
+| ✅ | Company research | "Research this company" action on the person profile's Company card (`CompanyResearchCard.tsx`, `enrichCompany` action) — fills `companies.industry`/`employeeRange`/`linkedinUrl`, fields the automatic ASN-based enrichment job (§4, `apps/worker/src/jobs/enrichment.ts`) never populates since it only ever learns a network operator's registered name. A scrape of the company's own homepage feeds one short OpenRouter call that extracts only what the content actually states — told explicitly to leave a field `unknown` rather than infer it. Verified live: a Firecrawl scrape of a real homepage (anthropic.com) correctly extracted "AI research and products" as industry and left size/LinkedIn blank rather than inventing them. Gated by `writeAnalysis` (member+); connecting/revoking Firecrawl itself is gated by `manageIntegrations` (admin+), same split as every other integration. Skipped entirely for an ASN-only placeholder company (`as12345`, no real domain to research) |
+| ✅ | Graceful degradation | An organization that hasn't connected Firecrawl (or whose connection errors) gets a clean `ResearchUnavailableError`/toast rather than a blocked action |
 
 ## 15. SDKs
 
@@ -907,80 +518,7 @@ monitoring page.
 | ✅ | Backups | `infra/backup.sh` — incremental ClickHouse, verified gzip for Postgres |
 | ⬜ | Rollout to the operator's own live sites | one deployment instrumenting every property in the portfolio |
 
-## 17. Prospecting — social listening & contact enrichment
-
-The other half of "who to contact" alongside §14e's on-site hot leads: people
-discovered talking about the product somewhere the organization doesn't own,
-not people already tracked as visitors. Deliberately a new table
-(`prospects`) rather than a `persons` row with no site history —
-`persons.ts`'s docblock is an explicit privacy boundary ("every field is
-derived from first-party activity on the org's own properties") that an
-externally-discovered person does not fit.
-
-| | Feature | Notes |
-|---|---|---|
-| ✅ | `prospects` schema | Source, excerpt, matched keywords, AI relevance score, contact-enrichment cache (mirrors `companies`'s `raw`/`enrichedAt`/`lookupFailedAt` shape), status, owner-set `contactedAt`/`contactedBy`, optional `personId` for a future **human-confirmed** merge only |
-| ✅ | `prospect_keywords` | Per-project listening config — configured on that property's own Settings tab even though results are consumed org-wide, same split as goals/referral links |
-| ✅ | `packages/core/src/prospect-sources.ts` | One registry describing every value `prospects.source` can hold (Reddit, Hacker News, job postings) — what it is and why a match there matters, in plain language, so both the dashboard and an AI reasoning over the MCP tools understand a source without reading its worker job. Browser-safe, used by `ProspectList.tsx`'s badges and `list_prospect_sources` alike |
-| ✅ | Clay credential storage | Reuses §13's shared `integrationConnections` table (`provider = "clay"`) rather than a prospecting-specific one — same envelope encryption (`packages/db/src/crypto.ts`, `INTEGRATION_CREDENTIAL_ENC_KEY`) Linki/Bund AI already use. `packages/clay-client` is the typed client, same `verifyConnection()` shape as `LinkiClient`/`BundAiClient` |
-| ✅ | `reddit-listener` worker job | 15m. Platform-wide Reddit app-only OAuth (no per-org credential needed — unlike Clay, nothing here is org-specific), soft-disables without `REDDIT_CLIENT_ID`/`REDDIT_CLIENT_SECRET`. Per-keyword try/catch, dedup on `(org, source, source_id)`. In `verify:jobs` |
-| ✅ | `hackernews-listener` worker job | 15m. Algolia's public HN Search API — keyless, so unlike Reddit this never soft-disables. Searches stories and comments in one call, unlike Reddit's posts-only public search. Same per-keyword try/catch and dedup shape as `reddit-listener`. In `verify:jobs` |
-| ✅ | `job-listener` worker job | 30m. The one listening source with no free public API: reuses each org's own connected Exa/Firecrawl `integrationConnections` (the same research providers company research and content drafting already use) rather than adding a fourth paid integration. Query text biased toward job boards (`site:linkedin.com/jobs`, Indeed, Lever, Greenhouse, Ashby, Workday) since neither client exposes a domain filter. No natural post id, so `sourceId` is a hash of the result URL. Capped at 10 keywords and 6 results/keyword per org per run. Deliberately **excluded** from `verify:jobs` — spends a connected org's own paid Exa/Firecrawl credits, same reasoning as `clay-enrichment` |
-| ✅ | `prospect-relevance.ts` | AI relevance scoring shared by all three listeners (moved out of `reddit-listener.ts` once Hacker News/job-search made the duplication real) — one prompt, one parser, and it degrades gracefully insertion-side on a scoring failure, never dropping the underlying discovery. Reads each source's description from `prospect-sources.ts` and, when crawled, the matched property's `profileSummary` (below), so scoring has more to reason with than a bare project name |
-| ✅ | Property profile crawl (`projects.profile*`, `property-profiler` worker job, `packages/research/src/property-profile.ts`) | What a property actually is, in its own words: crawls the property's homepage (via the org's connected Exa/Firecrawl, same as `company-research.ts`) and has AI extract a summary, ideal-customer sentence, key features, and suggested prospecting keywords — a direct answer to "what to track, what to sell, what to listen for" per property rather than a bare name. The worker job picks up a project two ways: never crawled (`profileCrawledAt` null — covers onboarding automatically, no separate "on create" trigger needed) or stale (>30d); negative-result caching (`profileCrawlFailedAt`) mirrors `enrichCompanies`. 6h interval, capped at 5 projects/org/run. Deliberately **excluded** from `verify:jobs`, same reasoning as `job-listener`. The manual "Re-crawl" action on `/p/[project]/settings` (`PropertyProfileCard.tsx`) runs the identical crawl-and-summarize logic on demand, gated `writeAnalysis` like `enrichCompany` |
-| ✅ | Suggested keywords on the Settings tab | `ProspectKeywordsCard` surfaces `profileSuggestedKeywords` (from the crawl) as one-click "add" buttons, filtered down to terms not already watched — never auto-added, same manual-confirmation posture as every other AI suggestion in this app |
-| ✅ | `clay-enrichment` worker job | 30m. Per-org loop over connected Clay `integrationConnections`, each org's own try/catch so one bad/rotated key can't stop the sweep; negative-result caching like `enrichCompanies`. Sync health lives on the connection row (`lastSyncedAt`/`lastError`), same convention as `linki-sync`/`bund-ai-sync` — no separate run-history table. Deliberately **excluded** from `verify:jobs` — unlike every other job there, a live run spends a connected org's own paid Clay credits. Covered instead by a unit test of the response parsing (`packages/clay-client/src/index.test.ts`) |
-| ✅ | `/prospecting` | Top-level route, not a per-project tab — a prospect is discovered via one project's keywords but the useful view is portfolio-wide, same reasoning as `hotLeads`'s `"portfolio"` scope. Source badges carry each source's description as a tooltip. Mark contacted, dismiss, draft outreach (AI, grounded in the specific public post/posting and — when crawled — the property's own profile; never implies an on-site relationship that never happened) |
-| ✅ | Clay on `/settings/integrations` | A third `ProviderCard` alongside Linki/Bund AI, not a bespoke panel — reuses the generic connect/test/revoke actions unchanged. Its connect dialog has no Base URL field (Clay has one fixed API root, set server-side); gated `manageIntegrations` (admin+), the same tier every other integration credential uses |
-| ✅ | MCP tools | `apps/mcp/src/tools/prospects.ts` — `list_prospect_sources` (what each source is), `list_prospects`, `get_prospect`, `list_prospect_keywords` (read); `mark_prospect_contacted`, `dismiss_prospect`, `draft_prospect_outreach` (now grounded in the property's crawled profile when one exists), `add_prospect_keyword`, `remove_prospect_keyword` (write). `list_projects` (`discovery.ts`) now includes each property's crawled summary. Connecting Clay is possible via `integrations.ts`'s `connect_integration` (local operator only, same as every other credential — see §11), but triggering a re-crawl on demand is still **not** exposed — same "spends a connected org's own paid credits per call" reasoning `ugc-video-gen` MCP exposure stays out for |
-| ✅ | Verified | Full monorepo typecheck + test suite (`prospect-relevance.test.ts`, `hackernews-listener.test.ts`, `job-listener.test.ts`, `property-profile.test.ts` cover the new parsing/hashing logic), `verify:jobs` (`reddit-listener`/`hackernews-listener` run cleanly; `job-listener`/`property-profiler` excluded for the cost reasons above, matching `clay-enrichment`'s precedent) |
-| 🟡 | Playwright coverage | Verified via typecheck/tests/`verify:jobs` as above; no automated end-to-end coverage yet, same gap as every other §14d–§14j feature; no live walkthrough against a running dev stack for this pass |
-| ⬜ | Comment/social platforms beyond Reddit/Hacker News | X/LinkedIn need a paid API tier or a listening-as-a-service vendor; deliberately deferred to keep the free-tier sources at zero cost |
-
----
-
-## 18. UGC AI video generation — script, voice, and a talking avatar video
-
-Built in-house rather than integrating a single UGC vendor (Arcads, HeyGen,
-Synthesia) — a chain of calls Falorb owns end to end: a script
-(`@falorb/ai`'s `complete()`, same OpenRouter path §14e's AI signals use), a
-voiceover, then a lip-synced talking video animating a user-supplied
-presenter photo. The voice and video stages both go through ElevenLabs —
-their Flows video API added an image+audio-to-video lipsync model
-(`creatify-aurora`) in 2026, so one vendor now covers both stages rather than
-a separate TTS vendor and a separate avatar vendor.
-
-ElevenLabs is connected exactly like Linki/Bund AI/Clay (§13): each org
-brings its own ElevenLabs account via `integrationConnections`
-(`provider: "elevenlabs"`) on `/settings/integrations`, not a Falorb-wide
-shared key. An org's own voices (including any clones) and its own billing —
-not a pooled credential every org draws against.
-
-Org-wide (`/ugc-videos`), not a per-project tab — same reasoning as §17: a
-UGC ad is marketing content for the business, not analysis of one property's
-traffic. A video's `projectId` is an optional tag for which property/brand
-it's for, not an ownership scope.
-
-| | Feature | Notes |
-|---|---|---|
-| ✅ | `ugc_videos` schema | Org-scoped, optional `projectId` tag. `status` is both the lifecycle and the resume point (`pending → script_ready → voice_ready → video_processing → ready`, or `failed`) — plain `text()`, UI-driven vocabulary, same convention as `prospects.status`. Presenter photo and generated voiceover stored as base64 `text` (Falorb has no object storage yet; both are small — see the table's own docblock for why introducing a blob store solely for this one feature would be premature). The final video itself is **not** re-hosted — `videoUrl` points at ElevenLabs' own output URL |
-| ✅ | `ugc_video_post_queue` schema | A human-curated "post this" to-do list, not automated posting — Postiz (queued, §13) doesn't exist yet. Nothing transitions an entry out of `queued` except a person clicking "mark posted" on the review page |
-| ✅ | `elevenlabs` on `integration_provider` | Fourth value on the enum `packages/db/src/schema/integrations.ts` already had (`linki`/`bund_ai`/`clay`) — no new table, same encrypted-credential row shape as the other three |
-| ✅ | `@falorb/elevenlabs-client` | Thin client for `POST /v1/text-to-speech/{voice_id}` (confirmed against ElevenLabs' stable docs) and the Flows video API `POST /v1/flows/video` + `GET /v1/flows/video/{id}` (2026, still beta on ElevenLabs' side — the request schema for `creatify-aurora` is confirmed, the completed-generation response shape is not, so `getVideoGeneration` checks several plausible field names rather than asserting one; same "verify before production traffic" caveat `@falorb/clay-client` carries for its own contract). `verifyConnection()` pings `GET /v1/user` — cheapest authenticated call that doesn't spend generation credits, same "who am I" reasoning `ClayClient`'s equivalent method gives |
-| ✅ | ElevenLabs on `/settings/integrations` | A fourth `ProviderCard`, not a bespoke panel — reuses the generic connect/test/revoke actions unchanged. Its connect dialog has no Base URL field (ElevenLabs has one fixed API root, set server-side, `ELEVENLABS_DEFAULT_BASE_URL`), gated `manageIntegrations` (admin+), same tier every other integration credential uses |
-| ✅ | `ugc-video-gen` worker job | 1m interval — short, deliberately, since this is user-facing and someone is on the review page waiting. Per-organization loop over connected `elevenlabs` `integrationConnections`, same shape as `clay-enrichment.ts`: each org's own decrypted key, each org's own try/catch so one bad/revoked key can't stop the sweep for other orgs, connection health (`lastSyncedAt`/`status`/`lastError`) reflects the run. Within one org's batch, advances **one stage per row per tick** rather than running the whole chain in one call, so a crash mid-chain resumes from the last persisted stage instead of re-running (and re-billing) earlier stages; a `video_processing` row stuck past 10 minutes is treated as failed rather than left stranded forever. No-ops with zero DB writes when no org has connected ElevenLabs. Deliberately **excluded** from `verify:jobs`, same reasoning as `clay-enrichment` — a live run spends a connected org's own paid ElevenLabs credits |
-| ✅ | Voiceover TTS fallback | `@falorb/ai`'s `synthesizeSpeech` (Gemini's native `generateContent`, audio modality — the OpenAI-compatibility layer `transport.ts` uses for chat has no audio support). ElevenLabs remains the vendor the composer's voice picker asks for; this only fires when the `script_ready` stage's ElevenLabs `textToSpeech` call itself fails **and** the org has an active Gemini AI connection (`resolveAiCredentials`, same lookup the script-writing stage already uses) — no Gemini connection means no fallback, and the row fails on the original ElevenLabs error same as before. Speaks in a single fixed prebuilt voice (`Kore`); the org's chosen ElevenLabs `voiceId` has no Gemini equivalent. `ugc_videos.voiceProvider` ("elevenlabs" default, "gemini" on fallback) records which vendor actually generated the clip, and `/ugc-videos/[id]` labels the script/recipe accordingly rather than claiming the ElevenLabs voice that isn't in it |
-| ✅ | `/ugc-videos` | Brief + optional property tag + required voice ID + a required presenter photo upload in, a `status: "pending"` row out — generation is entirely the worker job's responsibility, never awaited inside the request/response cycle. Refuses to insert the row (with a link to Settings → Integrations) if the org has no active ElevenLabs connection, rather than accepting a brief that can never advance past `pending`. List shows every video with a status badge and an inline player once `ready` |
-| ✅ | `/ugc-videos/[id]` | Script, video player, and the queue-for-posting form (platform, caption, optional target date) once `ready`; existing queue entries with mark-posted/cancel actions |
-| ✅ | Capability | New `can.manageUgcVideos` (member tier) — same trust tier as `manageCrm`/`writeAnalysis` for *using* an already-connected account; connecting/revoking the ElevenLabs credential itself is `manageIntegrations` (admin+), the same split every other provider draws between "connect it" and "use it" |
-| ✅ | MCP tools | `apps/mcp/src/tools/ugc-videos.ts` — `list_ugc_video_models`, `list_ugc_videos`, `get_ugc_video` (read); `create_ugc_video`, `queue_ugc_video_post`, `set_ugc_post_status` (write, requires the `write` scope). Generation spends real ElevenLabs credits per call, the same class of cost `draft_content_page`/`regenerate_signal`/`run_agent_now` already carry elsewhere in the server — the tool description says so explicitly rather than gating it further |
-| ⬜ | Automated posting | Deliberately out of scope until Postiz (§13's queued third integration) lands. The post queue exists so a finished video isn't lost track of while that's built, not so it can fire anywhere today |
-| ⬜ | Durable video storage | `videoUrl` is ElevenLabs' own hosted URL; its retention window isn't confirmed. Mirroring finished videos into an object store is a natural follow-up once Falorb has one for any feature, not something to stand up solely for this |
-| 🟡 | Verified | Typechecks and builds; never exercised against a live ElevenLabs connection — no live account was available to confirm the Flows video API's actual completed-generation response shape (see the client's caveat above) or the `creatify-aurora` request contract end to end |
-
----
-
-## 19. AI employees — agents that work alongside people
+## 17. AI employees — agents that work alongside people
 
 The premise, and the reason this is not an "AI features" panel bolted onto
 the side: **an agent is a workspace member that happens to be software.** It
@@ -1010,16 +548,6 @@ strategist, revenue ops, growth marketer) — each with a personal name
 repeated, because a roster of colleagues reads differently from a list of
 features; after creation an agent is just an agent, and `preset` is
 provenance only.
-
-**Its own address.** An agent can hold one Migadu mailbox
-(`agents.emailAccountId`), named after it — `zoe@yourdomain` — provisioned
-at hire or later from its page, and the `email` toolkit's `send_email` sends
-from that mailbox and no other. There is no "pick a mailbox" argument: a
-colleague does not choose which of the company's addresses to write from.
-The reason this matters is replies — an SDR who drafts for somebody else to
-paste is a template engine, one with an inbox is reachable. Sending is
-`external`, so it queues for approval under `assisted` like everything that
-reaches a real person; the suppression list is enforced inside the tool.
 
 ### The autonomy dial, and why it is graded on *effect*
 
@@ -1142,14 +670,14 @@ had pressed "Pause". Both now defer.
 
 | | Feature | Notes |
 |---|---|---|
-| ✅ | `agents` schema | Name, job title, avatar, brief, `role` (reuses the existing `member_role` enum — welded to the human one on purpose), `autonomy`, `toolkits[]`, `autoApproveTools[]`, `projectIds[]` scope, shift interval + standing objective, and per-agent budget (`maxStepsPerRun`, `dailyRunLimit`, `dailyTokenLimit`). Vocabulary columns are plain `text()` per the `ugc.ts`/`prospecting.ts` convention; `role` is the one deliberate exception |
+| ✅ | `agents` schema | Name, job title, avatar, brief, `role` (reuses the existing `member_role` enum — welded to the human one on purpose), `autonomy`, `toolkits[]`, `autoApproveTools[]`, `projectIds[]` scope, shift interval + standing objective, and per-agent budget (`maxStepsPerRun`, `dailyRunLimit`, `dailyTokenLimit`). Vocabulary columns are plain `text()`; `role` is the one deliberate exception |
 | ✅ | `agent_runs` / `agent_steps` schema | One shift, and its full transcript. **The transcript lives in Postgres, not worker memory** — every model turn and tool result is written as it happens and the next turn's conversation is rebuilt from those rows. Costs a few writes per step; buys a run that survives a worker restart mid-shift, a shift a human can watch progress, and an answer to "what did it actually do" without separate logging |
 | ✅ | `tasks` / `task_comments` schema | One table for human work and agent work, because it is the same work. `assigneeType` is stored rather than derived so "assigned to a person, not yet a specific person" is expressible. `handoffReason` gets its own column rather than a line in the body — it is the single most useful thing on a handoff, and it is what tells a manager their agent is under-permissioned rather than incapable |
 | ✅ | `agent_approvals` schema | The gate. `requiredCapability` is denormalised from the tool so the reviewer's own role can be checked at decision time. `expiresAt` (72h) because a stale approval is dangerous in a way a stale task is not — "send this follow-up" agreed on Monday should not fire on Friday against numbers nobody re-read. `notifiedAt` / `feedbackDeliveredAt` close the loop at each end (see below); `agent_approval_grants` holds the time-boxed "and for a week" waivers |
 | ✅ | `agent_memories` schema | What an agent still knows next week — conclusions and corrections, written by the agent itself through a tool. Without it an agent re-derives the same findings every shift and never accumulates judgement, which is the difference between a scheduled script and an employee. Scoped per agent, not per org: two agents holding contradictory beliefs is legible, whereas a shared pool would let one agent's mistake silently steer another's work |
 | ✅ | `auditLog.actorAgentId` | Agent actions land in the same log as human ones. A separate "agent activity" table would mean answering "who changed this deal" required reading two places and merging by timestamp — and the whole point is that both kinds of colleague are accountable the same way |
 | ✅ | `@falorb/agents` | The runtime: `policy.ts` (one `decide()` every gate funnels through — UI, worker, and approval-resume all call it, so they cannot drift apart), `run.ts` (the loop, resume, budget, approval raising, `executeApproval`), `prompt.ts` (briefing assembly), `presets.ts`, and the tool registry. Server-only, same boundary `@falorb/ai`/`@falorb/mailer` draw |
-| ✅ | Thirteen toolkits, 48 tools | `analytics` (through `@falorb/queries`, the same layer the dashboard and MCP server read — an agent computing its own aggregates would eventually report a figure a human cannot reproduce), `people`, `crm` (reads the mirror, writes to Linki), `support` (reads the mirror, resolves in Bund AI), `tasks`, `memory`, `content`, `prospecting` (off-site leads found by social listening, §17), `ugc` (text-to-video generation and a posting checklist, §18), `growth` (referral links, the cached AI signal library, and a read-only waitlist view), `email` (its own mailbox: `read_inbox` over the `migadu-sync` mirror, `send_email` from that one address, gated `actOnIntegrations`/`external` exactly as `composeEmail` is for a person), `mcp` (look up and call tools on connected MCP servers — §13d). Suppression-list and duplicate-contact checks are enforced *in the tool*, not left to the prompt — putting do-not-contact in a prompt makes it a suggestion. The three newer toolkits reuse only what `@falorb/queries` already exposes to both the dashboard and the agent runtime, and query `@falorb/db` directly rather than importing `apps/web/src/server/*` — `@falorb/agents` does not depend on the Next.js app. Regenerating a cached signal and enabling/disabling the waitlist are deliberately left out: the former is a bespoke, app-layer analytics pipeline per signal kind, and the latter is gated by `can.share` (admin-tier, since it changes what's publicly reachable) rather than the `writeAnalysis` tier everything else here sits at |
+| ✅ | Eight toolkits, 30 tools | `analytics` (through `@falorb/queries`, the same layer the dashboard and MCP server read — an agent computing its own aggregates would eventually report a figure a human cannot reproduce), `people`, `leads`, `tasks`, `memory`, `content`, `growth` (referral links and the cached AI signal library), `mcp` (look up and call tools on connected MCP servers — §13). Every toolkit reuses only what `@falorb/queries` already exposes to both the dashboard and the agent runtime, and queries `@falorb/db` directly rather than importing `apps/web/src/server/*` — `@falorb/agents` does not depend on the Next.js app. Regenerating a cached signal is deliberately left out: it is a bespoke, app-layer analytics pipeline per signal kind |
 | ✅ | `chat()` in `@falorb/ai` | Tool-calling turn beside the existing `complete()`, separate rather than a flag on it: different shape of interaction, and folding them together would push a `tool_calls` branch into four call sites that will never take it. Both are now thin wrappers over `transport.ts`'s `callModel`, so agents work against either supported gateway. Agents run on `openrouter/auto` like everything else — no pinned model to go stale, no per-deployment model list to maintain. What makes that safe is `provider.require_parameters`, sent whenever tools are present, so auto only considers models that support function calling; without it an agent silently degrades into one that writes prose *about* the action it would have taken |
 | ✅ | Shifts bill to the organization's own gateway | Through `@falorb/db`'s shared `resolveAiCredentials`, not a copy — the dashboard, the worker and the agent runtime have to agree on which gateway an org's AI runs against, and two implementations of that eventually disagree. The result is carried on `AgentContext`, resolved once per shift rather than per turn, because it decrypts a stored key and a gateway swapped mid-run would bill half a conversation to each. Without it every shift would quietly fall through to the deployment-wide `OPENROUTER_API_KEY`, ignoring both the connection an org configured and the model it chose. `draft_text` reads the same credentials, so a tool that itself calls a model spends the same key the shift does |
 | ✅ | `agents-enqueue` / `agents-run` / `agents-approvals` worker jobs | Enqueue is a cheap indexed lookup on a 1m beat so assigning a task feels immediate; execution costs real model calls, so it runs on its own 2m beat with a small per-sweep cap and `skipOnBoot` (a restart loop must not fire a paid shift on every boot). `nextRunAt` advances at enqueue, not completion, so a wedged run cannot push a daily agent into being a weekly one. Stalled runs are reclaimed by heartbeat and *resume* from `agent_steps` rather than re-running a billed shift |
@@ -1162,7 +690,7 @@ had pressed "Pause". Both now defer.
 | ✅ | Task editing and deletion | `updateTaskAction` / `deleteTaskAction`, plus an edit card on the task page. Status and assignee are deliberately excluded from that form — both are one-click controls elsewhere on the same page, and duplicating them into a Save-button form would give one thing two ways to change that disagree about whether the change has landed |
 | ✅ | Verified against a live model | `pnpm --filter @falorb/agents verify` drives a real shift end to end. Confirmed working: the loop (43 steps, 8 turns, $0.005), tool dispatch through the real query layer, transcript persistence, the budget backstop, **the approval gate holding** under `assisted` (a `create_task` was queued, not performed), the approve → worker-execute round trip actually creating the task, and agent attribution in `audit_log`. See §19a for what that run exposed and what is still unproven |
 
-### 19a. What the live run exposed, and what is still unproven
+### 17a. What the live run exposed, and what is still unproven
 
 The first real shift worked and found three genuine defects, all since fixed:
 
@@ -1217,54 +745,8 @@ Still unproven, honestly:
   claiming and heartbeat-reclaim logic in `apps/worker/src/jobs/agents.ts`
   typechecks and follows the same locking pattern as the other jobs, but has
   not run in a live worker process.
-- **The `crm` and `support` write tools have never fired.** Neither Linki nor
-  Bund AI is connected in this workspace (Gate A/D, §13), so those tools have
-  only ever returned their "not connected — hand this to a human" refusal.
 
 ---
-
-## 20. Stripe billing mirror — read-only, org- or project-scoped
-
-A read-only mirror of Stripe (the operator's own payment processing account
-— the business run *through* Falorb, not Falorb's own SaaS billing for
-itself): customers, subscriptions, invoices, and charges, pulled on a
-schedule and shown at `/billing` (org-wide), `/p/[project]/billing` (one
-property's own), and now the MCP server's billing tools (see §11). There is
-no write path yet — no refunds, no subscription changes, no invoice creation
-from Falorb — see "Not yet built" below.
-
-**Multi-account, tied to a project.** `integration_connections` (§13) has
-always supported an org-level row (`projectId` null) and a project-level
-override per provider — Linki and Bund AI already used this for their own
-per-property connections. Stripe's connect form used it too, but the sync
-job and the four mirror tables did not: `stripe-sync.ts` only ever queried
-the org-level connection, and `stripeCustomers`/`stripeSubscriptions`/
-`stripeInvoices`/`stripeCharges` had no `projectId` column at all. An
-operator running more than one product under one Falorb organization — each
-billed through its own Stripe account (a different DBA) — could connect only
-one, ever: reconnecting on a second property rotated the same org-level row
-rather than adding a second account, and there was no way to keep two
-accounts' revenue apart even if the row existed.
-
-Fixed by extending the same org/project split every other mirror-backed
-provider already has:
-
-| | Feature | Notes |
-|---|---|---|
-| ✅ | `projectId` on all four mirror tables | Nullable, FK to `projects` (`onDelete: cascade`). Null means the row came from the organization's own Stripe connection; set means it came from that one project's own Stripe connection — a different Stripe account entirely |
-| ✅ | Partial unique indexes, not one loosened index | Each table's old single `(organizationId, stripeId)` unique index is now a *pair*: `..._org_stripe_uq` on `(organizationId, stripeId)` WHERE `project_id IS NULL`, and `..._project_stripe_uq` on `(organizationId, projectId, stripeId)` WHERE `project_id IS NOT NULL` — the exact pattern `integration_connections_org_provider_uq` / `..._project_provider_uq` already used (`packages/db/src/schema/integrations.ts`). A single non-partial index on all three columns would not have worked: Postgres never treats two NULLs as equal, so it would have silently accepted unlimited duplicate org-level rows for the same `stripeId`. Migration: `packages/db/drizzle/0026_stripe_multi_project.sql` — read back to confirm both partial indexes exist per table (not a single non-partial one) |
-| ✅ | `stripe-sync.ts` syncs every active connection | Was: one query for the org-level connection only. Now: every active `stripe` connection for every org — org-level and every project's own override — each synced, and health-reported (`lastSyncedAt`/`status`/`lastError`), independently. One project's revoked or bad key marks only that project's connection errored, never the org-level one or a sibling project's. Every upsert and every FK-resolution `UPDATE` (`customer_id`, `subscription_id`) is scoped by `projectId` too (`IS NOT DISTINCT FROM`, since it's nullable), so a subscription synced from Project A's Stripe account can only ever resolve its `customer_id` against Project A's (or the org-level connection's) mirrored customers — never Project B's, even though both share an `organizationId`. `ON CONFLICT` targets switch between the org-level and project-level partial index depending on which the batch is (one connection's sync is entirely one or the other) |
-| — | `linkCustomersToPersons` unchanged | Deliberately still scoped by `organizationId` alone, not further split by `projectId` — a person can legitimately be a customer of more than one of the operator's Stripe accounts, and `persons` itself has no per-project row-splitting (`projectIds` is an array, not a partition) |
-| ✅ | `getStripeClient(organizationId, projectId?)` | Now matches `getLinkiClient`/`getBundAiClient`'s shape exactly — a project's own connection first, falling back to the organization's |
-| ✅ | `apps/web/src/server/billing.ts` takes an optional `projectId` | `isStripeConnected`, `listCustomers`, `listSubscriptions`, `listInvoices`, `listCharges`, `getBillingSummary`. Omitted, every query is `projectId IS NULL` — `/billing`'s original behavior, unchanged, for an organization that only ever connects one Stripe account at the org level. Passed, every query is `projectId = <value>` — that project's own connection's data only, never blended with the org-level connection's or a sibling project's |
-| ✅ | `/p/[project]/billing` | New route, same `BillingTabsPanel`/`StatStrip` UI as the org-wide `/billing` page, reading the now-project-aware `billing.ts` functions with this project's id. Added to the property tab strip (`p/[project]/layout.tsx`) next to Settings. The per-property Settings → Integrations panel (`p/[project]/settings/IntegrationsPanel.tsx`) already let a user connect Stripe at the project level — it was wired generically across every provider when the connect UI was first built, so no change was needed there, only the read side |
-| 🟡 | Live sync unverified | No live Stripe key exists in this environment (same as before this fix). Verified: full monorepo typecheck, full test suite, a production `next build` (confirms `/p/[project]/billing` builds and is routed), and the generated migration SQL read back line-by-line to confirm both partial unique indexes exist per table. Not verified against a live Stripe account: an actual two-account sync (org-level + a second project-level account) has not been run end to end against real data |
-| ✅ | MCP tools | `apps/mcp/src/tools/billing.ts` — `get_billing_summary`, `list_billing_customers`, `list_billing_subscriptions`, `list_billing_invoices`, `list_billing_charges`, each taking the same optional `project` either/or scoping as `billing.ts`'s own read functions. `connect_integration`/`get_integration_status` (§11) now cover `stripe` as a provider, local operator only, same as every other credential |
-
-Not yet built: any write path (refunds, subscription changes, invoice
-creation), a Stripe Events/webhook consumer for incremental sync (today's
-job is a full paginated poll every run), and a UI affordance for "label this
-connection" beyond the property it's attached to.
 
 ## Backend surface not yet in the dashboard
 

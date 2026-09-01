@@ -1,50 +1,27 @@
 import "server-only";
 import { and, eq, isNull, or } from "drizzle-orm";
 import { db, decryptCredential, resolveAiCredentials, schema } from "@falorb/db";
-import { LinkiClient } from "@falorb/linki-client";
-import { BundAiClient } from "@falorb/bund-ai-client";
-import { BufferClient } from "@falorb/buffer-client";
-import { ExaClient, FirecrawlClient, type ResearchClients } from "@falorb/research";
-import { ElevenLabsClient } from "@falorb/elevenlabs-client";
-import { StripeClient } from "@falorb/stripe-client";
-import { GitHubBlogClient } from "@falorb/git-blog-client";
-import { MigaduClient } from "@falorb/migadu-client";
-import { OpenSeoClient } from "@falorb/openseo-client";
+import { FirecrawlClient, type ResearchClients } from "@falorb/research";
 import type { AiCredentials, AiProvider } from "@falorb/ai";
 
 /**
  * Builds a typed client from a stored `integrationConnections` row, for
- * server actions that take a real action on Linki/Bund AI/Buffer (not just
- * reading the mirror) or research on Exa/Firecrawl's behalf. Returns null
- * when neither the project nor the org has connected, or the connection has
+ * server actions that research on Firecrawl's behalf. Returns null when
+ * neither the project nor the org has connected, or the connection has
  * revoked/errored — callers turn that into "connect it in Settings" rather
- * than a stack trace. Clay has no equivalent getter here — nothing in the web
- * app calls Clay directly; only `apps/worker/src/jobs/clay-enrichment.ts`
- * does, and it builds its own client from the connection row (org-level only
- * — see that job's own query).
+ * than a stack trace.
  */
 
 /**
  * A project's own connection for this provider, if it has one, else the
  * org's — the override-with-fallback behaviour described in FEATURES.md
- * §13: a property with its own Buffer/Exa/etc. account uses that one, a
- * property with none uses whatever the organization has connected.
- * `projectId` omitted (org-only call sites — Linki/Bund AI have none today)
- * goes straight to the org-level row.
+ * §13: a property with its own Firecrawl account uses that one, a property
+ * with none uses whatever the organization has connected. `projectId`
+ * omitted goes straight to the org-level row.
  */
 async function activeConnection(
   organizationId: string,
-  provider:
-    | "linki"
-    | "bund_ai"
-    | "buffer"
-    | "exa"
-    | "firecrawl"
-    | "elevenlabs"
-    | "stripe"
-    | "github"
-    | "migadu"
-    | "openseo",
+  provider: "firecrawl",
   projectId?: number,
 ) {
   if (projectId != null) {
@@ -78,150 +55,21 @@ async function activeConnection(
   return orgRow ?? null;
 }
 
-export async function getLinkiClient(organizationId: string, projectId?: number): Promise<LinkiClient | null> {
-  const row = await activeConnection(organizationId, "linki", projectId);
-  if (!row) return null;
-  const apiKey = decryptCredential({ ciphertext: row.encryptedApiKey, iv: row.iv, authTag: row.authTag });
-  return new LinkiClient({ baseUrl: row.baseUrl, apiKey });
-}
-
-export async function getBundAiClient(organizationId: string, projectId?: number): Promise<BundAiClient | null> {
-  const row = await activeConnection(organizationId, "bund_ai", projectId);
-  if (!row) return null;
-  const apiKey = decryptCredential({ ciphertext: row.encryptedApiKey, iv: row.iv, authTag: row.authTag });
-  return new BundAiClient({ baseUrl: row.baseUrl, apiKey });
-}
-
 /**
- * A project's own OpenSEO connection if it has one, else the org's — used
- * both when drafting a content page (`@/server/content-draft`) and by the
- * per-project SEO monitoring page (`@/server/seo`). Project-scoped like
- * `getLinkiClient`, not org-only like `getElevenLabsClient`: OpenSEO's data
- * (rank tracking, domain keywords) is inherently about one property's own
- * domain, not the organization as a whole.
- */
-export async function getOpenSeoClient(organizationId: string, projectId?: number): Promise<OpenSeoClient | null> {
-  const row = await activeConnection(organizationId, "openseo", projectId);
-  if (!row) return null;
-  const apiKey = decryptCredential({ ciphertext: row.encryptedApiKey, iv: row.iv, authTag: row.authTag });
-  return new OpenSeoClient({ baseUrl: row.baseUrl, apiKey });
-}
-
-export async function getBufferClient(organizationId: string, projectId?: number): Promise<BufferClient | null> {
-  const row = await activeConnection(organizationId, "buffer", projectId);
-  if (!row) return null;
-  const apiKey = decryptCredential({ ciphertext: row.encryptedApiKey, iv: row.iv, authTag: row.authTag });
-  return new BufferClient({ baseUrl: row.baseUrl, apiKey });
-}
-
-/**
- * The org's ElevenLabs connection, for the UGC composer's voice picker
- * (`/ugc-videos`). Org-level only — no `projectId` argument, matching the
- * table this serves: a UGC video's `projectId` is a tag, and the account
- * whose voices and billing are used is the organization's.
- *
- * Unlike the getters above, this one has a *read* caller in the web app.
- * `apps/worker/src/jobs/ugc-video-gen.ts` still builds its own client from
- * the connection row, because it sweeps every connected org rather than
- * resolving one.
- */
-export async function getElevenLabsClient(organizationId: string): Promise<ElevenLabsClient | null> {
-  const row = await activeConnection(organizationId, "elevenlabs");
-  if (!row) return null;
-  const apiKey = decryptCredential({ ciphertext: row.encryptedApiKey, iv: row.iv, authTag: row.authTag });
-  return new ElevenLabsClient({ baseUrl: row.baseUrl, apiKey });
-}
-
-/**
- * The org's Stripe connection, or one project's own override — same
- * project-with-fallback shape as `getLinkiClient`/`getBundAiClient`, now
- * that a project can connect its own separate Stripe account (a different
- * DBA under the same Falorb organization; see FEATURES.md §20). `/billing`
- * and `/p/[project]/billing` both read the mirror tables directly
- * (`apps/web/src/server/billing.ts`), same as `/crm`/`/support` do for
- * their own mirrors, so nothing in the web app calls this today. It exists
- * for the write actions this integration deliberately doesn't have yet
- * (FEATURES.md §20's "Not yet built") and for parity with every other
- * provider getter in this file.
- */
-export async function getStripeClient(organizationId: string, projectId?: number): Promise<StripeClient | null> {
-  const row = await activeConnection(organizationId, "stripe", projectId);
-  if (!row) return null;
-  const apiKey = decryptCredential({ ciphertext: row.encryptedApiKey, iv: row.iv, authTag: row.authTag });
-  return new StripeClient({ baseUrl: row.baseUrl, apiKey });
-}
-
-/**
- * The connected blog repo, paired with its client — every caller of a
- * GitHub-publish action needs both the client (to make the call) and the
- * repo config (owner/repo/branch/path/frontmatter, from `blogPublishTargets`)
- * together, so this returns them as one unit rather than making
- * `publishContentDraft` fetch the target row separately. `null` when nothing
- * is connected, or the connection has no repo config yet (shouldn't happen —
- * connecting always writes both rows in one transaction — but a defensive
- * null here beats a thrown error reaching the UI).
- */
-export async function getGithubBlogClient(
-  organizationId: string,
-  projectId?: number,
-): Promise<{ client: GitHubBlogClient; target: typeof schema.blogPublishTargets.$inferSelect } | null> {
-  const row = await activeConnection(organizationId, "github", projectId);
-  if (!row) return null;
-
-  const [target] = await db()
-    .select()
-    .from(schema.blogPublishTargets)
-    .where(eq(schema.blogPublishTargets.integrationConnectionId, row.id))
-    .limit(1);
-  if (!target) return null;
-
-  const apiKey = decryptCredential({ ciphertext: row.encryptedApiKey, iv: row.iv, authTag: row.authTag });
-  return { client: new GitHubBlogClient({ baseUrl: row.baseUrl, apiKey }), target };
-}
-
-/**
- * The org's Migadu connection — used by `/email`'s mailbox provisioning
- * (domain listing, mailbox create/delete) via
- * `apps/web/src/server/actions/email.ts`. `apiKey` here is the JSON-encoded
- * `{ username, apiKey }` pair `MigaduClient` expects; nothing outside that
- * client and the connect flow ever needs to parse it apart.
- */
-export async function getMigaduClient(organizationId: string, projectId?: number): Promise<MigaduClient | null> {
-  const row = await activeConnection(organizationId, "migadu", projectId);
-  if (!row) return null;
-  const apiKey = decryptCredential({ ciphertext: row.encryptedApiKey, iv: row.iv, authTag: row.authTag });
-  return new MigaduClient({ baseUrl: row.baseUrl, apiKey });
-}
-
-/**
- * Builds `@falorb/research`'s `ResearchClients` bag from whichever of
- * Exa/Firecrawl this organization (or, when `projectId` is given, this
- * project — falling back to the org) has connected — either, both, or
- * neither. `search`/`fetchPage` (`@falorb/research`) treat a `null` entry as
- * "no connection" and fall back to the other provider, so this never throws
- * for an org/project that hasn't connected one or either.
+ * Builds `@falorb/research`'s `ResearchClients` bag from this organization's
+ * (or, when `projectId` is given, this project's — falling back to the org)
+ * Firecrawl connection. `search`/`fetchPage` (`@falorb/research`) treat a
+ * `null` entry as "no connection" and raise `ResearchUnavailableError`, so
+ * this never throws for an org/project that hasn't connected it.
  */
 export async function getResearchClients(organizationId: string, projectId?: number): Promise<ResearchClients> {
-  const [exaRow, firecrawlRow] = await Promise.all([
-    activeConnection(organizationId, "exa", projectId),
-    activeConnection(organizationId, "firecrawl", projectId),
-  ]);
+  const row = await activeConnection(organizationId, "firecrawl", projectId);
 
   return {
-    exa: exaRow
-      ? new ExaClient({
-          baseUrl: exaRow.baseUrl,
-          apiKey: decryptCredential({ ciphertext: exaRow.encryptedApiKey, iv: exaRow.iv, authTag: exaRow.authTag }),
-        })
-      : null,
-    firecrawl: firecrawlRow
+    firecrawl: row
       ? new FirecrawlClient({
-          baseUrl: firecrawlRow.baseUrl,
-          apiKey: decryptCredential({
-            ciphertext: firecrawlRow.encryptedApiKey,
-            iv: firecrawlRow.iv,
-            authTag: firecrawlRow.authTag,
-          }),
+          baseUrl: row.baseUrl,
+          apiKey: decryptCredential({ ciphertext: row.encryptedApiKey, iv: row.iv, authTag: row.authTag }),
         })
       : null,
   };
@@ -246,46 +94,9 @@ export async function getAiCredentials(
   return resolveAiCredentials(db(), organizationId, projectId);
 }
 
-export type Provider =
-  | "linki"
-  | "bund_ai"
-  | "buffer"
-  | "postiz"
-  | "clay"
-  | "exa"
-  | "firecrawl"
-  | "elevenlabs"
-  | "stripe"
-  | "github"
-  | "migadu"
-  | "openseo"
-  | AiProvider;
+export type Provider = "firecrawl" | AiProvider;
 
-export const PROVIDERS: Provider[] = [
-  "openrouter",
-  "router",
-  "gemini",
-  "linki",
-  "bund_ai",
-  "buffer",
-  "postiz",
-  "clay",
-  "exa",
-  "firecrawl",
-  "elevenlabs",
-  "stripe",
-  "github",
-  "migadu",
-  "openseo",
-];
-
-export interface RepoConfigView {
-  owner: string;
-  repo: string;
-  branch: string;
-  pathTemplate: string;
-  frontmatterTemplate: string | null;
-}
+export const PROVIDERS: Provider[] = ["openrouter", "router", "gemini", "firecrawl"];
 
 export interface ConnectionView {
   provider: Provider;
@@ -298,14 +109,9 @@ export interface ConnectionView {
   lastSyncedAt: string | null;
   lastError: string | null;
   updatedAt: string;
-  /** `github` only — the repo this connection publishes to. */
-  repoConfig: RepoConfigView | null;
 }
 
-function toConnectionView(
-  r: typeof schema.integrationConnections.$inferSelect,
-  repoConfig?: typeof schema.blogPublishTargets.$inferSelect | null,
-): ConnectionView {
+function toConnectionView(r: typeof schema.integrationConnections.$inferSelect): ConnectionView {
   return {
     provider: r.provider,
     baseUrl: r.baseUrl,
@@ -315,15 +121,6 @@ function toConnectionView(
     lastSyncedAt: r.lastSyncedAt?.toISOString() ?? null,
     lastError: r.lastError,
     updatedAt: r.updatedAt.toISOString(),
-    repoConfig: repoConfig
-      ? {
-          owner: repoConfig.owner,
-          repo: repoConfig.repo,
-          branch: repoConfig.branch,
-          pathTemplate: repoConfig.pathTemplate,
-          frontmatterTemplate: repoConfig.frontmatterTemplate,
-        }
-      : null,
   };
 }
 
@@ -335,12 +132,8 @@ function toConnectionView(
  */
 export async function listConnections(organizationId: string): Promise<ConnectionView[]> {
   const rows = await db()
-    .select({ connection: schema.integrationConnections, repoConfig: schema.blogPublishTargets })
+    .select()
     .from(schema.integrationConnections)
-    .leftJoin(
-      schema.blogPublishTargets,
-      eq(schema.blogPublishTargets.integrationConnectionId, schema.integrationConnections.id),
-    )
     .where(
       and(
         eq(schema.integrationConnections.organizationId, organizationId),
@@ -348,7 +141,7 @@ export async function listConnections(organizationId: string): Promise<Connectio
       ),
     );
 
-  return rows.map((r) => toConnectionView(r.connection, r.repoConfig));
+  return rows.map(toConnectionView);
 }
 
 export interface ProjectConnectionView {
@@ -369,12 +162,8 @@ export async function listProjectConnections(
   projectId: number,
 ): Promise<ProjectConnectionView[]> {
   const rows = await db()
-    .select({ connection: schema.integrationConnections, repoConfig: schema.blogPublishTargets })
+    .select()
     .from(schema.integrationConnections)
-    .leftJoin(
-      schema.blogPublishTargets,
-      eq(schema.blogPublishTargets.integrationConnectionId, schema.integrationConnections.id),
-    )
     .where(
       and(
         eq(schema.integrationConnections.organizationId, organizationId),
@@ -383,14 +172,10 @@ export async function listProjectConnections(
     );
 
   const overrides = new Map(
-    rows
-      .filter((r) => r.connection.projectId === projectId)
-      .map((r) => [r.connection.provider, toConnectionView(r.connection, r.repoConfig)]),
+    rows.filter((r) => r.projectId === projectId).map((r) => [r.provider, toConnectionView(r)]),
   );
   const inherited = new Map(
-    rows
-      .filter((r) => r.connection.projectId === null)
-      .map((r) => [r.connection.provider, toConnectionView(r.connection, r.repoConfig)]),
+    rows.filter((r) => r.projectId === null).map((r) => [r.provider, toConnectionView(r)]),
   );
 
   return PROVIDERS.map((provider) => ({

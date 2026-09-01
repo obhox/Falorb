@@ -8,22 +8,11 @@ import { resolveIdentities } from "./jobs/identity-resolver";
 import { sessionize } from "./jobs/sessionizer";
 import { optimizeAggregates, rebuildPathTransitions, refreshSegmentCounts } from "./jobs/rollups";
 import { enrichCompanies } from "./jobs/enrichment";
-import { listenReddit } from "./jobs/reddit-listener";
-import { listenHackerNews } from "./jobs/hackernews-listener";
-import { listenJobs } from "./jobs/job-listener";
-import { profileProperties } from "./jobs/property-profiler";
-import { enrichProspectsViaClay } from "./jobs/clay-enrichment";
 import { scoreInterests } from "./jobs/interest-scorer";
 import { evaluateAlerts } from "./jobs/alerts";
 import { dispatchWebhooks, reviveWebhooks } from "./jobs/webhooks";
 import { enforceRetention, processDataRequests, pruneOrphanedPersons } from "./jobs/retention-gc";
 import { sendWeeklyDigests } from "./jobs/digest";
-import { syncLinki } from "./jobs/linki-sync";
-import { syncBundAi } from "./jobs/bund-ai-sync";
-import { syncBuffer } from "./jobs/buffer-sync";
-import { syncStripe } from "./jobs/stripe-sync";
-import { syncMigadu } from "./jobs/migadu-sync";
-import { generateUgcVideos } from "./jobs/ugc-video-gen";
 import {
   enqueueAgentTasks,
   enqueueDueAgents,
@@ -126,57 +115,6 @@ scheduler.add({
 });
 
 scheduler.add({
-  name: "reddit-listener",
-  intervalMs: 15 * MINUTE,
-  timeoutMs: 10 * MINUTE,
-  run: async () => {
-    await listenReddit(context, watermarks);
-  },
-});
-
-scheduler.add({
-  name: "hackernews-listener",
-  intervalMs: 15 * MINUTE,
-  timeoutMs: 10 * MINUTE,
-  run: async () => {
-    await listenHackerNews(context, watermarks);
-  },
-});
-
-// Per-org, unlike reddit/hackernews above — spends a connected org's own
-// paid Exa/Firecrawl credits, so this runs less often and caps how many
-// keywords it processes per org per run (see job-listener.ts).
-scheduler.add({
-  name: "job-listener",
-  intervalMs: 30 * MINUTE,
-  timeoutMs: 15 * MINUTE,
-  run: async () => {
-    await listenJobs(context);
-  },
-});
-
-// Rarely: a property's homepage doesn't change day to day, and — like
-// job-listener above — this spends a connected org's own paid Exa/Firecrawl
-// credits per crawl.
-scheduler.add({
-  name: "property-profiler",
-  intervalMs: 6 * 60 * MINUTE,
-  timeoutMs: 15 * MINUTE,
-  run: async () => {
-    await profileProperties(context);
-  },
-});
-
-scheduler.add({
-  name: "clay-enrichment",
-  intervalMs: 30 * MINUTE,
-  timeoutMs: 15 * MINUTE,
-  run: async () => {
-    await enrichProspectsViaClay(context);
-  },
-});
-
-scheduler.add({
   name: "alerts",
   intervalMs: 5 * MINUTE,
   timeoutMs: 5 * MINUTE,
@@ -210,75 +148,6 @@ scheduler.add({
   timeoutMs: 30 * MINUTE,
   run: async () => {
     await processDataRequests(context);
-  },
-});
-
-// Demand-driven, not a full sweep of every connected org: each job below
-// drains `context.syncDemand` (flagged by a page load or a fresh connect in
-// apps/web — see each job file's doc comment) and only calls out for orgs
-// actually flagged since the last tick, further gated by a per-connection
-// cooldown. The tick itself is cheap — an empty drain returns immediately,
-// no DB or provider call — so it can run often without the risk a blind
-// per-org sweep on the same short interval would carry (this is what used to
-// trip Buffer's 24h rate limit: every active org polled every 15 minutes
-// whether or not anyone was looking at its data). No periodic fallback sweep
-// on top of this: nothing else in the worker reads these tables, so data
-// nobody has asked for doesn't need to be kept fresh.
-scheduler.add({
-  name: "linki-sync",
-  intervalMs: 30_000,
-  timeoutMs: 20 * MINUTE,
-  run: async () => {
-    await syncLinki(context);
-  },
-});
-
-scheduler.add({
-  name: "bund-ai-sync",
-  intervalMs: 30_000,
-  timeoutMs: 20 * MINUTE,
-  run: async () => {
-    await syncBundAi(context);
-  },
-});
-
-scheduler.add({
-  name: "buffer-sync",
-  intervalMs: 30_000,
-  timeoutMs: 20 * MINUTE,
-  run: async () => {
-    await syncBuffer(context);
-  },
-});
-
-scheduler.add({
-  name: "stripe-sync",
-  intervalMs: 30_000,
-  timeoutMs: 20 * MINUTE,
-  run: async () => {
-    await syncStripe(context);
-  },
-});
-
-scheduler.add({
-  name: "migadu-sync",
-  intervalMs: 30_000,
-  timeoutMs: 10 * MINUTE,
-  run: async () => {
-    await syncMigadu(context);
-  },
-});
-
-
-// Short interval: this is user-facing, someone is on the review page
-// waiting for their video to finish rendering. No-ops with zero DB writes
-// when no org has connected ElevenLabs (Settings -> Integrations).
-scheduler.add({
-  name: "ugc-video-gen",
-  intervalMs: MINUTE,
-  timeoutMs: 5 * MINUTE,
-  run: async () => {
-    await generateUgcVideos(context);
   },
 });
 

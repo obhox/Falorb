@@ -13,4 +13,3 @@ export * from "./persons";
 export * from "./live";
 export * from "./overview";
 export * from "./sessions";
-export * from "./benchmark";

@@ -1,12 +1,9 @@
 /**
  * Client for an arbitrary, user-connected remote MCP (Model Context
- * Protocol) server — the generic counterpart to `@falorb/openseo-client`.
+ * Protocol) server.
  *
- * OpenSEO is one fixed, known server: its client hardcodes a
- * capability→tool-name candidate list because the *use* of the connection is
- * known ahead of time, only the exact tool name isn't. This client has no
- * such list — an organization can connect any MCP server (Notion, an
- * internal tools server, a customer's own server), so the tools it exposes
+ * Deliberately generic: an organization can connect any MCP server (Notion,
+ * an internal tools server, a customer's own server), so the tools it exposes
  * are whatever `tools/list` returns, discovered live and handed back
  * verbatim rather than mapped onto a fixed set of methods. `@falorb/agents`'s
  * `mcp` toolkit is what turns that into two agent-facing tools

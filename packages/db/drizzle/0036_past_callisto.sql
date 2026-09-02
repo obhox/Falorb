@@ -68,7 +68,11 @@ DROP TABLE "ugc_video_post_queue" CASCADE;--> statement-breakpoint
 DROP TABLE "ugc_videos" CASCADE;--> statement-breakpoint
 DROP TABLE "email_accounts" CASCADE;--> statement-breakpoint
 DROP TABLE "email_messages" CASCADE;--> statement-breakpoint
-ALTER TABLE "agents" DROP CONSTRAINT "agents_email_account_id_email_accounts_id_fk";
+--- Hand-added IF EXISTS: `DROP TABLE "email_accounts" CASCADE` above has
+--- already taken this foreign key with it, so the bare DROP CONSTRAINT
+--- drizzle generates aborts the migration on any database that actually
+--- had the constraint.
+ALTER TABLE "agents" DROP CONSTRAINT IF EXISTS "agents_email_account_id_email_accounts_id_fk";
 --> statement-breakpoint
 ALTER TABLE "integration_connections" ALTER COLUMN "provider" SET DATA TYPE text;--> statement-breakpoint
 --- Hand-added: the recreated enum below has no value for the removed

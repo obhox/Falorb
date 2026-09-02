@@ -5,9 +5,9 @@ import { AI_PROVIDER_BASE_URLS, AI_PROVIDER_LABELS, type AiCredentials, type AiP
  * what can it call?
  *
  * Every other integration in `integration_connections` is reached through
- * its own client package (`@falorb/clay-client`, `@falorb/research`, ...)
- * exposing a `verifyConnection()` the connect/test actions call. The two AI
- * gateways get the same interface, but from inside `@falorb/ai` rather than
+ * its own client package (`@falorb/research`) exposing a
+ * `verifyConnection()` the connect/test actions call. The AI gateways get
+ * the same interface, but from inside `@falorb/ai` rather than
  * a package of their own — the request path, the base URLs, and the
  * provider fork already live here, and a separate package would only wrap
  * them.

@@ -199,7 +199,7 @@ Verified end to end: one person, two devices, two products, both stores agreeing
 
 | | Feature | Notes |
 |---|---|---|
-| ✅ | 272 unit tests | core 82, ingest 61, buffer-client 48, queries 30, ai 12, sdk-node 12, worker 11, web 9, research 4, clay-client 3 |
+| ✅ | 325 unit tests | core 110, ingest 61, ai 55, queries 30, agents 26, sdk-node 12, web 9, worker 7, mcp-connector 6, db 5, research 4 |
 | ✅ | Injection-safety suite | Prototype pollution, wildcard leakage, param binding |
 | ✅ | Query smoke runner | 32 queries against live ClickHouse |
 | ✅ | Job verifier | Runs all 11 jobs once |

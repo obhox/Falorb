@@ -1,23 +1,22 @@
 /**
  * Typed client for Firecrawl's scrape and search APIs — fetches one known
- * URL as clean, boilerplate-stripped markdown (handling JS-rendered pages
- * Exa's inline extraction doesn't attempt to), and can search the web with
- * the same scraping applied to each result. Same shape as
- * `@falorb/linki-client`/`@falorb/clay-client` so it plugs into the generic
- * `integrationConnections` connect/test/revoke actions
+ * URL as clean, boilerplate-stripped markdown (handling JS-rendered pages),
+ * and can search the web with the same scraping applied to each result.
+ * Plugs into the generic `integrationConnections` connect/test/revoke
+ * actions
  * (`apps/web/src/server/actions/integrations.ts`) unchanged — a
  * per-organization connection, not a platform-wide key.
  *
  * Firecrawl has one fixed API root rather than a per-organization
- * deployment — `baseUrl` is still a constructor argument for symmetry with
- * Linki/Bund AI and for testability, but the connect action supplies
+ * deployment — `baseUrl` is still a constructor argument for testability,
+ * but the connect action supplies
  * Firecrawl's real API root itself rather than asking the user to enter one
  * (see `FIRECRAWL_DEFAULT_BASE_URL`).
  *
  * `@falorb/research`'s orchestration (`fetchPage`, `search` in
- * `orchestrate.ts`) treats scraping as this provider's primary role — a
- * known URL is scraped here first, falling back to an `ExaClient`'s
- * `/contents` only if no Firecrawl connection exists or the request errors
+ * `orchestrate.ts`) routes both `fetchPage` and `search` here; there is no
+ * second provider to fall back to, so an absent connection or a failed
+ * request raises `ResearchUnavailableError` for the caller to degrade on
  * — and treats its search as the fallback for Exa's search, never both at
  * once for the same request.
  */

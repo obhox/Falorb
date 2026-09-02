@@ -2,111 +2,47 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { decryptCredential, encryptCredential, schema } from "@falorb/db";
-import { LinkiClient } from "@falorb/linki-client";
-import { BundAiClient } from "@falorb/bund-ai-client";
-import { BufferClient, BUFFER_API_ENDPOINT } from "@falorb/buffer-client";
-import { ClayClient, CLAY_DEFAULT_BASE_URL } from "@falorb/clay-client";
-import {
-  ExaClient,
-  EXA_DEFAULT_BASE_URL,
-  FirecrawlClient,
-  FIRECRAWL_DEFAULT_BASE_URL,
-} from "@falorb/research";
-import { ElevenLabsClient, ELEVENLABS_DEFAULT_BASE_URL } from "@falorb/elevenlabs-client";
-import { StripeClient, STRIPE_DEFAULT_BASE_URL } from "@falorb/stripe-client";
-import { MigaduClient, MIGADU_API_ENDPOINT } from "@falorb/migadu-client";
-import { OpenSeoClient, OPENSEO_DEFAULT_BASE_URL } from "@falorb/openseo-client";
+import { FirecrawlClient, FIRECRAWL_DEFAULT_BASE_URL } from "@falorb/research";
 import { AI_PROVIDER_BASE_URLS, AiGatewayClient, isAiProvider } from "@falorb/ai";
 import type { McpContext } from "../context";
 import { projectName, requireLocalOperator, resolveProjects } from "../context";
 import { ago, failure, table, text } from "../format";
 
-const PROVIDERS = [
-  "linki",
-  "bund_ai",
-  "buffer",
-  "postiz",
-  "clay",
-  "exa",
-  "firecrawl",
-  "elevenlabs",
-  "stripe",
-  "migadu",
-  "openseo",
-  "openrouter",
-  "router",
-  "gemini",
-] as const;
+const PROVIDERS = ["firecrawl", "openrouter", "router", "gemini"] as const;
 
-/** Postiz is a reserved provider value with no client built yet (FEATURES.md §13) — every write tool below excludes it. */
-const WRITABLE_PROVIDERS = PROVIDERS.filter((p) => p !== "postiz");
-type WritableProvider = Exclude<(typeof PROVIDERS)[number], "postiz">;
+const WRITABLE_PROVIDERS = PROVIDERS;
+type WritableProvider = (typeof PROVIDERS)[number];
 
-const LABELS: Record<(typeof PROVIDERS)[number], string> = {
-  linki: "Linki",
-  bund_ai: "Bund AI",
-  buffer: "Buffer",
-  postiz: "Postiz",
-  clay: "Clay",
-  exa: "Exa",
+const LABELS: Record<WritableProvider, string> = {
   firecrawl: "Firecrawl",
-  elevenlabs: "ElevenLabs",
-  stripe: "Stripe",
-  migadu: "Migadu",
-  openseo: "OpenSEO",
   openrouter: "OpenRouter",
   router: "Ramp Router",
   gemini: "Google Gemini",
 };
 
-/** Every provider but Linki/Bund AI has one fixed API root — no baseUrl field to ask for. */
+/** Every provider here has one fixed API root — no baseUrl field to ask for. */
 const FIXED_BASE_URLS: Partial<Record<WritableProvider, string>> = {
-  buffer: BUFFER_API_ENDPOINT,
-  clay: CLAY_DEFAULT_BASE_URL,
-  exa: EXA_DEFAULT_BASE_URL,
   firecrawl: FIRECRAWL_DEFAULT_BASE_URL,
-  elevenlabs: ELEVENLABS_DEFAULT_BASE_URL,
-  stripe: STRIPE_DEFAULT_BASE_URL,
-  migadu: MIGADU_API_ENDPOINT,
-  openseo: OPENSEO_DEFAULT_BASE_URL,
   openrouter: AI_PROVIDER_BASE_URLS.openrouter,
   router: AI_PROVIDER_BASE_URLS.router,
   gemini: AI_PROVIDER_BASE_URLS.gemini,
 };
 
-/** Migadu is the one provider whose management API needs a second secret (an admin email, alongside the API key) — see `packages/db/src/schema/integrations.ts` and `MigaduClient`'s docblock. Same rule `apps/api/src/routes/integrations.ts` enforces. */
-const NEEDS_USERNAME: Partial<Record<WritableProvider, true>> = { migadu: true };
-
 function clientFor(provider: WritableProvider, baseUrl: string, apiKey: string) {
   if (isAiProvider(provider)) return new AiGatewayClient({ provider, baseUrl, apiKey });
-  if (provider === "linki") return new LinkiClient({ baseUrl, apiKey });
-  if (provider === "bund_ai") return new BundAiClient({ baseUrl, apiKey });
-  if (provider === "buffer") return new BufferClient({ baseUrl, apiKey });
-  if (provider === "clay") return new ClayClient({ baseUrl, apiKey });
-  if (provider === "exa") return new ExaClient({ baseUrl, apiKey });
-  if (provider === "firecrawl") return new FirecrawlClient({ baseUrl, apiKey });
-  if (provider === "stripe") return new StripeClient({ baseUrl, apiKey });
-  if (provider === "migadu") return new MigaduClient({ baseUrl, apiKey });
-  if (provider === "openseo") return new OpenSeoClient({ baseUrl, apiKey });
-  return new ElevenLabsClient({ baseUrl, apiKey });
+  return new FirecrawlClient({ baseUrl, apiKey });
 }
 
 /**
  * Integration connections — every provider in `integrationConnections` (see
- * FEATURES.md §13/§13c): the CRM/support/social mirrors, the two research
- * providers, ElevenLabs, the Stripe billing mirror (§20), Migadu (cold-
- * outreach mailboxes), OpenSEO (§14l), and the three AI gateways an org can
- * bring its own key to. `github` is deliberately not manageable here — its
- * connect form also needs a repo/branch/path config (`blogPublishTargets`)
- * this server has nowhere to collect, so it stays dashboard-only end to end
- * (see `tools/content.ts`, which only ever surfaces a draft's publish
- * *status*, never triggers a connect or a publish).
+ * FEATURES.md §13): Firecrawl for web research, and the three AI gateways an
+ * org can bring its own key to.
  *
  * `get_integration_status` is a normal read tool, reachable by any key with
  * the default `read` scope — it reports only whether a credential is
  * connected and healthy, never the credential itself
- * (`encryptedApiKey`/`iv`/`authTag` are never selected). The five tools below
- * it store, test, rotate, or revoke the credential, and require
+ * (`encryptedApiKey`/`iv`/`authTag` are never selected). The tools below it
+ * store, test, rotate, or revoke the credential, and require
  * `requireLocalOperator` rather than just the `write` scope: every one of
  * them mirrors an action `apps/api/src/routes/integrations.ts` refuses to
  * *any* bearer API key via `requireHumanSession`, no scope exception —
@@ -122,10 +58,9 @@ export function registerIntegrationTools(server: McpServer, ctx: () => McpContex
       title: "Integration connection status",
       description:
         "Which third-party integrations are connected, whether they're healthy, and when each " +
-        "last synced or was verified — Linki, Bund AI, Buffer, Clay, Exa, Firecrawl, ElevenLabs, " +
-        "Stripe, Migadu, OpenSEO, and the AI gateways (OpenRouter, Router, Gemini). Shows " +
-        "organization-level connections by default; pass a project to also see that property's " +
-        "own override, if it has one.",
+        "last synced or was verified — Firecrawl and the AI gateways (OpenRouter, Router, " +
+        "Gemini). Shows organization-level connections by default; pass a project to also see " +
+        "that property's own override, if it has one.",
       inputSchema: {
         provider: z.enum(PROVIDERS).optional().describe("Limit to one provider."),
         project: z
@@ -192,31 +127,24 @@ export function registerIntegrationTools(server: McpServer, ctx: () => McpContex
         "Store an API key for a provider, verifying it on the spot. Reconnecting the same " +
         "provider rotates the stored key. Pass a project to store it as that property's own " +
         "override instead of the organization's connection — see get_integration_status for the " +
-        "fallback rule. Migadu also needs username (the account's admin email) alongside api_key " +
-        "— its management API is HTTP Basic Auth over both. Local operator only (stdio): refused " +
-        "to every bearer API key, the same rule the dashboard's own API enforces for this action.",
+        "fallback rule. Local operator only (stdio): refused to every bearer API key, the same " +
+        "rule the dashboard's own API enforces for this action.",
       inputSchema: {
         provider: z.enum(WRITABLE_PROVIDERS as unknown as [WritableProvider, ...WritableProvider[]]),
         api_key: z.string().min(1),
-        username: z.string().optional().describe("Migadu only — the account's admin email, paired with api_key for Basic Auth."),
-        base_url: z.string().url().optional().describe("Required only for Linki/Bund AI (self-hosted); every other provider has a fixed root."),
+        base_url: z.string().url().optional().describe("Unused today — every provider has a fixed API root."),
         model: z.string().optional().describe("AI gateways only (openrouter/router/gemini). Blank means the provider's default."),
         project: z.string().optional().describe("Project slug — connect for this property only, instead of the organization."),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
     },
-    async ({ provider, api_key, username, base_url, model, project }) => {
+    async ({ provider, api_key, base_url, model, project }) => {
       const { db, scope } = ctx();
       try {
         requireLocalOperator(scope, `connect ${LABELS[provider]}`);
         const projectId = project ? (resolveProjects(scope, project)[0] ?? null) : null;
 
-        if (NEEDS_USERNAME[provider] && !username?.trim()) {
-          return failure(`username is required for ${LABELS[provider]}.`);
-        }
-        const credential = NEEDS_USERNAME[provider]
-          ? JSON.stringify({ username: username!.trim(), apiKey: api_key })
-          : api_key;
+        const credential = api_key;
 
         const fixedBaseUrl = FIXED_BASE_URLS[provider];
         const baseUrl = fixedBaseUrl ?? base_url?.trim();

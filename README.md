@@ -1,15 +1,13 @@
 # Falorb
 
-Self-hosted, first-party product analytics for a portfolio of sites — and,
-increasingly, the rest of the business built on top of it: a native CRM,
-customer support, social publishing, AI-generated video, social-listening
-prospecting, and AI employees that work the same task board your team does.
-Built for small-to-medium traffic, person-level detail, and one view across
-every project.
+Self-hosted, first-party product analytics for a portfolio of sites, plus a
+shared task board and AI employees that work it alongside your team. Built for
+small-to-medium traffic, person-level detail, and one view across every
+project.
 
 **Status:** the collection pipeline, storage layer, identity graph, query
 layer, background workers, self-serve account system and MCP server are
-complete and verified. The dashboard is built — 33 routes, light and dark,
+complete and verified. The dashboard is built — 35 routes, light and dark,
 role-enforced, driven end to end by Playwright. It does not yet cover the
 whole backend; see [FEATURES.md](FEATURES.md) for the gaps.
 
@@ -26,10 +24,8 @@ whole backend; see [FEATURES.md](FEATURES.md) for the gaps.
 - **Growth signals** — page-performance and interest-graph insights per property, plus on-demand AI recommendations for content, product gaps, channels, and who to contact.
 - **Bring your own AI** — connect your own OpenRouter (openrouter.ai), Ramp Router (router.com) or Google Gemini account in Settings → Integrations and pick the model every AI feature runs on: your key, your billing, your model. Falls back to the deployment's `OPENROUTER_API_KEY` if you connect none.
 - **Privacy-first** — no raw IP stored anywhere, GDPR export/erasure, per-project retention.
-- **AI-native** — an MCP server (133 tools, read **and** write over nearly everything, including the CRM/support/social mirrors, the task board and AI-employee roster, and integration credentials themselves for the local operator) so an assistant can query and run the platform directly, and a dashboard panel tracking what AI crawlers read on your sites.
-- **Integrations** — deep, two-way connections to Linki (sales outreach/CRM), [Bund AI](https://usebund.com) (customer support), and Buffer (social post scheduling): their data mirrors into Falorb, joinable with product analytics, and a few manual actions (push a signal, create/update a contact, resolve an escalation, publish a post) run from here without switching tabs. See [FEATURES.md §13](FEATURES.md#13-integrations--linki--bund-ai--buffer--clay-built-generic-multi-service-design-superseded).
-- **UGC AI video** — generate a script, voiceover, and a lip-synced talking video from a presenter photo, built in-house on top of ElevenLabs, then queue it for posting. See [FEATURES.md §18](FEATURES.md#18-ugc-ai-video-generation--script-voice-and-a-talking-avatar-video).
-- **AI employees** — agents with names, job titles, briefs and shifts, working the same task board your team does. They read the analytics, act on the CRM and support queue, and hand anything they cannot do to a person with the reason attached. Permissions reuse the same four roles humans have; anything reaching a customer waits for a human to approve it. See [FEATURES.md §19](FEATURES.md#19-ai-employees--agents-that-work-alongside-people).
+- **AI-native** — an MCP server (100 tools, read **and** write over nearly everything, including the task board and AI-employee roster, and integration credentials themselves for the local operator) so an assistant can query and run the platform directly, and a dashboard panel tracking what AI crawlers read on your sites.
+- **AI employees** — agents with names, job titles, briefs and shifts, working the same task board your team does. They read the analytics and hand anything they cannot do to a person with the reason attached. Permissions reuse the same four roles humans have; anything reaching a customer waits for a human to approve it. See [FEATURES.md §19](FEATURES.md#19-ai-employees--agents-that-work-alongside-people).
 
 ### Scope boundary
 
@@ -75,18 +71,15 @@ dashboard and the query layer — and share one `better-auth` config from
 | `packages/queries` | Parameterized ClickHouse query builders |
 | `packages/auth` | Shared `better-auth` config — sessions, API keys, roles |
 | `packages/mailer` | Transactional email (verification, reset, invites, alerts) — Resend or SMTP |
-| `packages/linki-client` | Typed client for Linki's `/api/v1/*` — sales outreach/CRM |
-| `packages/bund-ai-client` | Typed client for Bund AI's `/api/v1/*` — customer support |
-| `packages/buffer-client` | Typed, schema-introspecting client for Buffer's GraphQL API (`api.buffer.com`) — social post scheduling |
 | `packages/agents` | AI-employee runtime — tool registry, autonomy policy, the shift loop |
 | `packages/ui` | Design system — 32 components, light/dark tokens |
 | `packages/sdk-node` | Server-side SDK — non-blocking, never throws, batches by identity |
 | `packages/sdk-react` | `<FalorbProvider>`, `useFalorb`, `usePageview`, `useIdentify` |
 | `apps/ingest` | Collector: validate, enrich, hash IP, publish |
-| `apps/worker` | Stream writer + 21 scheduled jobs (derivations, syncs, agent shifts) |
+| `apps/worker` | Stream writer + 17 scheduled jobs (derivations, agent shifts) |
 | `apps/api` | Self-serve accounts — signup, sessions, projects, API keys, team invites |
-| `apps/web` | The dashboard — 33 routes, role-enforced, light and dark |
-| `apps/mcp` | MCP server — 133 tools, 2 resources, 3 prompts for AI assistants |
+| `apps/web` | The dashboard — 35 routes, role-enforced, light and dark |
+| `apps/mcp` | MCP server — 100 tools, 2 resources, 3 prompts for AI assistants |
 
 ## Getting started
 
@@ -227,16 +220,6 @@ who used more than one of your products.
 
 ![Cross-project insights](docs/screenshots/insights.png)
 
-**CRM** — a native deal pipeline joined to the same person analytics already
-has a timeline for, plus a two-way Linki mirror for outreach.
-
-![CRM deal pipeline](docs/screenshots/crm.png)
-
-**Support** — Bund AI's conversations, escalations, leads and tickets,
-resolved from here without switching tabs.
-
-![Customer support escalations](docs/screenshots/support.png)
-
 **AI employees** — agents with a name, a job title and a brief, on the same
 task board your team works. A human decides anything that reaches a customer.
 
@@ -248,12 +231,12 @@ work. An agent hands off to a person with the reason attached.
 ![Shared task board](docs/screenshots/tasks.png)
 
 More screens — retention cohorts, alerts, team and role management, the MCP
-connection panel, public share links, social publishing, AI video generation,
-prospecting — are in [FEATURES.md](FEATURES.md#14-dashboard--appsweb).
+connection panel, public share links, content drafting — are in
+[FEATURES.md](FEATURES.md#14-dashboard--appsweb).
 
 ## Workers
 
-Thirteen scheduled jobs below (plus `digest`, `webhooks` and `webhook-revive`
+Ten scheduled jobs below (plus `digest`, `webhooks` and `webhook-revive`
 — see [FEATURES.md §7](FEATURES.md#7-workers--appsworker) for the full list),
 each holding a Redis lock so a second replica adds throughput without
 duplicating sweeps.
@@ -269,9 +252,6 @@ duplicating sweeps.
 | `enrichment` | 6h | Resolves ASN → company for B2B identification |
 | `alerts` | 5m | Threshold, anomaly, no-data and error-spike rules |
 | `data-requests` | 2m | GDPR export and erasure |
-| `linki-sync` | 15m | Mirrors a connected Linki workspace's CRM/outreach data into Postgres |
-| `bund-ai-sync` | 15m | Mirrors a connected Bund AI business's support data into Postgres |
-| `buffer-sync` | 15m | Mirrors a connected Buffer account's channels and posts into Postgres |
 | `retention` | 12h | Per-project retention, orphan pruning |
 | `optimize` | 6h | Forces aggregate merges |
 
@@ -291,44 +271,28 @@ pnpm --filter @falorb/worker backfill --days 90
 
 ## Integrations
 
-Falorb connects to the operator's own products, plus Buffer, as deep, two-way
-integrations — not a generic connector framework, and not a code merge.
-Linki and Bund AI each keep running as their own independently-deployed
-service, owning their own database and execution (real LinkedIn/email sending
-in Linki, real customer chat in Bund AI); Falorb is a client that drives it
-and a mirror that reads it. Buffer is a hosted third-party SaaS Falorb only
-calls out to. See [FEATURES.md §13](FEATURES.md#13-integrations--linki--bund-ai--buffer-built-generic-multi-service-design-superseded)
-for exactly what's built versus still planned.
+Falorb calls out to two kinds of external service, both optional, both
+per-organization: a web-research provider that grounds AI features in real
+pages, and the AI gateway every AI feature runs on.
 
-- **Linki** — sales outreach/CRM. Mirrored: contacts, lists, workflows, runs
-  and their per-target/per-channel progress, pipeline stages, opportunities,
-  signal rules, suppressions, sent messages.
-- **Bund AI** — AI customer support. Mirrored: conversations, escalations,
-  leads, tickets.
-- **Buffer** — social post scheduling. Mirrored: connected channels (with
-  their posting schedule and weekly limits), scheduled/sent posts, their
-  metrics, and Buffer's own failure text for posts it couldn't publish. Auth
-  is a personal API key scoped to one Buffer account, not OAuth — Buffer
-  closed third-party app registration in 2019 and its 2026 GraphQL API
-  relaunch still has no "connect someone else's account" flow, so each Falorb
-  org connects its own Buffer account rather than an arbitrary customer's.
-  The client introspects Buffer's still-moving beta schema and builds its
-  queries from it, rather than hardcoding field selections from the docs —
-  see [FEATURES.md §13b](FEATURES.md#13b-buffer-specifics).
+- **Firecrawl** — web search and page scraping. Content drafts ground
+  themselves in what already ranks for the topic, and the person profile's
+  "Research this company" button fills in industry/size/LinkedIn that the
+  automatic ASN-based enrichment can't. Called live, on demand — there is no
+  mirror job and nothing is stored beyond what a feature writes.
+- **AI gateways** — OpenRouter, Ramp Router (router.com) or Google Gemini.
+  Connect your own account and pick the model every AI feature runs on; a
+  property can override its organization's choice. Falls back to the
+  deployment's `OPENROUTER_API_KEY` when none is connected.
 - **Credentials** are stored per-organization, AES-256-GCM encrypted
   (`INTEGRATION_CREDENTIAL_ENC_KEY` in `.env`), never returned by any API
-  response. Connect one at `/settings/integrations` after generating a scoped
-  key in Linki's, Bund AI's, or Buffer's own settings UI.
-- **Manual actions** run from Falorb: push a signal to Linki, create or
-  update a Linki contact (from a person's profile), resolve a Bund AI
-  escalation (from `/support`), compose and publish a Buffer post (from
-  `/social`). Each is one human clicking one button for one record on
-  screen — there is no automated/bulk action yet.
+  response. Connect one at `/settings/integrations`.
 - **MCP servers** — connect any remote MCP server (Streamable HTTP or SSE,
-  optional bearer token) at `/settings/integrations`, and any AI employee
-  holding the `mcp` toolkit can look up and call its tools as part of a
-  shift — the one integration here that isn't bespoke to one product, since
-  MCP is a standard protocol rather than a service-specific API. See
+  API key or OAuth) at `/settings/integrations`, and any AI employee holding
+  the `mcp` toolkit can look up and call its tools as part of a shift. This
+  is the generic path: MCP is a standard protocol rather than a
+  service-specific API, so anything else the business runs on can be reached
+  this way without a bespoke client in this repo. See
   [FEATURES.md §13d](FEATURES.md#13d-mcp-servers--agents-as-a-generic-mcp-client).
 
 ## Privacy

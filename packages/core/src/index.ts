@@ -7,7 +7,5 @@ export * from "./ua";
 export * from "./privacy";
 export * from "./disclosure";
 export * from "./net";
-export * from "./prospect-sources";
 export * from "./rate-limit";
 export * from "./roles";
-export * from "./sync-demand";

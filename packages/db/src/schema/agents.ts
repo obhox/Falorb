@@ -12,7 +12,6 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { user } from "./auth";
-import { emailAccounts } from "./email";
 import { memberRoleEnum, organizations, projects } from "./tenancy";
 
 /**
@@ -56,9 +55,8 @@ import { memberRoleEnum, organizations, projects } from "./tenancy";
  *   assisted    reads freely; every write produces an approval request a
  *               human decides. The default, and where a new hire starts.
  *   autonomous  writes inside Falorb immediately. Actions that reach the
- *               outside world — sending a message, creating a contact in
- *               Linki, resolving a customer's escalation — still queue for
- *               approval unless that tool is named in `autoApproveTools`.
+ *               outside world still queue for approval unless that tool is
+ *               named in `autoApproveTools`.
  *
  * That last clause is the whole safety design in one line. "Autonomous" does
  * not mean "unbounded": promoting an agent to autonomous makes it fast at
@@ -84,16 +82,6 @@ export const agents = pgTable(
     roleTitle: text("role_title").notNull(),
     /** A single emoji, stored as text — the roster's stand-in for a face. */
     avatar: text("avatar").notNull().default("🤖"),
-    /**
-     * The agent's own mailbox — a Migadu-provisioned `email_accounts` row
-     * it alone sends from. An agent with one has a real address a customer
-     * can reply to, and the `email` toolkit's `send_email` refuses to send
-     * from anything else: it is *its* mailbox the way a person's is theirs,
-     * not a pool it picks from. Null until a manager provisions one (at hire,
-     * or later from the agent's page); `set null` rather than cascade so
-     * archiving a mailbox leaves the agent standing.
-     */
-    emailAccountId: uuid("email_account_id").references(() => emailAccounts.id, { onDelete: "set null" }),
 
     /** Preset key from `@falorb/agents`' roster, or "custom". Kept for
      * provenance: it explains where the starting instructions came from
@@ -109,14 +97,14 @@ export const agents = pgTable(
     /** "observer" | "assisted" | "autonomous". */
     autonomy: text("autonomy").notNull().default("assisted"),
 
-    /** Tool packs this agent may use: "analytics", "people", "crm",
-     * "support", "social", "content", "tasks", "memory", "research".
+    /** Tool packs this agent may use: "analytics", "people", "leads",
+     * "content", "tasks", "memory", "growth", "mcp".
      * Empty means no tools at all, which is a usable state for an agent that
      * only writes reports from the context it is handed. */
     toolkits: text("toolkits").array().notNull().default([]),
     /** Tools whose approval gate is waived for this agent. An entry is
      * either an exact tool name, `toolkit:<name>` to waive every tool in one
-     * skillset (e.g. `toolkit:crm`), or `"*"` to waive every gate. Never
+     * skillset (e.g. `toolkit:analytics`), or `"*"` to waive every gate. Never
      * populated by default — see the module note. */
     autoApproveTools: text("auto_approve_tools").array().notNull().default([]),
 
@@ -264,7 +252,7 @@ export const agentRuns = pgTable(
  *
  * This is the transcript, and it is the reason an autonomous agent is
  * something a business can actually run on. "The agent updated a deal" is
- * not reviewable; "at step 4 it called `crm_update_contact` with these
+ * not reviewable; "at step 4 it called `create_task` with these
  * arguments and got this back" is. Steps are also how a paused run resumes —
  * the conversation is rebuilt from here rather than held in worker memory,
  * so a restart mid-run loses nothing.
@@ -516,7 +504,7 @@ export const agentApprovals = pgTable(
  *
  * `agents.autoApproveTools` is the permanent version, set from the agent's
  * settings by an admin. This is the lighter one a reviewer reaches for from
- * the queue itself — the fifth identical "push a signal to Linki" request of
+ * the queue itself — the fifth identical request of
  * the week is the moment a person wants to say "just do these", and making
  * them go and edit the agent's configuration to say it means they won't.
  * Expiring by default keeps that convenience from silently becoming a

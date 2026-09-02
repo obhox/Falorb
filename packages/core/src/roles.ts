@@ -87,8 +87,6 @@ export const can = {
   manageIntegrations: (role: string) => atLeast(role, "admin"),
   /** Add/edit a CRM contact profile, create or move a deal — Falorb's own CRM data, normal sales work rather than admin/credential territory. */
   manageCrm: (role: string) => atLeast(role, "member"),
-  /** Generate a UGC video (spends AI credits) and queue it for posting — normal marketing work, same tier as `manageCrm`/`writeAnalysis` rather than admin/credential territory. */
-  manageUgcVideos: (role: string) => atLeast(role, "member"),
   /**
    * Hire, brief, re-role, pause or delete an AI employee.
    *

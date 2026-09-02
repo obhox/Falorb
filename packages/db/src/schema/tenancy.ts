@@ -125,13 +125,6 @@ export const projects = pgTable(
      */
     linkDomain: text("link_domain"),
 
-    /**
-     * Secret token gating the public `/waitlist/[token]` join widget. Null
-     * (the default) means the waitlist is off — same on/off-by-presence
-     * convention as `dashboards.publicToken`.
-     */
-    waitlistToken: text("waitlist_token"),
-
     /** Embedded in the tracker snippet. Public by design. */
     publicKey: text("public_key").notNull(),
     /** SHA-256 of the server-side API secret. The secret itself is shown once. */
@@ -156,41 +149,6 @@ export const projects = pgTable(
     /** Free-form per-project config: excluded paths, PII masking rules, goals. */
     settings: jsonb("settings").notNull().default({}),
 
-    /**
-     * What this property actually is, crawled from its own homepage and
-     * summarized by AI — the prospecting counterpart to `companies`'s web
-     * research (`apps/web/src/server/company-research.ts`). Reddit/Hacker
-     * News/job-posting listening otherwise only has a bare project name to
-     * reason with; this gives relevance scoring and outreach drafts a real
-     * answer to "what does this product do, who is it for, and what's worth
-     * listening for." Populated by the `property-profiler` worker job (on
-     * first crawl after onboarding, and again once stale) or the manual
-     * "Re-crawl" action on the property's Settings page — never blocks
-     * project creation itself, since a crawl needs a reachable domain and an
-     * organization-connected Exa/Firecrawl provider, neither guaranteed at
-     * creation time.
-     */
-    profileSummary: text("profile_summary"),
-    /** Ideal customer profile / target audience, one or two sentences. */
-    profileIcp: text("profile_icp"),
-    /** Key features or value props actually stated on the homepage. */
-    profileKeyFeatures: text("profile_key_features").array().notNull().default([]),
-    /**
-     * AI-suggested prospecting keywords derived from the crawl — pain
-     * points, category terms, competitor names, buyer job titles. Surfaced
-     * as suggestions on the property's "Prospecting keywords" card; never
-     * auto-added to `prospect_keywords`, same manual-confirmation posture as
-     * every other AI suggestion in this app.
-     */
-    profileSuggestedKeywords: text("profile_suggested_keywords").array().notNull().default([]),
-    /** Full parsed research payload, mirrors `companies.raw`. */
-    profileRaw: jsonb("profile_raw").notNull().default({}),
-    profileCrawledAt: timestamp("profile_crawled_at", { withTimezone: true }),
-    /** Set when a crawl attempt failed, so the sweep does not re-request
-     * (and re-bill) the same failure every run — mirrors
-     * `prospects.enrichmentFailedAt`. */
-    profileCrawlFailedAt: timestamp("profile_crawl_failed_at", { withTimezone: true }),
-
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     archivedAt: timestamp("archived_at", { withTimezone: true }),
@@ -200,7 +158,6 @@ export const projects = pgTable(
     uniqueIndex("projects_uuid_uq").on(t.uuid),
     uniqueIndex("projects_org_slug_uq").on(t.organizationId, t.slug),
     uniqueIndex("projects_link_domain_uq").on(t.linkDomain),
-    uniqueIndex("projects_waitlist_token_uq").on(t.waitlistToken),
     index("projects_org_idx").on(t.organizationId),
   ],
 );

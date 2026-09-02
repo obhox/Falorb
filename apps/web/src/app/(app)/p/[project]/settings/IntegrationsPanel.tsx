@@ -19,88 +19,27 @@ const LABELS: Record<Provider, string> = {
   openrouter: "OpenRouter",
   router: "Ramp Router",
   gemini: "Google Gemini",
-  linki: "Linki",
-  bund_ai: "Bund AI",
-  buffer: "Buffer",
-  clay: "Clay",
-  exa: "Exa",
   firecrawl: "Firecrawl",
-  elevenlabs: "ElevenLabs",
-  stripe: "Stripe",
-  github: "GitHub",
-  migadu: "Migadu",
-  openseo: "OpenSEO",
 };
 
+/** Every provider has one fixed API root, so no connect dialog carries a
+ * Base URL field today. Kept as a map rather than folded away: a
+ * self-hosted provider would need it back. */
 const HAS_BASE_URL: Record<Provider, boolean> = {
   openrouter: false,
   router: false,
   gemini: false,
-  linki: true,
-  bund_ai: true,
-  buffer: false,
-  clay: false,
-  exa: false,
   firecrawl: false,
-  elevenlabs: false,
-  stripe: false,
-  github: false,
-  migadu: false,
-  openseo: false,
-};
-
-/** Migadu is the one provider whose management API needs a second secret —
- * an admin email, alongside the API key. */
-const HAS_USERNAME: Record<Provider, boolean> = {
-  openrouter: false,
-  router: false,
-  gemini: false,
-  linki: false,
-  bund_ai: false,
-  buffer: false,
-  clay: false,
-  exa: false,
-  firecrawl: false,
-  elevenlabs: false,
-  stripe: false,
-  github: false,
-  migadu: true,
-  openseo: false,
 };
 
 const KEY_PLACEHOLDERS: Record<Provider, string> = {
   openrouter: "sk-or-v1-…",
   router: "Your Ramp Router API key",
   gemini: "AIza…",
-  linki: "lnk_…",
-  bund_ai: "bund_sk_…",
-  buffer: "buf_…",
-  clay: "clay_…",
-  exa: "exa_…",
   firecrawl: "fc-…",
-  elevenlabs: "Your ElevenLabs API key",
-  stripe: "sk_live_… or sk_test_…",
-  github: "github_pat_…",
-  migadu: "Your Migadu API key",
-  openseo: "oseo_…",
 };
 
-const PROVIDERS: Provider[] = [
-  "openrouter",
-  "router",
-  "gemini",
-  "linki",
-  "bund_ai",
-  "buffer",
-  "clay",
-  "exa",
-  "firecrawl",
-  "elevenlabs",
-  "stripe",
-  "github",
-  "migadu",
-  "openseo",
-];
+const PROVIDERS: Provider[] = ["openrouter", "router", "gemini", "firecrawl"];
 
 /**
  * A property's own overrides for each integration — separate from
@@ -160,40 +99,25 @@ function ProviderRow({
   const { run, pending } = useAction();
   const [open, setOpen] = useState(false);
   const [baseUrl, setBaseUrl] = useState("");
-  const [username, setUsername] = useState("");
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
-  const [owner, setOwner] = useState(view.override?.repoConfig?.owner ?? "");
-  const [repo, setRepo] = useState(view.override?.repoConfig?.repo ?? "");
-  const [branch, setBranch] = useState(view.override?.repoConfig?.branch ?? "");
-  const [pathTemplate, setPathTemplate] = useState(view.override?.repoConfig?.pathTemplate ?? "");
 
   const { override, inherited } = view;
   const connected = override?.status === "active";
   const errored = override?.status === "error";
   const needsBaseUrl = HAS_BASE_URL[provider];
-  const needsUsername = HAS_USERNAME[provider];
   const isAi = isAiProvider(provider);
-  const isGithub = provider === "github";
   const defaultModel = isAi ? AI_DEFAULT_MODELS[provider] ?? null : null;
 
   async function submit() {
     const data = new FormData();
     if (needsBaseUrl) data.set("baseUrl", baseUrl);
-    if (needsUsername) data.set("username", username);
     data.set("apiKey", apiKey);
     if (isAi) data.set("model", model);
-    if (isGithub) {
-      data.set("owner", owner);
-      data.set("repo", repo);
-      if (branch.trim()) data.set("branch", branch);
-      if (pathTemplate.trim()) data.set("pathTemplate", pathTemplate);
-    }
     const result = await run(() => connectProjectIntegration(slug, provider, data));
     if (result?.ok) {
       setOpen(false);
       setBaseUrl("");
-      setUsername("");
       setApiKey("");
       setModel("");
     }
@@ -233,11 +157,6 @@ function ProviderRow({
                 <div style={{ color: "var(--signal-down)" }}>error: {override.lastError}</div>
               )}
               {isAi && <div>model: {override.model ?? defaultModel ?? "none chosen"}</div>}
-              {isGithub && override.repoConfig && (
-                <div>
-                  repo: {override.repoConfig.owner}/{override.repoConfig.repo}@{override.repoConfig.branch}
-                </div>
-              )}
             </div>
           ) : (
             <p style={{ fontSize: "var(--size-micro)", color: "var(--text-muted)", margin: 0 }}>
@@ -303,9 +222,7 @@ function ProviderRow({
               disabled={
                 pending ||
                 (needsBaseUrl && !baseUrl.trim()) ||
-                (needsUsername && !username.trim()) ||
-                !apiKey.trim() ||
-                (isGithub && (!owner.trim() || !repo.trim()))
+                !apiKey.trim()
               }
             >
               {pending ? "Connecting…" : "Connect"}
@@ -323,15 +240,6 @@ function ProviderRow({
               hint={`Where your ${LABELS[provider]} deployment is reachable from this server.`}
             />
           )}
-          {needsUsername && (
-            <Input
-              label="Admin email"
-              value={username}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setUsername(e.target.value)}
-              placeholder="admin@yourdomain.com"
-              hint={`The ${LABELS[provider]} account login this API key belongs to.`}
-            />
-          )}
           <Input
             label="API key"
             mono
@@ -340,37 +248,6 @@ function ProviderRow({
             placeholder={KEY_PLACEHOLDERS[provider]}
             hint="Stored encrypted (AES-256-GCM). Never shown again after this."
           />
-          {isGithub && (
-            <>
-              <Input
-                label="Repo owner"
-                value={owner}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setOwner(e.target.value)}
-                placeholder="your-org-or-username"
-              />
-              <Input
-                label="Repo name"
-                value={repo}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRepo(e.target.value)}
-                placeholder="your-blog"
-              />
-              <Input
-                label="Branch (optional)"
-                value={branch}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setBranch(e.target.value)}
-                placeholder="main"
-                hint="Leave blank for main."
-              />
-              <Input
-                label="Path template (optional)"
-                mono
-                value={pathTemplate}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPathTemplate(e.target.value)}
-                placeholder="content/blog/{slug}.md"
-                hint="{slug} becomes the post title, kebab-cased. Leave blank for content/blog/{slug}.md."
-              />
-            </>
-          )}
           {isAi && (
             <Input
               label="Model (optional)"

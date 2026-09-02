@@ -96,12 +96,6 @@ export function clientKey(headers: Headers): string {
  * to bound a loop, not to police browsing.
  */
 export const LIMITS = {
-  /** Public token routes: /share, /badge, /benchmark, /waitlist, /r. */
+  /** Public token routes: /share and /r. */
   publicRead: { windowSeconds: 60, max: 60 } satisfies RateLimitRule,
-  /**
-   * Joining a waitlist. Tight, because this is an unauthenticated *write* that
-   * stores an email address — the shape of an abuse vector rather than a load
-   * one, and nobody signs up five times a minute by accident.
-   */
-  waitlistJoin: { windowSeconds: 60, max: 5 } satisfies RateLimitRule,
 } as const;

@@ -20,7 +20,7 @@ import { deny } from "./guard";
  * `enqueueAgentTasks` sweep notices the assignment within a minute and opens
  * a run. Kicking off a model call from inside a form post would put a
  * multi-minute, billable operation inside a request/response cycle — the
- * same reasoning `ugc-videos.ts` gives for handing generation to the worker.
+ * handing the work to the worker rather than the request cycle.
  */
 
 const STATUSES = new Set(["todo", "in_progress", "blocked", "review", "done", "cancelled"]);

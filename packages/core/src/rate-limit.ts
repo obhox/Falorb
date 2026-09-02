@@ -4,8 +4,8 @@
  * The collector has had per-IP and per-project ceilings since it shipped
  * (`apps/ingest/src/stream.ts`), and better-auth applies per-path limits to the
  * sign-in routes. The dashboard had neither, which left every public,
- * unauthenticated route — a shared report link, an embeddable badge, a
- * waitlist form — running unbounded ClickHouse and Postgres work for anyone
+ * unauthenticated route — a shared report link, a referral redirect —
+ * running unbounded ClickHouse and Postgres work for anyone
  * willing to send requests in a loop. Guessing a 32-byte token is not the
  * threat; exhausting the query budget that serves every tenant is.
  *

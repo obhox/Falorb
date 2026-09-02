@@ -4,16 +4,10 @@ import { resolveIdentities } from "./jobs/identity-resolver";
 import { sessionize } from "./jobs/sessionizer";
 import { optimizeAggregates, rebuildPathTransitions, refreshSegmentCounts } from "./jobs/rollups";
 import { enrichCompanies } from "./jobs/enrichment";
-import { listenReddit } from "./jobs/reddit-listener";
-import { listenHackerNews } from "./jobs/hackernews-listener";
 import { scoreInterests } from "./jobs/interest-scorer";
 import { evaluateAlerts } from "./jobs/alerts";
 import { dispatchWebhooks, reviveWebhooks } from "./jobs/webhooks";
 import { enforceRetention, processDataRequests, pruneOrphanedPersons } from "./jobs/retention-gc";
-import { syncLinki } from "./jobs/linki-sync";
-import { syncBundAi } from "./jobs/bund-ai-sync";
-import { syncBuffer } from "./jobs/buffer-sync";
-import { syncStripe } from "./jobs/stripe-sync";
 
 /**
  * Runs every scheduled job once, in dependency order.
@@ -63,18 +57,12 @@ await run("enrichment", () => enrichCompanies(context, watermarks));
 // excluded: each spends a connected org's own paid credits (Clay, or
 // Exa/Firecrawl), unlike every other job here which only touches
 // Falorb-controlled resources. See apps/worker/src/jobs/clay-enrichment.ts.
-await run("reddit-listener", () => listenReddit(context, watermarks));
-await run("hackernews-listener", () => listenHackerNews(context, watermarks));
 await run("alerts", () => evaluateAlerts(context));
 await run("webhooks", () => dispatchWebhooks(context, watermarks));
 await run("webhook-revive", () => reviveWebhooks(context));
 await run("data-requests", () => processDataRequests(context));
 // No-ops cleanly with zero connected orgs — still worth running here so a
 // broken query surfaces the moment a first org connects, not weeks later.
-await run("linki-sync", () => syncLinki(context));
-await run("bund-ai-sync", () => syncBundAi(context));
-await run("buffer-sync", () => syncBuffer(context));
-await run("stripe-sync", () => syncStripe(context));
 // ugc-video-gen deliberately excluded, same reasoning as clay-enrichment
 // above it: a live run spends a connected org's own paid ElevenLabs
 // credits, unlike every other job here.

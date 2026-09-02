@@ -11,9 +11,10 @@ export const metadata: Metadata = { title: "Integrations" };
 export const dynamic = "force-dynamic";
 
 /**
- * Connect Linki (sales/outreach) and Bund AI (support) — each keeps running
- * as its own service; this stores the credential Falorb uses to call it and
- * mirror its data. See FEATURES.md §13 for what "connected" actually enables.
+ * Connect the web-research provider and the AI gateway Falorb's AI features
+ * run on, plus any remote MCP server an AI employee may call tools on. This
+ * stores the credential Falorb uses; see FEATURES.md §13 for what
+ * "connected" actually enables.
  */
 export default async function IntegrationsPage() {
   const session = await requireSession();

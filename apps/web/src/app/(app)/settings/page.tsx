@@ -6,7 +6,6 @@ import { can, ROLE_LABELS, type MemberRole } from "@falorb/db";
 import { db, schema } from "@falorb/db";
 import { requireSession } from "@/server/session";
 import { getDomainStatuses } from "@/server/connection";
-import { getOrgShare } from "@/server/sharing";
 import { PageBody, PageHeader } from "@/components/shell/PageHeader";
 import { CopyField } from "@/components/CopyField";
 import { DomainTestChips } from "@/components/DomainTest";
@@ -16,7 +15,6 @@ import { DigestToggle } from "./DigestToggle";
 import { AutomationCard } from "./AutomationCard";
 import { getAutomationState } from "@/server/agents";
 import { listChannels } from "@/server/alerts";
-import { BenchmarkShareControl } from "./BenchmarkShareControl";
 
 export const metadata: Metadata = { title: "Settings" };
 export const dynamic = "force-dynamic";
@@ -42,19 +40,15 @@ export default async function InstanceSettingsPage() {
   const api = process.env.FALORB_API_URL ?? "http://localhost:3003";
   const referral = process.env.FALORB_REFERRAL_URL ?? app;
 
-  const [[org], orgShare, automation, channels] = await Promise.all([
+  const [[org], automation, channels] = await Promise.all([
     db()
       .select({ weeklyDigestEnabled: schema.organizations.weeklyDigestEnabled })
       .from(schema.organizations)
       .where(eq(schema.organizations.id, session.workspace.organizationId))
       .limit(1),
-    getOrgShare(session.workspace.organizationId),
     getAutomationState(session.workspace.organizationId),
     listChannels(session.workspace.organizationId),
   ]);
-  const benchmarkUrl = orgShare?.publicToken
-    ? `${app.replace(/\/$/, "")}/benchmark/${orgShare.publicToken}`
-    : null;
 
   return (
     <>
@@ -256,7 +250,6 @@ export default async function InstanceSettingsPage() {
           canEdit={can.manageProject(session.workspace.role)}
         />
 
-        {can.share(session.workspace.role) && <BenchmarkShareControl initialUrl={benchmarkUrl} />}
       </PageBody>
     </>
   );

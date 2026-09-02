@@ -28,10 +28,6 @@ export interface ProjectInfo {
   name: string;
   domains: string[];
   timezone: string;
-  /** What this property does, crawled from its own homepage — null until
-   * the `property-profiler` worker job (or a manual "Re-crawl") has run.
-   * See `packages/db/src/schema/tenancy.ts`'s `profileSummary` column. */
-  profileSummary: string | null;
 }
 
 export interface Scope {
@@ -100,7 +96,6 @@ async function loadProjects(db: Database, organizationId: string): Promise<Proje
     slug: r.slug,
     name: r.name,
     domains: r.domains ?? [],
-    profileSummary: r.profileSummary,
     timezone: r.timezone,
   }));
 }
